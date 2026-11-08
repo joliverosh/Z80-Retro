@@ -3,7 +3,7 @@ import zlib.asm
 
    extrn BP,NSTEP,SET_RGS,SSTEP,GO,SDDIR,SDLOAD,SDRUN,BOOTIX,BOOT
    extrn CONFIG,DHW,DUMPM,DUMPI,DNVRAM,DTIME,DUMP,FILL,CLS,INPUT,LDF,LDH,LDT
-   extrn SDMOD,MODIFY,NSTEP,OUTPUT,PAGE,DECCHR,SDUMP,SMAP,SWRITE
+   extrn SDMOD,MODIFY,NSTEP,OUTPUT,PAGECMD,DECCHR,SDUMP,SMAP,SWRITE
    extrn MAPDSK,EXDBG,SHWHIST,RUN,WBOOT,IMG,HELP,HELPC
    extrn KEYBOARD
    extrn FLSH_ID,FLSH_M,FLSH_PRG,FLSH_CHR
@@ -160,7 +160,7 @@ CMD_TABLE:   CMDDEF 'BAUD',BAUD
              CMDDEF 'M',   MODIFY
              CMDDEF 'N',   NSTEP
              CMDDEF 'O',   OUTPUT
-             CMDDEF 'P',   PAGE              ; Display/change application page assignment
+             CMDDEF 'P',   PAGECMD              ; Display/change application page assignment
              CMDDEF 'Q',   DECCHR
              CMDDEF 'RD',  RAMDSK
              CMDDEF 'SM',  SMAP              ; Map a logical to physical SD card.

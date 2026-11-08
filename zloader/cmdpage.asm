@@ -20,12 +20,12 @@ import zload.asm
 
   extrn  main,E_BADPS
 
-  public PAGE
+  public PAGECMD
 
 ; ------------ PAGE
 ; Page operations. Syntax:
 ;   P - Display or change page map
-PAGE:     ; Display current application pages or change a page number
+PAGECMD:  ; Display current application pages or change a page number
           ; Changing is in the form blknum=pagenum. Eg 3=21
           CALL  SKIPSPC
           JR    Z,_shpg
