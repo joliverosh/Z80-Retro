@@ -8,6 +8,7 @@ import zlib.asm
    extrn KEYBOARD
    extrn FLSH_ID,FLSH_M,FLSH_PRG,FLSH_CHR
    extrn CFGCONS
+   extrn BAUD,RAMDSK,I2CSCAN
 
    public BDG_TABLE,CMD_TABLE,FNDCMD,SETMODE
 
@@ -108,13 +109,27 @@ CMDDEF MACRO name,addr
 
 
 ; Alternate command table format: LETTER:ADDRESS
-BDG_TABLE:   CMDDEF 'B',   BP
+; En modo depuracion se busca primero aqui y despues sigue CMD_TABLE. Las
+; ordenes de una letra 'B' y 'S' tapaban BOS/BO/SD/SM/SW (p. ej. "SD 0" daba
+; un paso del programa). Se repiten antes las ordenes largas que empiezan
+; igual, con el mismo orden que en CMD_TABLE.
+BDG_TABLE:   CMDDEF 'BOS?',SDDIR
+             CMDDEF 'BOS-',SDLOAD
+             CMDDEF 'BOS', SDRUN
+             CMDDEF 'BO-', BOOTIX
+             CMDDEF 'BO',  BOOT
+             CMDDEF 'B',   BP
              CMDDEF 'N',   NSTEP
+             CMDDEF 'RD',  RAMDSK
              CMDDEF 'R',   SET_RGS
+             CMDDEF 'SM',  SMAP
+             CMDDEF 'SD',  SDUMP
+             CMDDEF 'SW',  SWRITE
              CMDDEF 'S',   SSTEP
              CMDDEF 'G',   GO
 
-CMD_TABLE:   CMDDEF 'BOS?',SDDIR
+CMD_TABLE:   CMDDEF 'BAUD',BAUD
+             CMDDEF 'BOS?',SDDIR
              CMDDEF 'BOS-',SDLOAD
              CMDDEF 'BOS', SDRUN
              CMDDEF 'BO-', BOOTIX
@@ -135,6 +150,7 @@ CMD_TABLE:   CMDDEF 'BOS?',SDDIR
              CMDDEF 'F',   FILL
 
              CMDDEF 'H',   CLS
+             CMDDEF 'I2C', I2CSCAN
              CMDDEF 'I',   INPUT
              CMDDEF 'KBD', KEYBOARD
              CMDDEF 'LF',  LDF
@@ -146,6 +162,7 @@ CMD_TABLE:   CMDDEF 'BOS?',SDDIR
              CMDDEF 'O',   OUTPUT
              CMDDEF 'P',   PAGE              ; Display/change application page assignment
              CMDDEF 'Q',   DECCHR
+             CMDDEF 'RD',  RAMDSK
              CMDDEF 'SM',  SMAP              ; Map a logical to physical SD card.
              CMDDEF 'SD',  SDUMP             ; Display SDCard sector contents
              CMDDEF 'SW',  SWRITE            ; Write to an SDCard sesctor

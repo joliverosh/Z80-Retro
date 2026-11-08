@@ -1,0 +1,5 @@
+# Ficheros de CP/M: se guardan tal cual (CR LF y ^Z al final; RMAC los necesita)
+dri/** binary
+gencpm.dat binary
+cpm3.sys binary
+cpmldr.com binary

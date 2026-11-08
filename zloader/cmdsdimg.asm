@@ -24,7 +24,7 @@ import zload.asm
   public IMG
 
   extrn  main,MORE
-  extrn  E_BADPS
+  extrn  E_BADPS,E_SDERR
   extrn  SADDR,SDMP_L,SDMP_MD
 
 
@@ -49,7 +49,17 @@ IMG:        CALL  SADDR      ; Sets up the target write address
             ; DE: Start address
             ; HL: End address
             ; How many sectors?
+            OR    A
             SBC   HL,DE   ; HL is number of bytes. H/2 is number of sectors. Check for partial segments.
+            ; Fin antes del inicio: antes daba la vuelta y se escribian 64K.
+            JR    C,E_BADPS
+            ; Inicio = fin: los 64K completos, como documenta el wiki para dar
+            ; formato a un disco (wi 80:A 8000 8000).
+            LD    A,H
+            OR    L
+            JR    Z,_all
+            INC   HL      ; El fin es inclusivo: bytes = fin-inicio+1 (0 = 64K)
+_all:
             LD    A,L
             OR    A
             JR    NZ,_rndup
@@ -81,12 +91,23 @@ _nxblk:     PUSH  BC
             PUSH  HL
             LD    C,A_DSKDM
             RST   30h             ; Tell API where to get data.
+            ; Pagina siguiente en el banco 2 por si el sector cruza un limite de
+            ; 16K (antes se leia de la pagina que hubiera en el banco 2).
+            POP   HL
+            PUSH  HL
+            CALL  P_MAPX
             LD    DE,(SDMP_L)
             LD    HL,(SDMP_L+2)   ; HLDE is the logical address
             LD    A,(SDMP_MD)     ; The read command - turn into write command
             ADD   A_DSKWR-A_DSKRD
             LD    C,A
+            LD    B,0             ; SDCard 0 para direcciones absolutas (B era el contador)
             RST   30h             ; Write sector
+            JR    Z,_wrok
+            POP   HL              ; Error de escritura: avisar (antes se ignoraba)
+            POP   BC
+            JR    E_SDERR
+_wrok:
 
             ; Step forward to next sector
             LD    DE,(SDMP_L)

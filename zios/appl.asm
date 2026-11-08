@@ -14,6 +14,8 @@ import pcb_def.asm
 
             public AP_ST,END_APP,DO_BP_S,CNTINUE,AND_RUN,CHR_ISR,CTC_ISR,NUL_ISR,RAWGO
             public R_PC_S,JP_RUN,ZS_BRK
+            public CHRISRB,TCK_ISR,SPCISA,SPCISB
+            extrn  TICKS
             extrn  AP_DISP
             extrn  ISRCTXT
             extrn  CTCPROC
@@ -91,6 +93,67 @@ CHR_ISR:  DI
           BANK   3,(PAGE_MP+3)       ; Application space back into bank 0
 
           POP    AF
+          EI
+          RETI
+
+; Recepcion del canal B de la SIO en el contexto de la aplicacion (modo serie)
+CHRISRB: DI
+          PUSH   AF
+          BANK   3,MN2_PG
+          LD     (R_SP),SP
+          LD     SP,SP_STK
+          LD     (ISRCTXT),A
+          CALL   SERINTB
+          XOR    A
+          LD     (ISRCTXT),A
+          LD     SP,(R_SP)
+          BANK   3,(PAGE_MP+3)
+          POP    AF
+          EI
+          RETI
+
+; Tic del CTC (canal 2) en el contexto de la aplicacion. Lo empujado va a la
+; pila de la aplicacion antes de cambiar el banco 3; despues no se usa la pila.
+TCK_ISR:  PUSH   AF
+          PUSH   HL
+          BANK   3,MN2_PG
+          LD     HL,TICKS
+          INC    (HL)
+          JR     NZ,_tk
+          INC    HL
+          INC    (HL)
+          JR     NZ,_tk
+          INC    HL
+          INC    (HL)
+          JR     NZ,_tk
+          INC    HL
+          INC    (HL)
+_tk:      BANK   3,(PAGE_MP+3)
+          POP    HL
+          POP    AF
+          EI
+          RETI
+
+; Condicion especial de recepcion (desborde, error de trama) de cada canal.
+; Antes iba a NUL_ISR, que no leia el caracter ni borraba el error: la
+; interrupcion se repetia sin fin y la maquina quedaba colgada (por ejemplo
+; con ruido o un BREAK en la linea serie). Sirven en los dos contextos porque
+; solo usan puertos.
+SPCISA: PUSH   AF
+          IN     A,(SIOA_D)
+          LD     A,00110000b         ; Error reset
+          OUT    (SIOA_C),A
+          POP    AF
+          EI
+          RETI
+
+SPCISB: PUSH   AF
+          IN     A,(SIOB_D)
+          LD     A,00110000b
+          OUT    (SIOB_C),A
+          POP    AF
+          EI
+          RETI
 
 ; -------- NULISR
 ; Dummy entry to prevent client ISR code doing damage when in system calls.

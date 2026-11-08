@@ -50,7 +50,7 @@ BP_SIZE   EQU     4
 SSTEP:    LD    A,'S'
           LD    (STP_HOW),A
           CALL  GET_DEC        ; Get optional step count
-          JR    C,_stp1
+          JR    C,E_BADPS      ; "S x": antes STP_CNT=0 y se daban 65535 pasos
           INC   HL
 _stp1:    LD    (STP_CNT),HL   ; By default step once
           LD    HL,0

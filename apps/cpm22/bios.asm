@@ -10,7 +10,7 @@ import zapi.asm
 
 cdisk:     EQU  0004h      ;address of current disk number 0=a,... l5=p
 iobyte:    EQU  0003h      ;intel i/o byte
-disks:     EQU  04h        ;number of disks in the system
+disks:     EQU  08h        ;number of disks in the system (A-H)
 CR:        EQU  0DH
 LF:        EQU  0AH
 STK:       EQU  80H        ; Small stack between RST and CP/M buffers
@@ -76,25 +76,47 @@ WBOOTE:   JP WBOOT     ; 0: Warm boot - reload command processor
 ;  no translations
 ;
 ;  disk Parameter header for disk 00
-dpbase::  defw  0000h, 0000h
+dpbase::
+;  disk parameter header for disk 00
   defw  0000h, 0000h
-  defw  dirbf, dpblk0
+  defw  0000h, 0000h
+  defw  dirbf, dpblk0     ; SELDSK cambia el DPB si la unidad es un disco en memoria
   defw  0000h, all00
 ;  disk parameter header for disk 01
   defw  0000h, 0000h
   defw  0000h, 0000h
-  defw  dirbf, dpblk0
+  defw  dirbf, dpblk0     ; SELDSK cambia el DPB si la unidad es un disco en memoria
   defw  0000h, all01
 ;  disk parameter header for disk 02
   defw  0000h, 0000h
   defw  0000h, 0000h
-  defw  dirbf, dpblk0
+  defw  dirbf, dpblk0     ; SELDSK cambia el DPB si la unidad es un disco en memoria
   defw  0000h, all02
 ;  disk parameter header for disk 03
   defw  0000h, 0000h
   defw  0000h, 0000h
-  defw  dirbf, dpblk0
+  defw  dirbf, dpblk0     ; SELDSK cambia el DPB si la unidad es un disco en memoria
   defw  0000h, all03
+;  disk parameter header for disk 04
+  defw  0000h, 0000h
+  defw  0000h, 0000h
+  defw  dirbf, dpblk0     ; SELDSK cambia el DPB si la unidad es un disco en memoria
+  defw  0000h, all04
+;  disk parameter header for disk 05
+  defw  0000h, 0000h
+  defw  0000h, 0000h
+  defw  dirbf, dpblk0     ; SELDSK cambia el DPB si la unidad es un disco en memoria
+  defw  0000h, all05
+;  disk parameter header for disk 06
+  defw  0000h, 0000h
+  defw  0000h, 0000h
+  defw  dirbf, dpblk0     ; SELDSK cambia el DPB si la unidad es un disco en memoria
+  defw  0000h, all06
+;  disk parameter header for disk 07
+  defw  0000h, 0000h
+  defw  0000h, 0000h
+  defw  dirbf, dpblk0     ; SELDSK cambia el DPB si la unidad es un disco en memoria
+  defw  0000h, all07
 
   dpblk0::	;disk parameter block for all disks.
     defw	512   ;sectors per track                  SPT - 512 sectors per track
@@ -107,6 +129,31 @@ dpbase::  defw  0000h, 0000h
     defm	0     ;alloc 1                            AL1
     defw	0     ;check size                         CKS - Treat this as a fixed disk - no checking
     defw	1     ;track offset                       OFF - 1 track offset, so 256x128B sectors = 64K. Enough to boot.
+
+  ; DPB de los discos en memoria (ZIOS: disco en RAM y disco en flash). SELDSK
+  ; completa DSM y EXM con lo que informa el servicio 36.
+  dpbram::
+    defw	512   ; SPT (igual que la SD: pista = 64 KB, sin pistas reservadas)
+    defm	4     ; BSH - bloques de 2 KB
+    defm	15    ; BLM
+    defm	1     ; EXM (0 si DSM > 255)
+    defw	0     ; DSM
+    defw	127   ; DRM - 128 entradas
+    defm	0C0h  ; AL0 - 2 bloques de directorio
+    defm	0     ; AL1
+    defw	0     ; CKS - fijo
+    defw	0     ; OFF - sin pistas reservadas
+  dpbfsh::
+    defw	512
+    defm	4
+    defm	15
+    defm	1
+    defw	0
+    defw	127
+    defm	0C0h
+    defm	0
+    defw	0
+    defw	0
 
   ; dpblk:	;disk parameter block for all disks.
   ;   defw	512   ;sectors per track                  SPT - 512 sectors per track
@@ -134,14 +181,16 @@ dpbase::  defw  0000h, 0000h
 START:
 BOOT:     XOR    A
           LD     (cdisk),A    ; select disk zero
-          INC    A            ; Default output to CRT (which will default to serial if not available)
-          LD     (iobyte),A   ; clear the iobyte
+          ; IOBYTE: CON=CRT (consola), RDR=PTR y PUN=PTP (SIO B), LST=LPT (SIO B).
+          ; Con STAT se cambia (p. ej. STAT LST:=TTY: para imprimir por la consola).
+          LD     A,95h
+          LD     (iobyte),A
 
           LD     SP,STK       ; Set a temporary small stack in spare space below the CPM buffer
 
           ; Write out HELLO message (whatever's in the CP/M buffer)
-          LD     HL,CCP+6
-          CALL   _strout
+          LD     HL,CCP+8     ; CCP+6 es la longitud del buffer (7Fh = DEL) seguida de 0:
+          CALL   _strout      ; solo salia un DEL. El texto empieza en CCP+8
 
           JP     gocpm        ; initialize and go to cp/m
 
@@ -150,6 +199,8 @@ BOOT:     XOR    A
 ; ****** WARM BOOT *******/
 ; Load CCP and BDOS from the start of disk 0
 WBOOT:    LD    SP, STK     ; Set a temporary small stack in spare space below the CP/M buffer
+          LD    C,A_CPPRG   ; Escribir en la tarjeta lo que quede en la cache de ZIOS
+          RST   30h         ; (^C, fin de programa): asi se puede cambiar de tarjeta
           LD    C,0         ; select disk 0
           CALL  SELDSK
           CALL  HOME        ; go to track 00
@@ -177,10 +228,14 @@ gocpm:    LD    a, 0c3h     ; c3 is a jmp instruction
 
           EI                ; enable the interrupt system
 
+          ; cdisk lleva el usuario en el nibble alto: con un usuario distinto de 0
+          ; la comparacion fallaba y cada arranque en caliente volvia a A: user 0.
           LD    A,(cdisk)   ; get current disk number
+          AND   0Fh         ; Solo la unidad
           CP    disks       ; see if valid disk number
+          LD    A,(cdisk)
           JR    C,diskok    ; disk valid, go to CCP
-          XOR   A           ; invalid disk, change to disk 0
+          AND   0F0h        ; invalid disk, change to disk 0 (se conserva el usuario)
 diskok:   LD    C,A         ; send to the CCP
 
           JP	  CCP         ; go to cp/m for further processing, clearing the input buffer
@@ -188,34 +243,55 @@ diskok:   LD    C,A         ; send to the CCP
 ; ****** CONST: Console status *******/
 ; Use ZIOS library and check for available character.
 ; Char available: return ff if character ready, 0 otherwise
-CONST:    LD    A,(IOBYTE)
-          AND   1
-          LD    B,A
+CONST:    PUSH  HL
+          LD    HL,_tcon
+          LD    A,(IOBYTE)
+          CALL  _dev
           LD    C,A_CHKCH
           RST   30H      ; Check for waiting character ->
+          POP   HL
           RET   Z        ; No character -> 0
           XOR   A
           DEC   A        ; Ready -> 0xff
           RET
 
+; Dispositivo de ZIOS para cada valor de un campo del IOBYTE:
+; 0 = SIO A, 1 = consola (video si hay, si no SIO A), 2 = SIO B
+_tcon:    DB    0,1,0,2       ; CON: TTY, CRT, BAT, UC1
+_tlst:    DB    0,1,2,2       ; LST: TTY, CRT, LPT, UL1
+_tpr:     DB    0,2,2,2       ; RDR/PUN: TTY, PTR/PTP, UR1/UP1, UR2/UP2
+
+; A = IOBYTE con el campo en los bits 0-1, HL = tabla -> B = dispositivo
+_dev:     AND   3
+          ADD   A,L
+          LD    L,A
+          JR    NC,_dev1
+          INC   H
+_dev1:    LD    B,(HL)
+          RET
+
 ; ****** CONIN: Read character from console *******/
 ; Char available: return in A. Wait until there is  character
-CONIN:    LD    A,(IOBYTE)
-_IN:      AND   1
-          LD    B,A
+CONIN:    PUSH  HL
+          LD    HL,_tcon
+          LD    A,(IOBYTE)
+_IN:      CALL  _dev
           LD    C,A_RXCHR
           RST   30H  ; Character returned in A
+          POP   HL
           OR    A    ; set flags
           RET
 
 ; ****** CONOUT: Console output *******/
 ; Write character in C to console
-CONOUT:   LD    A,(IOBYTE)
-_OUT:     AND   1
-          LD    B,A
-          LD    E,C
+CONOUT:   PUSH  HL
+          LD    HL,_tcon
+          LD    A,(IOBYTE)
+_OUT:     LD    E,C
+          CALL  _dev
           LD    C,A_TXCHR
           RST   30H
+          POP   HL
           RET
 
 ; ****** _strout: Output a string. String terminated by a 0, pointed by HL *******/
@@ -225,18 +301,23 @@ _strout:  LD    A,(HL)
           RET   Z
           LD    E,A
           INC   HL
+          LD    B,1           ; Consola (antes B quedaba con cualquier valor)
           LD    C,A_TXCHR
           RST   30H
           JR    _strout
 
 ; ***** The list output device does exactly the same as CONOUT but uses different IOBYTE bits
-LIST:     LD    A,(IOBYTE)
+LIST:     PUSH  HL
+          LD    HL,_tlst
+          LD    A,(IOBYTE)
           RLCA                ; The LST device is in the top two bits
           RLCA
           JR _OUT
 
 ; ***** The punch output device does exactly the same as CONOUT but uses different IOBYTE bits
-PUNCH:    LD    A,(IOBYTE)
+PUNCH:    PUSH  HL
+          LD    HL,_tpr
+          LD    A,(IOBYTE)
           RRCA
           RRCA
           RRCA
@@ -244,7 +325,9 @@ PUNCH:    LD    A,(IOBYTE)
           JR _OUT
 
 ; ***** The reader input device does exactly the same as CONIN but uses different IOBYTE bits ****/
-READER:   LD    A,(IOBYTE)
+READER:   PUSH  HL
+          LD    HL,_tpr
+          LD    A,(IOBYTE)
           RRCA
           RRCA
           JR _IN
@@ -253,8 +336,8 @@ READER:   LD    A,(IOBYTE)
 
 
 ; CPM/2 extensions
-LISTST:   XOR  A
-          RET
+LISTST:   LD   A,0FFh      ; Lista siempre lista (antes 0 = siempre ocupada y
+          RET               ; los programas que la consultan se quedaban esperando)
 SECTRN:   LD   H,B
           LD   L,C
           RET
@@ -285,26 +368,57 @@ SECTRN:   LD   H,B
 ; select disk given by register c
 seldsk::  LD    HL, 0000h  ;error return code
           LD    A, C
-          CP    disks    ; must be between 0 and 3
-          RET   NC       ; no carry if 4, 5,...
-          ; disk number is in the proper range
-          ; compute proper disk parameter header address. Each disk descriptor is 16 bytes
+          CP    disks    ; A-H
+          RET   NC
           LD    (diskno),A
 
-          ; Clear the disk buffer.
-          ; CALL  _flush
+          ; Que hay en la unidad: tarjeta SD, disco en RAM o disco en flash
+          LD    H,A
+          LD    C,A_DRVINF
+          RST   30h          ; A = tipo, DE = DSM
+          LD    HL,dpblk0
+          CP    2
+          JR    C,_seldph    ; SD
+          CP    0FFh
+          JR    Z,_selno     ; Disco en memoria que no existe
+          LD    HL,dpbram
+          CP    2
+          JR    Z,_selmd
+          LD    HL,dpbfsh
+_selmd:   PUSH  HL
+          LD    BC,4
+          ADD   HL,BC
+          LD    (HL),1       ; EXM = 1 con DSM < 256 (bloques de 2 KB)
+          LD    A,D
+          OR    A
+          JR    Z,_selex
+          LD    (HL),0       ; EXM = 0 con DSM >= 256
+_selex:   INC   HL
+          LD    (HL),E       ; DSM
+          INC   HL
+          LD    (HL),D
+          POP   HL
 
-          ; Return the disk parameter block to the caller (BDOS) so it knows the disk geometry.
-          LD    L, A     ; l=disk number 0, 1, 2, 3
-          LD    H, 0     ; high order zero
-          ; Although there are only 4 disks, this allows for there to be many more
-          ADD   HL,HL    ; *2
-          ADD   HL,HL    ; *4
-          ADD   HL,HL    ; *8
-          ADD   HL,HL    ; *16 (size of each header)
-          LD    DE, dpbase
-          ADD   HL,DE    ;hl=,dpbase (diskno*16) Note typo here in original source. Points to the
-                         ;start of the correct disk base block.
+          ; DPH de la unidad = dpbase + unidad x 16; su DPB en el desplazamiento 10
+_seldph:  EX    DE,HL        ; DE = DPB
+          LD    A,(diskno)
+          LD    L,A
+          LD    H,0
+          ADD   HL,HL
+          ADD   HL,HL
+          ADD   HL,HL
+          ADD   HL,HL
+          LD    BC,dpbase
+          ADD   HL,BC
+          PUSH  HL
+          LD    BC,10
+          ADD   HL,BC
+          LD    (HL),E
+          INC   HL
+          LD    (HL),D
+          POP   HL
+          RET
+_selno:   LD    HL,0
           RET
 
 ; ********** HOME *********
@@ -357,7 +471,10 @@ read:     PUSH  BC
           CALL  _calcblk
           LD    C,A_CPMRD
           RST   30h          ; BLK READ
-          XOR   A            ; Never fails (!)
+          OR    A            ; ZIOS devuelve 0 si fue bien. Antes se ponia siempre
+          JR    Z,_rdok      ; 0 y los errores de la tarjeta no llegaban al BDOS
+          LD    A,1
+_rdok:
           POP   HL
           POP   DE
           POP   BC
@@ -379,8 +496,11 @@ write:    PUSH  BC
           POP   BC
           LD    B,C
           LD    C,A_CPMWR
-          RST   30h          ; BLK READ
-          XOR   A
+          RST   30h          ; BLK WRITE
+          OR    A            ; Igual que en read: 1 si hubo error
+          JR    Z,_wrok
+          LD    A,1
+_wrok:
           POP   HL
           POP   DE
           POP   BC
@@ -559,10 +679,15 @@ dmaad:   DEFS  2    ;direct memory address
 ;  scratch ram area for bdos use
 begdat:   EQU  $          ;beginning of data area
 dirbf:    DEFS  128       ;scratch directory area
-all00:    DEFS  513       ;allocation vector 0
-all01:    DEFS  513       ;allocation vector 1
-all02:    DEFS  513       ;allocation vector 2
-all03:    DEFS  513       ;allocation vector 3
+; Vectores de asignacion: DSM/8+1 = 253 bytes (antes 513, el doble de lo necesario)
+all00:    DEFS  253
+all01:    DEFS  253
+all02:    DEFS  253
+all03:    DEFS  253
+all04:    DEFS  253
+all05:    DEFS  253
+all06:    DEFS  253
+all07:    DEFS  253
 ; chk00:    DEFS  128     ;check vector 0
 ; chk01:    DEFS  128     ;check vector 1
 ; chk02:    DEFS  128     ;check vector 2

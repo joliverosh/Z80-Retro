@@ -95,23 +95,57 @@ GET_DEC:  PUSH  BC
           LD    L,A
           LD    C,A           ; Count number of characters
           CALL  SKIPSPC
-next_dc:  JR    Z, _fin       ; Same end caseas GET_HEX
+next_dc:  JR    Z, _dfin      ; Fin de la entrada
 cont_dc:  CALL  DEC2BIN       ; Decimal character?
           CALL  C,UNGET
-          JR    C,_fin
+          JR    C,_dnd
+          ; Antes el desbordamiento (>65535) pasaba sin aviso. Ahora es error.
           PUSH  DE            ; Muliply HL by 10
           ADD   HL, HL        ; x2
+          JR    C,_dovf
           LD    E,L
           LD    D,H
           ADD   HL, HL        ; x4
+          JR    C,_dovf
           ADD   HL, HL        ; x8
+          JR    C,_dovf
           ADD   HL,DE         ; x10
+          JR    C,_dovf
+          LD    E,A           ; + digito
+          LD    D,0
+          ADD   HL,DE
+          JR    C,_dovf
           POP   DE
-          CALL  ADD8T16
           INC   C
           CALL  BUFCHR
           JR    next_dc
 
+; Salidas de GET_DEC. Antes compartia _fin con GET_HEX, cuyo OR A dejaba
+; siempre el acarreo a 0: los JR C,E_BADPS de los llamadores nunca saltaban
+; ("CONS q" elegia la consola 0, "BOS-zz" la imagen 0).
+;   - numero valido:                  HL=valor, Z=0, C=0
+;   - campo vacio (fin de linea):     HL=0,     Z=1, C=0 (como antes: hay
+;     llamadores con parametro opcional que cuentan con C=0, p. ej. "S")
+;   - basura (no digito) o >65535:    HL=0,     Z=1, C=1
+_dnd:     LD    A,C           ; Parada en un caracter que no es digito
+          OR    A
+          JR    NZ,_dfin      ; Despues de algun digito: correcto
+          JR    _derr
+_dovf:    POP   DE
+_derr:    LD    HL,0
+          LD    A,B
+          POP   BC
+          CP    A             ; Z=1...
+          SCF                 ; ...y C=1
+          RET
+
+_dfin:    LD    A,C
+          OR    A             ; Z segun el contador, acarreo a 0
+          LD    A,B
+          POP   BC
+          RET
+
+; Salida de GET_HEX (sin cambios)
 _fin:     LD    A,C
           OR    A
           LD    A,B
@@ -223,7 +257,7 @@ SET_LINE: PUSH    AF
           PUSH    HL
           CALL    RESBUF      ; Clear buffer
           LD      DE,INBUF
-          LD      B,LINELEN   ; Maximum line length allowed
+          LD      B,LINELEN-1 ; Como mucho LINELEN-1 caracteres...
 .nextch:  LD      A,(HL)
           LD      (DE),A
           OR      A
@@ -231,6 +265,8 @@ SET_LINE: PUSH    AF
           INC     DE
           INC     HL
           DJNZ    .nextch
+          XOR     A           ; ...y siempre terminada en 0
+          LD      (DE),A
 
           ; Store current position
 .setpos:  LD      HL,INBUF
@@ -281,9 +317,13 @@ getc:     RST      10H
           JR       Z,_nline
 
           ; Not a control character so store in buffer, insert space if necessary
-_ext:     LD      A,LINELEN
-          CP      B
-          JR      Z, getc       ; buffer full so ignore this character
+          ; Linea llena si ya tiene LINELEN-1 caracteres. Antes se miraba la
+          ; posicion del cursor (B) y no la longitud: con 128 caracteres la linea
+          ; quedaba sin 0 final y al borrar o insertar se machacaban INIT, MLINE,
+          ; LPOS y HPOS (y ADD_HIST escribia fuera del buffer de historia).
+_ext:     LD      A,(INBUF+LINELEN-2)
+          OR      A
+          JR      NZ, getc      ; buffer full so ignore this character
           LD      A,(HL)
           OR      A
           LD      A,B
@@ -491,7 +531,10 @@ _RESLN:   PUSH    DE
           LD      HL,(HPOS)  ; History buffer line
           LD      DE,INBUF
           LD      B,0
-_nch3:    LD      A,(HL)
+_nch3:    LD      A,B
+          CP      LINELEN-1    ; No copiar mas de LINELEN-1 caracteres
+          JR      NC,_eohl
+          LD      A,(HL)
           CP      0Dh
           JR      Z,_eohl
           LD      (DE),A
@@ -518,8 +561,8 @@ _eohl:    EX      DE,HL      ; Current position in buffer must be in HL before j
 ; ----- RESBUF -----
 ; Clear the buffer, reset the CURSOR and INPTR
 RESBUF:   PUSH    HL
-          LD      HL,INPTR
-          LD      B,LINELEN
+          LD      HL,INBUF     ; Antes INPTR: los 2 ultimos bytes de INBUF no se borraban
+          LD      B,LINELEN+1
           XOR     A
 .clrnxt:  LD      (HL),A
           INC     HL
@@ -655,6 +698,7 @@ _gh1:     CALL     DECB        ; Points to the previous OD (or FF)
           DJNZ     _gh1
 
           LD       DE,INBUF
+          LD       B,LINELEN-1  ; Como mucho LINELEN-1 caracteres
 
           ; Got the line wanted, copy to the line buffer
 _gh3:     LD       A,(HL)
@@ -663,7 +707,7 @@ _gh3:     LD       A,(HL)
           LD       (DE),A
           INC      DE
           CALL     INCB
-          JR       _gh3
+          DJNZ     _gh3
 
 _gh2:     LD       HL,INBUF     ; The return value so the caller can find the string
           XOR      A
@@ -876,9 +920,9 @@ _ENDPRG:
 
 ; Data defintions for this module
             dseg
-LINELEN:    EQU   128
+; LINELEN esta en defs.asm
 INPTR:      DEFW  INBUF    ; Position in current line (READ)
-INBUF:      DS    LINELEN
+INBUF:      DS    LINELEN+1 ; +1: el ultimo byte es siempre 0
 INIT:       DEFB  0        ; Initialised to 'false'. Set true once hist bug initialised.
 MLINE:      DEFB  1        ; If true then implement a line buffer/line editor
 LPOS:       DEFW  MLBUF    ; Pointer to where the next history line will be added

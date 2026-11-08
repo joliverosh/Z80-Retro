@@ -3,7 +3,7 @@ import zlib.asm
 import pcb_def.asm
 
     ; Function exports
-    public SDTXLT,SDTXLTD,SDMPADD,SDMPDSK,SDPREP,SDMPRAW
+    public SDTXLT,SDTXLTD,SDMPADD,SDMPDSK,SDPREP,SDMPRAW,MD_CARD
 
 CSEG
 
@@ -50,6 +50,12 @@ SDMPADD:  LD     A,H        ; The upper 8 bits contain logical drive, needs to b
           OR     L          ; Merge in the drive offset
           LD     D,A        ; Put back into D
           LD     L,H        ; And HL comes straight from the offset table
+          LD     H,0        ; Bits 24-31 del sector: siempre 0. Antes quedaba aqui el
+                            ; byte alto de la tabla, y con el disco virtual 8 o mayor
+                            ; (unidades I a P por defecto, o SM X=8..1023) el sector
+                            ; salia mal. Con tarjetas SDSC no se notaba porque el driver
+                            ; descartaba ese byte al pasar a direccion en bytes; con
+                            ; SDHC (direccion en bloques) si llega a la tarjeta.
           POP    AF         ; Restore SDCard number
           RET
 
@@ -94,6 +100,18 @@ SDMPDSK:  PUSH   DE
           EX     DE,HL         ; Save HL into DE (disk to be mapped to drive)
           CALL   _toslot       ; HL points to the slot to contain the mapping
 
+          ; Tarjetas 2 (disco en RAM) y 3 (disco en flash): sin disco virtual
+          LD     A,B
+          AND    $FE
+          CP     2
+          JR     NZ,_sdmp
+          LD     (HL),B
+          INC    HL
+          LD     (HL),0
+          INC    HL
+          LD     (HL),0
+          JR     _invsd
+_sdmp:
           ; Store drive number (make sure it's 0 or 1)
           LD     A,$FE
           AND    B
@@ -143,8 +161,8 @@ SDMPRAW:  PUSH   DE
           LD     (HL),B
           INC    HL
 
-          ; Make sure low 5 bits are zeros
-          LD     A,$F8
+          ; Make sure low 5 bits are zeros (la mascara era F8h, que solo limpia 3)
+          LD     A,$E0
           AND    E
 
           LD     (HL),A        ; Store in the address map
@@ -185,6 +203,15 @@ _nxtdrv:    LD     (HL),C          ; SDCard 0
 ; in the logical drive map in HL.
 ; INPUTS:   A - logical drive number 0-15
 ; OUTPUTS: HL - pointer to correct entry in the DRVMAP
+; ----- MD_CARD
+; Tarjeta a la que esta mapeada una unidad logica: 0/1 = SD, 2 = disco en RAM,
+; 3 = disco en flash. INPUT: A = unidad. OUTPUT: A. Conserva los demas.
+MD_CARD:  PUSH   HL
+          CALL   _toslot
+          LD     A,(HL)
+          POP    HL
+          RET
+
 _toslot:  PUSH   BC
           AND    $0F        ; Ignore out of range drive letters
           LD     B,A

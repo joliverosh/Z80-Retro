@@ -44,8 +44,12 @@ _bfill:   PUSH  DE
           INC   DE
           POP   AF
           LD    (HL),A
+          DEC   BC              ; LDIR copia los BC-1 bytes restantes
+          LD    A,B
+          OR    C
+          JR    Z,_bf1          ; Un solo byte: LDIR con BC=0 haria 64K
           LDIR
-          POP   DE
+_bf1:     POP   DE
           RET
 
 ; ------------------- fill
@@ -85,11 +89,25 @@ FILL:     CALL  GET_HEX          ; Address
           POP   AF
           LD    (PATTERN),A
 
+          ; Longitud 0 = los 64K completos, como documenta el wiki (f 0 0 e5).
+          ; El contador es de 16 bits: se escribe el primer byte y quedan FFFF.
+          LD    A,B
+          OR    C
+          JR    NZ,_nfblk
+          LD    H,D
+          LD    L,E
+          LD    BC,1
+          LD    A,(PATTERN)
+          CALL  _bfill
+          INC   DE
+          LD    BC,0FFFFh
+
           ; Fill memory...
           ; DE: address
           ; BC: count - Limit up to 64K - any size
           ; A:  fill value
-          DEC   BC         ; To get a sensible range
+          ; Antes aqui habia un DEC BC: con longitud 1 no se escribia nada y con
+          ; longitud 0 no se distinguia. Ahora cada bloque escribe BC bytes.
 
 _nfblk:   LD    A,B
           OR    C

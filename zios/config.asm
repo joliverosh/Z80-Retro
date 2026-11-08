@@ -12,12 +12,21 @@ CF_BREAK    EQU   00000010b
 CF_DEBUG    EQU   00000100b
 CF_VT100    EQU   00001000b
 CF_IGNVDU   EQU   00010000b
+CF_SIOBPI   EQU   00100000b      ; Canal B de la SIO reservado para la Raspberry Pi
+
+; Otros bytes de la NVRAM (0 = valor por omision en todos)
+NV_SIOA     EQU   1      ; WR4 del canal A de la SIO (modo de reloj)
+NV_SIOB     EQU   2      ; WR4 del canal B
+NV_CTC0     EQU   3      ; Constante del canal 0 del CTC (reloj de la SIO por P3/P6); 0 = 3
+NV_RDSK     EQU   4      ; Paginas del disco en RAM: 0 = por omision, FFh = sin disco en RAM
+NV_CLK      EQU   5      ; Reloj de la CPU: 0 = 7,3728 MHz, 1 = 14,7456 MHz (para el tic)
+NV_SIOFL    EQU   6      ; Bit 0: el canal A usa el reloj del CTC; bit 1: el canal B
 
 ; Default flag byte if NVRAM invalid
 CFG_DEF     EQU   CF_VT100|CF_DEBUG|CF_LOADOS|CF_BREAK
 
 ; Valid bits stored in NVRAM
-CFG_VAL     EQU   CF_IGNVDU|CF_VT100|CF_DEBUG|CF_LOADOS|CF_BREAK
+CFG_VAL     EQU   CF_SIOBPI|CF_IGNVDU|CF_VT100|CF_DEBUG|CF_LOADOS|CF_BREAK
 
 ; Bits of the flag byte that are used for process execution.
 CFG_EXEC    EQU   CF_DEBUG|CF_LOADOS|CF_BREAK

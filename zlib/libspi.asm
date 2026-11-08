@@ -4,6 +4,7 @@ import ../zlib/defs.asm
 
           public SPI_SEL,SPI_BEG,SPI_STRT,SPI_END,SPI_FIN,SPI_INIT,SPI_ACMD,SPI_TXB
           public SPI_RXB,SPI_RBF,SPI_CM1,SPI_CMN,SPI_BRD,SPI_BWR
+          public SPI_XCH,DEVSEL
 
 ; SPI_SBI
 ; Read a single bit into the LSB of L. H contains the value to be written to the OP port (bit 1)
@@ -83,9 +84,27 @@ _nidle:   CALL  SPI_RXB
 SPI_BEG:  LD    A,(DEVSEL)     ; Get mask for selected device
           OUT   (SPICS_P),A
           CALL  SPI_RXB        ; +2x dummy clock bytes
+          ; Esperar a que la tarjeta deje de estar ocupada (lee FF). Antes no
+          ; habia limite: con MISO pegado en bajo (tarjeta danada o zocalo sin
+          ; adaptador) la maquina se colgaba. Limite: 20000 bytes, ~1,2 s a
+          ; 7,37 MHz y ~0,6 s a 14,7 MHz (la tarjeta puede estar ocupada hasta
+          ; 0,5 s tras una escritura).
+          ; Devuelve el acarreo a 0 si la tarjeta esta lista y a 1 si se agoto
+          ; el tiempo.
+          PUSH  BC             ; SPI_RXB trabaja con los registros alternos:
+          LD    BC,20000       ; BC se conserva entre llamadas
 _bsy:     CALL  SPI_RXB
           INC   A              ; Expect 0xFF
+          JR    Z,_bsyok       ; (INC deja el acarreo intacto: lo limpia el OR)
+          DEC   BC
+          LD    A,B
+          OR    C
           JR    NZ,_bsy
+          POP   BC
+          SCF                  ; Tiempo agotado
+          RET
+_bsyok:   POP   BC
+          OR    A              ; Acarreo = 0
           RET
 
 ; ---- SPI_END - End of a command. Clock LOW then remove CS
@@ -110,7 +129,10 @@ SPI_CMN: LD         HL,0
 ; DE:  Lower 16 bits of arg
 ; B:   CRC
 ; C:   COMMAND
+; Devuelve A = primera respuesta (R1) con el acarreo a 0, o A = FF con el
+; acarreo a 1 si la tarjeta no salio de ocupada (no se envia el comando).
 SPI_CM1:  CALL       SPI_BEG
+          JR         C,_cmto
           LD         A,C
           CALL       SPI_TXB
           LD         A,H
@@ -131,6 +153,12 @@ _r1w:     CALL       SPI_RXB
           DJNZ       _r1w
           ; Passed or timeout
 _r1wd:    DEC        A
+          SCF                   ; Acarreo = 0 sin tocar Z (SCF + CCF)
+          CCF
+          RET
+_cmto:    LD         A,0FFh
+          OR         A          ; NZ: un llamador que solo mire Z no lo toma por exito
+          SCF                   ; Acarreo = 1: la tarjeta no salio de ocupada
           RET
 
 ; ---- Send an application command
@@ -140,21 +168,56 @@ SPI_ACMD: LD         BC,00040h+55
           JR         SPI_END
 
 ; In many cases we don't care about the received byte this optimised routine sends a byte and ignores the response.
-SPI_TXB:   EXX
-           LD     D,A        ; A contains the byte to be send. Save in H
+; Optimizada: el latch SPI-OUT (74HCT175) solo usa el bit 0 del dato como MOSI
+; (D1 y D2 van a salidas sin conectar) y la direccion (68h/69h) da el reloj.
+; Por eso basta con rotar el propio byte con RLCA y escribirlo entero: 26 ciclos
+; por bit en vez de 38, sin EXX ni registros auxiliares. Tras 8 rotaciones A
+; vuelve a tener el valor original. Conserva todos los registros.
+SPI_TXB:   RLCA
+           OUT    (SPIPORT_L),A
+           OUT    (SPIPORT_H),A
+           RLCA
+           OUT    (SPIPORT_L),A
+           OUT    (SPIPORT_H),A
+           RLCA
+           OUT    (SPIPORT_L),A
+           OUT    (SPIPORT_H),A
+           RLCA
+           OUT    (SPIPORT_L),A
+           OUT    (SPIPORT_H),A
+           RLCA
+           OUT    (SPIPORT_L),A
+           OUT    (SPIPORT_H),A
+           RLCA
+           OUT    (SPIPORT_L),A
+           OUT    (SPIPORT_H),A
+           RLCA
+           OUT    (SPIPORT_L),A
+           OUT    (SPIPORT_H),A
+           RLCA
+           OUT    (SPIPORT_L),A
+           OUT    (SPIPORT_H),A
+           RET
 
-           ; H: Byte to be sent
-           SPI_SBO
-           SPI_SBO
-           SPI_SBO
-           SPI_SBO
-
-           SPI_SBO
-           SPI_SBO
-           SPI_SBO
-           SPI_SBO
-
-           EXX
+; ---- SPI_XCH
+; Intercambio completo (modo 0): manda el byte de A, bit mas alto primero, y
+; devuelve en A el byte recibido al mismo tiempo. Para dispositivos SPI
+; generales (servicio 33). Conserva BC.
+SPI_XCH:   PUSH   BC
+           LD     C,A
+           LD     B,8
+_xbit:     RLC    C              ; Bit a mandar -> bit 0 (puerto 68/69, bit 0)
+           LD     A,C
+           OUT    (SPIPORT_L),A  ; Dato con el reloj en bajo
+           OUT    (SPIPORT_H),A  ; Flanco de subida: el esclavo ya puso su bit
+           IN     A,(SPIIN)      ; MISO en el bit 0
+           XOR    C              ; El bit recibido reemplaza al ya enviado
+           AND    1              ; en el bit 0 de C: ((m^s)&1)^C
+           XOR    C
+           LD     C,A
+           DJNZ   _xbit
+           LD     A,C
+           POP    BC
            RET
 
            ; In many cases we just need to send FF and receive a byte
@@ -248,39 +311,62 @@ _brn:     SPI_SBI
 ;   B:  Number of 16 bit words to tansfers. Note this means only
 ;       EVEN number of bytes can be transferred. Max. 512 bytes (B=0)
 ; Outputs:
-;   DE: Points one byte after the last sent bytes.
+;   HL: Points one byte after the last sent byte. DE and C preserved.
 ;   A:  Not saved
-SPI_BWR:  PUSH     DE            ; scratch pad
-
-_bwn:     LD       D,(HL)        ; Bit value to send. L holds the received byte.
+SPI_BWR:                         ; Mismo metodo que SPI_TXB (26 ciclos por bit)
+_bwn:     LD       A,(HL)
           INC      HL
-          SPI_SBO
-          SPI_SBO
-          SPI_SBO
-          SPI_SBO
-
-          SPI_SBO
-          SPI_SBO
-          SPI_SBO
-          SPI_SBO
-
-          LD       D,(HL)
+          RLCA
+          OUT      (SPIPORT_L),A
+          OUT      (SPIPORT_H),A
+          RLCA
+          OUT      (SPIPORT_L),A
+          OUT      (SPIPORT_H),A
+          RLCA
+          OUT      (SPIPORT_L),A
+          OUT      (SPIPORT_H),A
+          RLCA
+          OUT      (SPIPORT_L),A
+          OUT      (SPIPORT_H),A
+          RLCA
+          OUT      (SPIPORT_L),A
+          OUT      (SPIPORT_H),A
+          RLCA
+          OUT      (SPIPORT_L),A
+          OUT      (SPIPORT_H),A
+          RLCA
+          OUT      (SPIPORT_L),A
+          OUT      (SPIPORT_H),A
+          RLCA
+          OUT      (SPIPORT_L),A
+          OUT      (SPIPORT_H),A
+          LD       A,(HL)
           INC      HL
-
-          SPI_SBO
-          SPI_SBO
-          SPI_SBO
-          SPI_SBO
-
-          SPI_SBO
-          SPI_SBO
-          SPI_SBO
-          SPI_SBO
-
-          DJNZ       _bwn
-
-
-          POP      DE
+          RLCA
+          OUT      (SPIPORT_L),A
+          OUT      (SPIPORT_H),A
+          RLCA
+          OUT      (SPIPORT_L),A
+          OUT      (SPIPORT_H),A
+          RLCA
+          OUT      (SPIPORT_L),A
+          OUT      (SPIPORT_H),A
+          RLCA
+          OUT      (SPIPORT_L),A
+          OUT      (SPIPORT_H),A
+          RLCA
+          OUT      (SPIPORT_L),A
+          OUT      (SPIPORT_H),A
+          RLCA
+          OUT      (SPIPORT_L),A
+          OUT      (SPIPORT_H),A
+          RLCA
+          OUT      (SPIPORT_L),A
+          OUT      (SPIPORT_H),A
+          RLCA
+          OUT      (SPIPORT_L),A
+          OUT      (SPIPORT_H),A
+          DJNZ     _bwn
           RET
 
           DSEG

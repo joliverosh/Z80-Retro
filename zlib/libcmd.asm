@@ -11,6 +11,7 @@ import defs.asm
 ; CMD_B is the only exported symbol.
 
                 public CMD_B
+                extrn  SIOB_MD,PRINT_LN
 
                 CSEG
 
@@ -165,7 +166,9 @@ _checkrx8:        IN       A, (SIOB_C)      ; Next byte SHOULD be the checksum
                   JR       NC, _checkrx8
                   IN       A,(SIOB_D)       ; MSB
                   CP       L
-                  ; JR       Z,_badcrc
+                  ; Antes el resultado se ignoraba (y el salto estaba al reves).
+                  ; tools/block.js calcula la misma suma de 8 bits.
+                  JR       NZ,_badcrc
 
                   LD       A,H              ; Move status back to A
                   POP      BC               ; BC now contains the body length
@@ -218,21 +221,38 @@ _nores:           LD       BC,0
 
 ; Start the send command sequence.
 CMD_B:          PUSH     AF
+                ; Con el canal B en modo serie general no hay Raspberry Pi al otro lado
+                LD       A,(SIOB_MD)
+                OR       A
+                JR       NZ,_cmdok
+                POP      AF
+                PUSH     HL
+                LD       HL,_m_sb
+                CALL     PRINT_LN
+                POP      HL
+                LD       A,0FFh
+                OR       A
+                RET
+_m_sb:          DEFB     "SIO B en modo serie (opcion 'SIO B para la Pi' en C)",0
+_cmdok:
+                ; DI antes de seleccionar WR5: si la interrupcion de la SIO A
+                ; entraba entre los dos OUT, su escritura a SIOA_C caia en WR5
+                ; (TX, DTR y RTS apagados: consola muerta).
+                DI                  ; Disable interrupts - there's no flow control!
                 LD       A, $05
                 OUT      (SIOA_C),A
                 LD       A,RTS_HIGH
                 OUT      (SIOA_C),A
-                DI                  ; Disable interrupts - there's no flow control!
                 POP      AF
                 PUSH     DE         ; Destination bufer not used to send the request so save
                 CALL     _SEND_CMD  ; Send the command
                 POP      DE
                 CALL       _WAIT_RES  ; Wait for the response
                 PUSH     AF
-                EI
                 LD       A, $05
                 OUT      (SIOA_C),A
                 LD       A,RTS_LOW
                 OUT      (SIOA_C),A
+                EI                  ; Despues de escribir WR5 (ver arriba)
                 POP      AF
                 RET

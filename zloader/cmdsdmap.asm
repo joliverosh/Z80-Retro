@@ -69,11 +69,22 @@ _wrdev:  PUSH   HL
          PUSH   AF
          LD     A,'/'
          RST    08h
+         POP    AF
+         LD     HL,_RAMD          ; Tarjeta 2: disco en RAM
+         CP     2
+         JR     Z,_wrmd
+         LD     HL,_FSHD          ; Tarjeta 3: disco en flash
+         CP     3
+         JR     Z,_wrmd
+         PUSH   AF
          LD     HL,_SDEV
          CALL   PRINT
          POP    AF
          ADD    A,'0'
          RST    08h
+         POP    HL
+         RET
+_wrmd:   CALL   PRINT
          POP    HL
          RET
 
@@ -101,8 +112,19 @@ _gotdrv:  ; Need a literal '=' next
           CP     '='
           JR     NZ,E_BADPS
 
+          ; Disco en memoria: SM G=RAM o SM H=FLASH
+          CALL   WASTESPC
+          LD     DE,_RAMD
+          LD     B,2
+          CALL   _smword
+          JR     Z,_smmd
+          LD     DE,_FSHD
+          LD     B,3
+          CALL   _smword
+          JR     Z,_smmd
           ; Want a physical drive (0-1023 decimal)
           CALL   GET_DEC
+          JR     C,E_ERROR
           JR     Z,E_ERROR
 
           ; Number from 1-1023 (Don't allow 0 as a target)
@@ -171,6 +193,40 @@ _gotsd:   LD     E,A        ; SDCard (into E) as a letter '0' or '1'
 
 
 _SDEV        DEFB "sd",NULL
+_RAMD        DEFB "RAM",NULL
+_FSHD        DEFB "FLASH",NULL
+
+; Z si la entrada (desde INPTR) es exactamente la palabra de DE (sin importar
+; mayusculas) seguida de fin o espacio. Conserva B.
+_smword:  LD     HL,(INPTR)
+_smw1:    LD     A,(DE)
+          OR     A
+          JR     Z,_smw2
+          LD     A,(HL)
+          CALL   TOUPPER
+          EX     DE,HL
+          CP     (HL)
+          EX     DE,HL
+          RET    NZ
+          INC    HL
+          INC    DE
+          JR     _smw1
+_smw2:    LD     A,(HL)
+          OR     A
+          RET    Z
+          CP     ' '
+          RET
+
+; SM x=RAM / x=FLASH: B = tarjeta 2 o 3 (disco virtual 0)
+_smmd:    LD     E,B
+          POP    AF              ; Letra de la unidad
+          SUB    'A'
+          LD     D,A
+          LD     HL,0
+          LD     B,0
+          LD     C,A_DSKMP
+          RST    30h
+          JR     MAPDSK
 _NODRIVE     DEFB "Drive A-", 'A'+15, NULL
 _MAPD        DEFB "Map disk: ",NULL
 _MAPD_TO     DEFB " to drive ", NULL

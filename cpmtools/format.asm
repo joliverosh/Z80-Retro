@@ -121,10 +121,28 @@ _gotbios: LD    E,(HL)
 
           SUB   'A'
           JR     C,_baddrv
-          CP     4
+          CP     8              ; Unidades A-H (antes A-D)
           JR     NC,_baddrv
 
           LD     (DRIVE),A
+
+          ; Las unidades de solo lectura (disco en flash) no se pueden formatear
+          PUSH   AF
+          PUSH   HL                ; HL es el puntero de la linea de ordenes
+          PUSH   DE
+          LD     H,A
+          LD     C,A_DRVINF
+          RST    30h
+          POP    DE
+          POP    HL
+          DEC    B
+          JR     NZ,_fmtok
+          POP    AF
+          LD     DE,m_ro
+          LD     C,PSTRING
+          CALL   BDOS
+          JP     REBOOT
+_fmtok:   POP    AF
 
           CALL   GETCHR
           CP     ':'
@@ -169,6 +187,7 @@ _gotbios: LD    E,(HL)
           INC    HL
           LD     D,(HL)
           EX     DE,HL         ; HL points to the drive data, first entry is the sector/tract count
+          PUSH   HL            ; DPB
 
           ; Then get the actual sector/track count
           LD     E,(HL)
@@ -179,7 +198,15 @@ _gotbios: LD    E,(HL)
           LD     (SECTS),HL    ; Number sectors to write
 
           ; ------------ BIOS: SETTRK ---------
-          LD     BC,1          ; Select track 1
+          ; La primera pista despues de las reservadas (OFF, DPB+13). Antes era
+          ; siempre la 1: en los discos en memoria (sin pistas reservadas) se
+          ; borraban datos y el directorio quedaba como estaba.
+          POP    HL
+          LD     DE,13
+          ADD    HL,DE
+          LD     C,(HL)
+          INC    HL
+          LD     B,(HL)
           LD     HL,SETTRK
           CALL   CBIOS
 
@@ -528,7 +555,8 @@ _HEX_CHRS     .BYTE  "0123456789ABCDEF"
 
 
 m_intro       .BYTE  "SDCard Volume Format",10,13,"$"
-m_baddrv      .BYTE  "Specify drive to format (A: - D:)",10,13,'$'
+m_ro          .BYTE  "Unidad de solo lectura",10,13,'$'
+m_baddrv      .BYTE  "Specify drive to format (A: - H:)",10,13,'$'
 m_nobios      .BYTE  "Can't find BIOS entry",10,13,"$"
 m_conf        .BYTE  "Are you sure you want to format $"
 m_conf2       .BYTE  ": (Y/n) $"

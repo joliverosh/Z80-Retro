@@ -48,7 +48,7 @@ import zload.asm
           public AUTO_RUN
 
           ; Error messages
-          public E_PRTERR,E_NOTF,E_ERROR,E_UNKWN,E_NEMPT,E_NOSD,E_BADPS
+          public E_PRTERR,E_NOTF,E_ERROR,E_UNKWN,E_NEMPT,E_NOSD,E_BADPS,E_SDERR
 
           ; Command handlers
           public CLS,DECCHR,EXDBG
@@ -86,6 +86,11 @@ if !IS_DEVEL
 else
           DEFB   'DEVL'
 endif
+
+          ; NMI (solo puede venir de una tarjeta del bus): antes caia en medio
+          ; del codigo de ZLoader. Se ignora.
+          ORG    $66
+          RETN
 
 END_RES   EQU     $
 
@@ -231,11 +236,17 @@ E_NOTF:   ; File doesn't exist so error
           LD    HL,S_NOTF
           JR    _prterr
 
+E_SDERR:  LD    HL,_SDERR      ; Fallo de lectura/escritura de la SD
+          JR    _prterr
 E_BADPS:  LD    HL,_IOERR
 E_PRTERR:
 _prterr:  CALL  PRINT_LN
 
-main:     CALL  RSTCONS
+main:     ; Pila limpia en cada orden: muchas salidas de error saltan aqui desde
+          ; dentro de un CALL (o con datos apilados) y cada una perdia 2 bytes;
+          ; tras unas decenas la pila invadia SCRATCH (FD00) y la maquina se colgaba.
+          LD    SP,SP_STK
+          CALL  RSTCONS
 
           LD    HL, _PROMPT
           CALL  PRINT
@@ -328,6 +339,7 @@ _ERROR       DEFB "Error",0
 _NODRV       DEFB "No OS", NULL
 _PRMBC       DEFB "BP:   @", NULL
 _NOSDADD     DEFB "Bad SDcard address", NULL
+_SDERR       DEFB "SDCard error", NULL
 
 ; Common (shared) strings
 S_COLSTR:    DEFB CR,ESC,'[25C',NULL

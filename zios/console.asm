@@ -17,7 +17,7 @@ import pcb_def.asm
 
             CSEG
 
-MaxDev      EQU    2
+MaxDev      EQU    3           ; 0 SIO A, 1 video (o SIO A), 2 SIO B
 
 ; ------ CNS_INI
 ; Initialise device handler blocks for SIO and console. IF there is no hardware
@@ -36,7 +36,13 @@ CNS_INI:    ; Copy initial dispatch table (serial port)
             LD    HL,VduPort
             LD    (dev1),HL
 
-.novdu:     XOR   A
+.novdu:     ; Dispositivo 2: canal B de la SIO si esta en modo serie general
+            LD    A,(SIOB_MD)
+            OR    A
+            JR    NZ,.nosb
+            LD    HL,SerBPort
+            LD    (dev2),HL
+.nosb:      XOR   A
             CALL  CNS_SET
             RET
 
@@ -59,10 +65,13 @@ _set:       PUSH    HL
             PUSH    AF          ; old value on stack
             LD      A,L         ; Requested device
             LD      (current),A ; Change device number
-            LD      HL,(dev0)   ; Device 0
-            DEC     A
-            JR      NZ,.copy
-            LD      HL,(dev1)
+            ADD     A,A         ; Entrada en la tabla dev0/dev1/dev2
+            LD      HL,dev0
+            CALL    ADD8T16
+            LD      A,(HL)
+            INC     HL
+            LD      H,(HL)
+            LD      L,A
 .copy:      LD      DE,CNS_OUT
             LD      BC,9        ; bytes to copy
             LDIR
@@ -138,6 +147,23 @@ SerPort::   JP      TXA
             JP      RXA
             JP      CKINCHAR
 
+; Canal B de la SIO (dispositivo 2). Si esta reservado para la Pi, SerNul.
+SerBPort::  JP      TXB
+            JP      RXB
+            JP      CKINB
+
+SerNul::    RET                 ; Sin dispositivo: la salida se descarta,
+            NOP
+            NOP
+            DEFB    0C3h        ; JP _nulin: la entrada devuelve ^Z (fin de archivo)
+            DEFW    _nulin
+            DEFB    0C3h        ; JP _nulck: y nunca hay caracteres
+            DEFW    _nulck
+_nulin:     LD      A,1Ah
+            RET
+_nulck:     XOR     A
+            RET
+
 VduPort::   JP      V_PRT
             JP      KBDCHAR
             JP      KBDCHK
@@ -149,4 +175,5 @@ VduPort::   JP      V_PRT
 
 dev0::      DW      SerPort            ; Pointer to device 0 (SIO) dispatch table
 dev1::      DW      SerPort            ; Pointer to device 1 dispatch table. Default to SIO but change on HW detection
+dev2::      DW      SerNul             ; Dispositivo 2: SIO B (si esta en modo serie general)
 current::   DB      $ff                ; Current device number (0 or 1)

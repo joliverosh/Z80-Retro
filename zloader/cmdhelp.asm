@@ -50,7 +50,7 @@ _nline:   LD    A,(HL)
           INC   C
           INC   HL
           CALL  PRINT_80         ; Returns HL after end of first string
-          PUSH  HL               ; First character of second string
+          ; (Aqui habia un PUSH HL sin POP: 2 bytes de pila perdidos por linea)
           EX    DE,HL
           LD    HL,S_COLSTR
           CALL  PRINT
@@ -97,6 +97,7 @@ _MOREBLK  DEFW  0
 .morestr  DEFB  '?+',0
 
 _HTEXT:         HELPT 2,"B XXXX",             "set BP"
+                HELPT 3,"BAUD [A|B rate]",    "Serial speed (saved in NVRAM)"
                 HELPT 1,"BO-",                "load block protocol file (no exec)"
                 HELPT 1,"BO",                 "as BO- but run the loaded file"
                 HELPT 1,"BOS [n]",            "SDCard boot"
@@ -117,6 +118,7 @@ _HTEXT:         HELPT 2,"B XXXX",             "set BP"
                 HELPT 2,"G [addr]",           "Run (from address) until breakpoint"
                 HELPT 1,"G [addr]",           "Run (from address)"
                 HELPT 3,"H",                  "Clear screen"
+                HELPT 3,"I2C",                "List devices on the I2C bus"
                 HELPT 3,"I pp",               "Read input port pp"
                 HELPT 3,"KBD vt100|wordstar", "Select Omega keyboard mapping"
                 HELPT 1,"L",                  "Load Intel hex from Stdin"
@@ -126,6 +128,7 @@ _HTEXT:         HELPT 2,"B XXXX",             "set BP"
                 HELPT 2,"N [n]",              "Step over [n] times"
                 HELPT 3,"O XX YY",            "Output YY to port XX"
                 HELPT 3,"P bb=pp",            "Map page pp into bank bb"
+                HELPT 3,"RD [n]",             "RAM disk size in 16K pages (0 = none)"
                 HELPT 2,"R RR=VV[VV]",        "Set register (8 or 16) to VV[VV]",0
                 HELPT 2,"S [n]",              "Step into next instruction 'n' times",0
                 HELPT 1,"SD [sect]",          "Display SDCard sector",0

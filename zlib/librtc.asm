@@ -45,7 +45,10 @@ RTC_MWR:  LD       A,56
           CP       B       ; A contains max number of bytes. B is requested number of bytes.
           JR       NC,_ok1 ; Requested number of bytes is < max
           LD       B,A     ; Limit to max available bytes
-_ok1:     LD       A,8     ; Skip clock control bytes
+_ok1:     LD       A,B     ; Con B=0 (pedido 0 o desplazamiento 56) DJNZ hacia
+          OR       A       ; 256 escrituras que daban la vuelta y machacaban
+          RET      Z       ; los registros del reloj.
+          LD       A,8     ; Skip clock control bytes
           ADD      C       ; Where we want to be
           CALL     setrdpt ; Set pointer and start write operation
 _wb:      LD       A,(HL)  ; Next byte to write
@@ -70,7 +73,10 @@ RTC_MRD:  LD       A,56
           CP       B                 ; A contains max number of bytes. B is requested number of bytes.
           JR       NC,_ok2           ; Requested number of bytes is < max
           LD       B,A               ; Limit to max available bytes
-_ok2:     LD       A,8               ; Skip clock control bytes
+_ok2:     LD       A,B               ; Con B=0, DJNZ leia 256 bytes y
+          OR       A                 ; desbordaba el buffer del llamador
+          RET      Z
+          LD       A,8               ; Skip clock control bytes
           ADD      C                 ; Where we want to be
           LD       C,A               ; which is 8 bytes further on.
           ; AND CONTIUE INTO _INTRD...

@@ -85,3 +85,4 @@ emulator/
 
 # And vscode directory now I'm having to change editor!
 .vscode/
+__pycache__/

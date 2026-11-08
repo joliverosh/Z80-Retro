@@ -37,3 +37,5 @@ zmac -I ../zlib $AFLAGS ./process.asm
 zmac -I ../zlib $AFLAGS ./run.asm
 zmac -I ../zlib $AFLAGS ./vdu.asm
 zmac -I ../zlib $AFLAGS ./console.asm
+zmac -I ../zlib $AFLAGS ./hwsvc.asm
+zmac -I ../zlib $AFLAGS ./memdsk.asm

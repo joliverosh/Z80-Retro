@@ -13,7 +13,9 @@ import pcb_def.asm
           extrn  DEVMAP
           extrn  P_ALLOC,P_FREE
           extrn  SDTXLTD
-          extrn  SD_BKRD,SD_BKWR,SD_PRG
+          extrn  SD_BKRD,SD_BKWR,SD_PRG,SD_CINV
+          extrn  LD_TICK,LD_SERCFG,LD_SPI,LD_I2C,LD_MEMINV
+          extrn  MD_CARD,MD_SEC,MD_INF
           extrn  DEV_OUT,DEV_IN,DEV_CHK
           extrn  NVRAM,NVSAV
           extrn  PRINT_LN,WRITE_D
@@ -60,8 +62,10 @@ _dosys:   CP     86h
 
 ; Jump to monitor. Basically an abort from the application. ZIOS memory pages are
 ; already mapped into CPU space so just restart the monitor
-LD_MON:   LD     HL,_M_MONS
-          LD     SP,SP_STK
+LD_MON:   LD     SP,SP_STK
+          LD     A,1                  ; Al volver a ZLoader escribir lo pendiente
+          CALL   SD_PRG               ; de la cache y vaciarla
+          LD     HL,_M_MONS
           EI
           CALL   PRINT_LN
           JR     WARMSTRT
@@ -251,9 +255,29 @@ LD_KBMAP: LD     A,B
 ; Record the address (in application space) of the SD Card DMA buffer
 ; HL - Address into application pages.
 ; Translate into a page and offset and store in local memory
-LD_STDMA: CALL   P_ADJ
+LD_STDMA: PUSH   DE
+          PUSH   HL
+          CALL   P_ADJ
           LD     (DMA_PAGE),A
           LD     (DMA_ADDR),HL
+          ; Guardar tambien la pagina del bloque de 16K siguiente: un buffer
+          ; que cruza el limite (p. ej. DMA en 3FC0) seguia escribiendo en lo
+          ; que hubiera en el banco 2.
+          POP    HL
+          PUSH   HL
+          LD     A,H
+          RLCA
+          RLCA
+          INC    A
+          AND    03h
+          LD     E,A
+          LD     D,0
+          LD     HL,PAGE_MP
+          ADD    HL,DE
+          LD     A,(HL)
+          LD     (DMA_PG2),A
+          POP    HL
+          POP    DE
           RET
 
 ; --------- LD_STDMA (CMD 86)
@@ -263,6 +287,8 @@ LD_STDMA: CALL   P_ADJ
 ;         HL  - The offset into that page
 LD_EDMA:  LD     A,B
           LD     (DMA_PAGE),A
+          INC    A
+          LD     (DMA_PG2),A    ; Pagina fisica siguiente
           ; Address will be mapped into bank 1 so add 4000h
           LD     A,40h
           ADD    H
@@ -270,12 +296,60 @@ LD_EDMA:  LD     A,B
           LD     (DMA_ADDR),HL
           RET
 
+; --------- LD_DRVINF (CMD 36)
+; Que hay en una unidad logica (para que un sistema operativo arme su DPB).
+; INPUT:  H  - unidad logica (0-15)
+; OUTPUT: A  - 0/1 tarjeta SD, 2 disco en RAM, 3 disco en flash, FFh la unidad
+;              apunta a un disco en memoria que no existe
+;         DE - DSM (bloques de 2 KB menos 1); 2015 en las unidades de la SD
+;         B  - 1 si es de solo lectura
+LD_DRVINF:LD     A,H
+          CALL   MD_CARD
+          CP     2
+          JR     NC,_dimd
+          LD     DE,2015
+          LD     B,0
+          RET
+_dimd:    PUSH   AF
+          CALL   MD_INF
+          JR     NZ,_dino
+          POP    AF
+          RET
+_dino:    POP    AF
+          LD     A,0FFh
+          RET
+
+; --------- LD_PGMAP3 (CMD 29)
+; Mapea paginas en los bancos 0, 1 y 2 en una sola llamada (para sistemas con
+; bancos, como CP/M 3). El cambio queda en PAGE_MP y se aplica al volver.
+; INPUTS: B - pagina para el banco 0, E - banco 1, D - banco 2 (C es el
+;         numero del servicio). Un 0 deja ese banco como esta.
+LD_PGMAP3: LD     A,B
+           OR     A
+           JR     Z,_pm1
+           LD     (PAGE_MP),A
+_pm1:      LD     A,E
+           OR     A
+           JR     Z,_pm2
+           LD     (PAGE_MP+1),A
+_pm2:      LD     A,D
+           OR     A
+           RET    Z
+           LD     (PAGE_MP+2),A
+           RET
+
 ; --------- LD_SDRD (CMD 13)
 ; SDCard Read Block.
 ;   HLDE is the logical address (H: virtual disk 0-15, DE sector offset into drive)
 ; The result will be written to the currently defined DMA address. Note that for
 ; logical addresses there's no need to specify an SDCard number!
-LD_SDRD:  CALL   SDMPADD
+LD_SDRD:  LD     A,H            ; Discos en memoria: sector de 512 bytes
+          CALL   MD_CARD
+          CP     2
+          JR     C,_sdrsd
+          LD     B,0
+          JP     MD_SEC
+_sdrsd:   CALL   SDMPADD
           ; HLDE is now the physical offset into the SDCard
           ; A contains the SDCard number for this mapping so move that to 'B'
           LD     B,A
@@ -287,11 +361,22 @@ LD_SDRD:  CALL   SDMPADD
 ;   B is the physical SDCard to read.
 ;
 ; The result will be written to the currently defined DMA address
-LD_RWRD:  ; Select the SDCard referenced in B
+LD_RWRD:  ; La lectura directa no pasa por la cache de CP/M: escribir antes
+          ; lo que este pendiente para leer datos al dia.
+          PUSH   HL
+          PUSH   DE
+          PUSH   BC
+          XOR    A
+          CALL   SD_PRG
+          POP    BC
+          POP    DE
+          POP    HL
+          ; Select the SDCard referenced in B
           LD     A,B                  ; Physical SDCard
           CALL   SD_SEL
           LD     BC,(DMA_ADDR)
           BANK   1,(DMA_PAGE)         ; Get the buffer page into bank 1
+          BANK   2,(DMA_PG2)          ; y la siguiente (buffer que cruza 16K)
           CALL   SD_INIT
           CALL   SD_RBLK              ; Get the SDCard data
           RET
@@ -353,7 +438,9 @@ LD_CPFLS:  LD    A,1
 ; Although there are currently only 3 defined counters this could change in future
 ; and applications should provide a pointer to a buffer AT LEAST 'Z_BUFSZ'
 ; bytes long, which is defined in zapi.asm
-LD_CPST:: CALL   P_MAPX     ; Get the buffer address mapped into our memory
+LD_CPST:: LD     A,H
+          OR     L
+          CALL   NZ,P_MAPX     ; Get the buffer address mapped into our memory
           JP     SD_STAT
 
 
@@ -376,7 +463,13 @@ LD_TXLATE:: CALL   SDMPADD    ; Get the buffer address mapped into our memory
 ; SDCard Write Block.
 ;   HLDE is the **SECTOR ADDRESS** (32 bits)
 ; The result will be written to the currently defined DMA address
-LD_SDWR:  CALL   SDMPADD
+LD_SDWR:  LD     A,H
+          CALL   MD_CARD
+          CP     2
+          JR     C,_sdwsd
+          LD     B,1
+          JP     MD_SEC
+_sdwsd:   CALL   SDMPADD
           ; A contains the SDCard number for this mapping so move that to 'B'
           LD     B,A
           ; Drop through to a raw write
@@ -385,14 +478,30 @@ LD_SDWR:  CALL   SDMPADD
 ; SDCard Write Block.
 ;   HLDE is the **SECTOR ADDRESS** (32 bits)
 ; The result will be written to the currently defined DMA address
-LD_RWWR:  LD     A,B
+LD_RWWR:  ; La escritura directa no pasa por la cache de CP/M: escribir antes lo
+          ; pendiente y quitar el sector de la cache, si no la cache seguiria
+          ; devolviendo (y luego escribiria) la version vieja.
+          PUSH   HL
+          PUSH   DE
+          PUSH   BC
+          XOR    A
+          CALL   SD_PRG
+          POP    BC
+          POP    DE
+          POP    HL
+          LD     A,B
+          CALL   SD_CINV
+          LD     A,B
           CALL   SD_SEL
           PUSH   BC
           LD     BC,(DMA_ADDR)
           BANK   1,(DMA_PAGE)         ; Get the buffer address into page 1
+          BANK   2,(DMA_PG2)          ; y la siguiente (buffer que cruza 16K)
           CALL   SD_WBLK
           POP    BC
-          RET
+          RET    NZ             ; Error: A = codigo, NZ
+          XOR    A              ; Bien: A = 0 y Z (antes A = 5, la respuesta de la
+          RET                   ; tarjeta; los discos en memoria ya devolvian 0)
 
 
 ; --------- SD_INV (CMD 11)
@@ -607,8 +716,16 @@ JTAB:     DW     LD_MON       ; CMD 0  - Jump back to ZLoader
           DW     LD_NOP       ; CMD 26 - NOP
           DW     LD_NOP       ; CMD 27 - NOP
           DW     LD_DTIME     ; CMD 28 - Get date/time
+          DW     LD_PGMAP3    ; CMD 29 - Mapear paginas en los bancos 0, 1 y 2 de una vez
+          DW     LD_EDMA      ; CMD 30 - DMA en una pagina fisica (B) y desplazamiento (HL)
+          DW     LD_TICK      ; CMD 31 - Tics del CTC desde el arranque (DEHL) y tics por segundo (A)
+          DW     LD_SERCFG    ; CMD 32 - Reloj de un canal de la SIO
+          DW     LD_SPI       ; CMD 33 - Intercambio con un dispositivo SPI (S3-S5)
+          DW     LD_I2C       ; CMD 34 - Escribir/leer/probar un dispositivo I2C
+          DW     LD_MEMINV    ; CMD 35 - Paginas de RAM instaladas y libres
+          DW     LD_DRVINF    ; CMD 36 - Tipo y tamano de una unidad logica
 
-MAX_CODE: EQU          ($ - JTAB) << 1
+MAX_CODE: EQU          ($ - JTAB) >> 1
 
 _M_MONS:  DEFB   10,13,"ZIOS...", 10,13,0
 

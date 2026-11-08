@@ -9,6 +9,7 @@ import defs.asm
 
   extrn  GET_HEX,GET_DEC,INPTR,INBUF,RXA,TXA,CKINCHAR
   extrn  INITSIO,SIO_OFF,SERINT
+  extrn  SERINTB,TXB,RXB,CKINB,SIO_CFG,SIOB_MD,SIOA_W4,SIOB_W4
   extrn  DEC2BIN
   extrn  SD_PRES
   extrn  SW_CFG

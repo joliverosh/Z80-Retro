@@ -7,7 +7,10 @@ import pcb_def.asm
 ; pages have been allocated.
 
 
-        public P_ALLOC,P_FREE,P_RES,P_MIN,_pages
+        public P_ALLOC,P_FREE,P_RES,P_MIN,P_FREEN,_pages
+
+; Bytes del mapa de paginas: una por bit desde RAM_PG_0 hasta FFh
+NPGBYT  EQU  (100h-RAM_PG_0)/8
         extrn  ADD8T16
 
         ; ----- DEBUG -----
@@ -54,7 +57,7 @@ P_MIN:    DEC    A
 P_ALLOC:  PUSH    BC
           PUSH    HL
           LD      HL,_pages
-          LD      B,4         ; B: count, C: base page in the current byte
+          LD      B,NPGBYT    ; B: count, C: base page in the current byte
           LD      C,RAM_PG_0  ; C: First page in the current byte
 _lp:      LD      A,(HL)
           INC     A           ; If this is zero then all pages have been allocated.
@@ -104,6 +107,29 @@ _fndpg:   LD      A,H            ; Get the mask back
           POP     BC
           RET
 
+; ------------ P_FREEN
+; Cuantas paginas libres hay. OUTPUT: A. Conserva los demas registros.
+P_FREEN:  PUSH    HL
+          PUSH    BC
+          PUSH    DE
+          LD      HL,_pages
+          LD      D,NPGBYT
+          LD      E,0
+_fnb:     LD      C,(HL)
+          LD      B,8
+_fnbit:   RR      C
+          JR      C,_fnu
+          INC     E
+_fnu:     DJNZ    _fnbit
+          INC     HL
+          DEC     D
+          JR      NZ,_fnb
+          LD      A,E
+          POP     DE
+          POP     BC
+          POP     HL
+          RET
+
 ; ------------ P_FREE
 ; Free a page number. Page to free is in A. Need to find the right bit. Use page number to
 ; find the correct byte.
@@ -131,7 +157,7 @@ _badpg2:  POP     BC
 ; No registers saved.
 _getpg:   SUB     RAM_PG_0
           RET     C               ; Invalid page. Return with carry
-          CP      20h             ; Number of pages supported
+          CP      NPGBYT*8        ; Paginas 20-FF (las del bus de expansion incluidas)
           CCF                     ; Complement carry flag
           RET     C               ; Out of range
           LD      C,A
@@ -257,7 +283,11 @@ _noov:    INC   DE
 ; page is represented by a bit in this map, currently supporting 32 pages (512KB), the
 ; base memory. If a bit is zero then the page is available, 1: the page has already
 ; been allocated. The bit number must have 20h added (first RAM page is 20h)
-_pages: DB   0,0,0,0
+; Mapa de paginas de RAM: un bit por pagina desde la 20h hasta la FFh. Las
+; paginas del bus (40-FF) que no existen las reserva MEM_PRB al arrancar.
+_pages: REPT NPGBYT
+        DB   0
+        ENDM
 
 
         END

@@ -60,8 +60,9 @@ zmac $INCLUDE $AFLAGS ./cmdmodify.asm
 zmac $INCLUDE $AFLAGS ./cmdhelp.asm
 zmac $INCLUDE $AFLAGS ./cmdcons.asm
 zmac $INCLUDE $AFLAGS ./more.asm
+zmac $INCLUDE $AFLAGS ./cmdhw5.asm
 
-ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
+ld80 -o ./loader.tmp -P 0068 -D 3600 -O ihex -s - -m -S 2048 \
         ./zout/loader.rel \
         ./zout/disassembler.rel \
         ./zout/breakpoint.rel \
@@ -90,6 +91,9 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/cmdhelp.rel \
         ./zout/cmdcons.rel \
         ./zout/more.rel \
+        ./zout/cmdhw5.rel \
+        ../zios/zout/hwsvc.rel \
+        ../zios/zout/memdsk.rel \
         -P C500 -D C000 \
         ../zios/zout/pcb.rel \
         ../zlib/zout/libsio.rel \

@@ -8,13 +8,16 @@ import pcb_def.asm
   extrn   NUL_ISR
   extrn   VDU_INI,VDU_OFF
   extrn   CNS_INI
+  extrn   MEM_PRB,TMR_INI,TMR_OFF,MD_INI
+  public  _ETICK,TICKS
+  extrn   SPCISA,SPCISB
   public  ZIOS_INI,ZIOS_OFF
 
 ; init.asm
 ; System initialisation code. ZIOS must be initialised after the loader
 ; has copied the code into executable RAM.
 
-            extrn  SDPREP,RTC_INI,NVLD,INITSIO,SERINT
+            extrn  SDPREP,RTC_INI,NVLD,INITSIO,SERINT,NVRAM
             public ISRCTXT
 
             CSEG
@@ -44,6 +47,26 @@ ZIOS_INI::  LD    A,MN2_PG+1
             AND    CFG_VAL
             LD     (P_FLAGS),A
 
+            ; Modo de reloj de la SIO guardado en la NVRAM (0 = por omision). Con
+            ; los interruptores de arranque en 11 (antes sin uso) se ignora: es la
+            ; forma de recuperar la consola si se eligio una velocidad que no
+            ; corresponde a los puentes.
+            CALL   SW_CFG
+            AND    3
+            CP     3
+            LD     A,0
+            JR     Z,_safe
+            LD     A,(NVRAM+NV_SIOA)
+_safe:      LD     (SIOA_W4),A
+            JR     Z,_safe2
+            LD     A,(NVRAM+NV_SIOB)
+_safe2:     LD     (SIOB_W4),A
+
+            ; RAM de expansion en el bus (paginas 40-FF)
+            DI
+            CALL   MEM_PRB
+            CALL   MD_INI          ; Discos en RAM y en flash (unidades G y H)
+
             ; Initialise the interrupt vector table. Table will be right at the end of the
             ; memory map which will be in our second RAM page and will be copied for
             ; application context.
@@ -52,7 +75,7 @@ ZIOS_INI::  LD    A,MN2_PG+1
 
             LD    HL,0xC000+ISR_BASE
             LD    DE,NUL_ISR
-            LD    B,16
+            LD    B,12           ; SIO (8) + CTC (4) vectors; FFF8-FFFF holds RAWGO
 _nxtisr:    LD    (HL),E
             INC   HL
             LD    (HL),D
@@ -62,12 +85,32 @@ _nxtisr:    LD    (HL),E
             ; Add entry to vector table for supervisor SIO ISR
             LD     HL,_EISR
             LD     (0xC000+SIO_ARX),HL
+            LD     HL,_EISRB             ; Canal B (si esta en modo serie)
+            LD     (0xC000+SIO_BRX),HL
+            LD     HL,SPCISA           ; Condiciones especiales de recepcion
+            LD     (0xC000+SIO_ASP),HL
+            LD     HL,SPCISB
+            LD     (0xC000+SIO_BSP),HL
+            LD     HL,_ETICK             ; Tic del CTC (canal 2)
+            LD     (0xC000+CTC_ICH2),HL
 
-            ; Initialise the serial IO module
-            XOR    A              ; Initialise SIO without setting up interrupt vectors.
-            CALL   INITSIO
+            ; Initialise the serial IO module. A = 1 si el canal B es para la Pi.
+            ; Tambien con los interruptores en 01 (arranque desde la Raspberry Pi).
+            LD     A,(NVRAM)
+            AND    CF_SIOBPI
+            JR     NZ,_sbpi
+            CALL   SW_CFG
+            AND    3
+            CP     1
+            LD     A,0
+            JR     NZ,_sbser
+_sbpi:      LD     A,1
+_sbser:     CALL   INITSIO
             IM     2              ; Using interrupt mode 1 AT THE MOMENT. Need to move to vectored at some point
             EI
+
+            ; Tic del sistema y reloj del CTC para la SIO
+            CALL   TMR_INI
 
             ; Install RST 30h for API access.
             LD     A,$C3
@@ -93,6 +136,7 @@ _nxtisr:    LD    (HL),E
 ; Called to disable all active hardware used by ZIOS. Call this (eg from ZLoader) before starting
 ; execution of code that doesn't use the ZIOS services.
 ZIOS_OFF:   CALL   VDU_OFF
+            CALL   TMR_OFF
 
             ; Disable SIO interrupts for channel 0
             CALL   SIO_OFF
@@ -104,6 +148,31 @@ _EISR:      CALL    SERINT
             EI
             RETI
 
+; Recepcion del canal B (modo serie general)
+_EISRB:     CALL    SERINTB
+            EI
+            RETI
+
+; Tic del CTC (canal 2) en el contexto de ZIOS/ZLoader
+_ETICK:     PUSH    AF              ; INC cambia las banderas: hay que guardarlas
+            PUSH    HL
+            LD      HL,TICKS
+            INC     (HL)
+            JR      NZ,_etk
+            INC     HL
+            INC     (HL)
+            JR      NZ,_etk
+            INC     HL
+            INC     (HL)
+            JR      NZ,_etk
+            INC     HL
+            INC     (HL)
+_etk:       POP     HL
+            POP     AF
+            EI
+            RETI
+
 
             DSEG
 ISRCTXT     DEFB    0
+TICKS       DEFB    0,0,0,0     ; Tics del CTC desde el arranque

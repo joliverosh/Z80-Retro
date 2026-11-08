@@ -24,6 +24,7 @@ import zload.asm
   extrn  SHDTIME
   extrn  S_YES,S_NO
   extrn  main
+  extrn  SH_MEM
 
   public SH_HW, DHW
 
@@ -45,6 +46,7 @@ SH_HW2:     LD    C,A_HWINV
             CALL  SH_SDC
             CALL  SH_VDU
             CALL  SH_PIO
+            CALL  SH_MEM
             CALL  NL
             RET
 

@@ -29,7 +29,11 @@ import zload.asm
   public SWRITE
 
   extrn  main
-  extrn  E_NOSD
+  extrn  E_NOSD,E_SDERR
+
+; Posicion de la marca de fin y la suma de la tabla de arranque (igual que
+; ENDMOFF/CSUMOFF en cmdsdboot.asm: 16 entradas de 23 bytes).
+BT_ENDM    EQU   16*23
   extrn  SADDR,SDPAGE,SBCALCS
   extrn  SETDMA
 
@@ -61,9 +65,11 @@ SWRITE:  CALL  SETDMA
          CALL  SBCALCS
 
          ; Write checksum into page buffer
+         ; Antes se escribia en SDPAGE+480/481: la tabla seguia con la suma
+         ; vieja y se machacaba la entrada 3 de particiones del MBR.
          LD    A,$FF
-         LD    (SDPAGE+480),A
-         LD    (SDPAGE+481),HL
+         LD    (SDPAGE+BT_ENDM),A
+         LD    (SDPAGE+BT_ENDM+1),HL
          POP   DE
          POP   HL
 
@@ -72,6 +78,8 @@ SWRITE:  CALL  SETDMA
 _nocs:   LD    A,A_DSKWR-A_DSKRD
          ADD   C
          LD    C,A
+         LD    B,0            ; SDCard 0 para direcciones absolutas
          RST   30h
+         JR    NZ,E_SDERR     ; Antes el error de escritura se perdia
          JR    main
          ; ---------- DEBUG DUMP

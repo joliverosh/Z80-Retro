@@ -28,6 +28,7 @@ import zload.asm
 
 ; ------------------- Port output
 CFGCONS: CALL  WASTESPC
+         JR    Z,main      ; Sin parametro no hace nada (como dice la cabecera)
          CALL  GET_DEC
          JR    C,E_BADPS
 

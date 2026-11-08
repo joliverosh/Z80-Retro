@@ -37,6 +37,14 @@ A_HWINV      EQU    24    ; Hardware inventory
 A_DVINV      EQU    25    ; Device inventory
 
 A_DTIME      EQU    28    ; Return current date time (via a buffer)
+A_PGMAP3     EQU    29    ; Mapear paginas en los bancos 0-2 (B, E, D; 0 = sin cambio)
+A_EDMA       EQU    30    ; DMA en pagina fisica B, desplazamiento HL
+A_TICK       EQU    31    ; Tics del sistema: DEHL = cuenta, A = tics por segundo
+A_SERCFG     EQU    32    ; Reloj de la SIO: B canal, D modo (1 x16, 2 x32, 3 x64), E constante CTC
+A_SPI        EQU    33    ; SPI: B dispositivo 2-4 (+80h = dejar CS), E bytes, HL buffer
+A_I2C        EQU    34    ; I2C: B 0 escribir/1 leer/2 probar, D direccion, E bytes, HL buffer
+A_MEMINV     EQU    35    ; Memoria: A paginas de RAM instaladas, B libres
+A_DRVINF     EQU    36    ; Unidad H: A tipo (0/1 SD, 2 RAM, 3 flash, FF no hay), DE DSM, B solo lectura
 
 ; ZLoader private calls
 S_DSKDM      EQU    $86    ; Set DMA address to ZLoader buffer (no params)
