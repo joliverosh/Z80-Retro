@@ -17,6 +17,7 @@ import zload.asm
   extrn  main,E_BADPS
   extrn  LD_SERCFG,LD_I2C,LD_MEMINV,MD_INF,MEM_TOT
   extrn  SIOA_W4,SIOB_W4
+  extrn  OVLCALL
 
   public BAUD,RAMDSK,I2CSCAN,SH_MEM
 
@@ -121,8 +122,8 @@ _bfl2:    LD    (NVRAM+NV_SIOFL),A
           INC   E
           DEC   E
           JR    Z,_bnow
-          LD    HL,_m_jmp
-          CALL  PRINT_LN
+          LD    A,6               ; v6: aviso del puente o del DIP segun la placa
+          CALL  OVLCALL
 _bnow:    ; Esperar a que salga el texto antes de cambiar el reloj
           LD    HL,0
 _bwt:     DEC   HL
@@ -206,8 +207,12 @@ _bsh8:    LD    HL,_m_clku
           INC   E
           DEC   E
           JR    Z,_bsh9
-          LD    HL,_m_ctcu
+          LD    A,5               ; v6: texto segun la placa (P6/P3 o DIP 8)
+          CALL  OVLCALL
+          CALL  NL
+          JR    _bsh10
 _bsh9:    CALL  PRINT_LN
+_bsh10:
           INC   B
           LD    A,B
           CP    2
@@ -242,10 +247,8 @@ _skprate: CALL  _skpstr
 
 _m_sio:   DEFB  "SIO ",0
 _m_clku:  DEFB  " (reloj por CLKU)",0
-_m_ctcu:  DEFB  " (reloj del CTC: P6/P3 en CLK0_OUT)",0
 _m_set:   DEFB  "Guardado. El canal ",0
 _m_set2:  DEFB  " cambia ahora (con los interruptores en 11 se arranca con los valores de siempre)",0
-_m_jmp:   DEFB  "Esta velocidad sale del CTC: su puente (P6 canal A, P3 canal B) debe estar en CLK0_OUT",0
 _m_ctc:   DEFB  "El otro canal usa el CTC con otra velocidad (el CTC es comun a los dos)",0
 
 ; ---------------- RD [n]
@@ -271,7 +274,9 @@ _rdshow:  CALL  _shrd
           JR    main
 
 ; Lineas de memoria para DH
-SH_MEM:   LD    HL,_m_ram
+SH_MEM:   LD    A,4               ; v6: linea "Placa"
+          CALL  OVLCALL
+          LD    HL,_m_ram
           CALL  PRINT
           LD    A,(MEM_TOT)
           CALL  _pgkb

@@ -27,7 +27,7 @@ import ../zlib/defs.asm
           ; extrn  WRITE_8, WRITE_16
 
           ; Operational exports
-          public SD_SEL, SD_INIT, SD_RST, SD_WBLK, SD_RBLK, SD_PRES
+          public SD_SEL, SD_INIT, SD_RST, SD_WBLK, SD_RBLK, SD_PRES, SD_TINI
 
           ; Debug symbols
           public _RSET, _SCND, _OCR, _AINIT, _SBLK, _CMDBUF
@@ -87,6 +87,24 @@ _tst1:    AND       (HL)          ; Device number
           DEC       HL
           LD        A,(HL)
           RET                     ; Do nothing if there's no card
+
+; ------ SD_TINI (v6, para TEST)
+; Vuelve a inicializar una tarjeta desde cero (CMD0, CMD8, ACMD41).
+; INPUT:  A - tarjeta (0 o 1)
+; OUTPUT: A - 0 sin tarjeta o no responde, 1 SDSC, 2 SDHC/SDXC
+SD_TINI:  PUSH      HL
+          LD        HL,SD_STAT+1
+          OR        A
+          JR        Z,_ti0
+          LD        HL,SD_STAT+4
+_ti0:     LD        (HL),0          ; Olvidar la inicializacion anterior
+          PUSH      HL
+          CALL      SD_SEL
+          CALL      SD_INIT
+          POP       HL
+          LD        A,(HL)
+          POP       HL
+          RET
 
 ; ------ SD_SEL
 ; Select one of the SDCards (0 or 1)

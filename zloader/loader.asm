@@ -29,6 +29,7 @@ import zload.asm
 
           ; From hw
           extrn  SH_HW
+          extrn  OVLBOOT
 
           ; From SDCard
           extrn  SDLDDEF
@@ -204,6 +205,7 @@ RUN_CLI:    ; We're running in supervisor mode
 NOSIO:      LD    HL,_INTRO
             CALL  PRINT_LN
             CALL  SH_HW
+            CALL  OVLBOOT       ; v6: pantalla OLED y pitido de la ZEPHYRUS
 
 if !IS_DEVEL
           ; Check the state of the DIL switches and look for autoboot mode

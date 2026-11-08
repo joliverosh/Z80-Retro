@@ -91,8 +91,8 @@ _nxtisr:    LD    (HL),E
             LD     (0xC000+SIO_ASP),HL
             LD     HL,SPCISB
             LD     (0xC000+SIO_BSP),HL
-            LD     HL,_ETICK             ; Tic del CTC (canal 2)
-            LD     (0xC000+CTC_ICH2),HL
+            LD     HL,_ETICK             ; Tic del CTC (canal 1 desde la v6)
+            LD     (0xC000+CTC_ICH1),HL
 
             ; Initialise the serial IO module. A = 1 si el canal B es para la Pi.
             ; Tambien con los interruptores en 01 (arranque desde la Raspberry Pi).

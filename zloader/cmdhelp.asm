@@ -126,9 +126,11 @@ _HTEXT:         HELPT 2,"B XXXX",             "set BP"
                 HELPT 1,"LH",                 "Load hex file via the block protocol"
                 HELPT 3,"M [addr]",           "Modify memory at addr"
                 HELPT 2,"N [n]",              "Step over [n] times"
+                HELPT 3,"OLED",               "Status on the I2C OLED (3Ch)"
                 HELPT 3,"O XX YY",            "Output YY to port XX"
                 HELPT 3,"P bb=pp",            "Map page pp into bank bb"
                 HELPT 3,"RD [n]",             "RAM disk size in 16K pages (0 = none)"
+                HELPT 3,"REV [2.2|2.3]",      "Board: Rev 2.2 or ZEPHYRUS 2.3"
                 HELPT 2,"R RR=VV[VV]",        "Set register (8 or 16) to VV[VV]",0
                 HELPT 2,"S [n]",              "Step into next instruction 'n' times",0
                 HELPT 1,"SD [sect]",          "Display SDCard sector",0
@@ -136,6 +138,7 @@ _HTEXT:         HELPT 2,"B XXXX",             "set BP"
                 HELPT 1,"SM",                 "Display SDCard drive map",0
                 HELPT 1,"SM [drv=dsk]",       "Map disk 'dsk' to logical drive 'drv'",0
                 HELPT 1,"SW",                 "Write SDCard sector",0
+                HELPT 3,"TEST",               "Test RAM, SD, RTC, OLED (and GPIO, beep)"
                 HELPT 3,"WB [params]",        "Add bootable image",0
                 HELPT 3,"WI [params]",        "Write image to SD",0
                 DEFB  0

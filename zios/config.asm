@@ -21,6 +21,8 @@ NV_CTC0     EQU   3      ; Constante del canal 0 del CTC (reloj de la SIO por P3
 NV_RDSK     EQU   4      ; Paginas del disco en RAM: 0 = por omision, FFh = sin disco en RAM
 NV_CLK      EQU   5      ; Reloj de la CPU: 0 = 7,3728 MHz, 1 = 14,7456 MHz (para el tic)
 NV_SIOFL    EQU   6      ; Bit 0: el canal A usa el reloj del CTC; bit 1: el canal B
+NV_BOARD    EQU   7      ; Placa (v6): 0 = Z80 CPU Rev 2.2, BRD_23 = ZEPHYRUS Rev 2.3
+BRD_23      EQU   23h
 
 ; Default flag byte if NVRAM invalid
 CFG_DEF     EQU   CF_VT100|CF_DEBUG|CF_LOADOS|CF_BREAK

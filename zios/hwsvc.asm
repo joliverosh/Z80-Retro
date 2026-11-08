@@ -8,12 +8,13 @@ import pcb_def.asm
 ; queda en la pagina de ZIOS. Lo que usan las interrupciones en el contexto de
 ; la aplicacion (TICKS y _ETICK) esta en init.asm, en la pagina de ZIOS.
 ; Hardware de la placa principal que el software original no usaba:
-;   - CTC: tic del sistema (canal 2) y reloj de la SIO (canal 0, si P3/P6 estan
-;     en CLK0_OUT)
+;   - CTC: tic del sistema (canal 1, v6; antes canal 2) y reloj de la SIO
+;     (canal 0, si P3/P6 estan en CLK0_OUT). El canal 2 queda libre: en la
+;     ZEPHYRUS (Rev 2.3) su salida ZC/TO2 mueve el altavoz.
 ;   - Servicios: 31 tic, 32 configurar SIO, 33 SPI (S3-S5), 34 I2C, 35 memoria
 ;   - Deteccion de RAM de expansion en el bus (paginas 40-FF)
 
-          public TMR_INI,TMR_OFF
+          public TMR_INI,TMR_OFF,BEEP,BEL_HK,LD_GPIO,LD_BEEP
           public LD_TICK,LD_SERCFG,LD_SPI,LD_I2C,LD_MEMINV
           public MEM_PRB,MEM_TOT
 
@@ -33,8 +34,11 @@ import pcb_def.asm
 ;          (canal B). En x16: baudios = CPU / (256 x TC); con 7,3728 MHz
 ;          TC=3 da 9600, 6 da 4800, 12 da 2400, 24 da 1200. Si los puentes
 ;          estan en CLKU no tiene efecto.
-; Canal 2: tic del sistema. Temporizador con preescala 256 y TC=240:
-;          120 Hz con 7,3728 MHz (240 Hz con 14,7456 MHz).
+; Canal 1: tic del sistema (v6). Temporizador con preescala 256 y TC=240:
+;          120 Hz con 7,3728 MHz (240 Hz con 14,7456 MHz). En la v5 era el
+;          canal 2, pero en la ZEPHYRUS ZC/TO2 va al altavoz y el tic sonaba
+;          como un zumbido de 120 Hz con el interruptor BEEP en ON.
+; Canal 2: tono del altavoz de la ZEPHYRUS (BEEP), apagado el resto del tiempo.
 ; El canal 3 lo sigue usando la tarjeta de video (vdu.asm) si esta.
 ; ===================================================================
 CTC_VEC   EQU    0F0h       ; Vectores FFF0-FFF6 (CTC_ICH0..3)
@@ -54,9 +58,11 @@ TMR_INI:  DI
           JR     NZ,_tc0
           LD     A,3
 _tc0:     OUT    (CTC_CH0),A
-          LD     A,10100111b                 ; Canal 2: int, temporizador, /256
-          OUT    (CTC_CH2),A
+          LD     A,10100111b                 ; Canal 1: int, temporizador, /256
+          OUT    (CTC_CH1),A
           LD     A,240
+          OUT    (CTC_CH1),A
+          LD     A,00000011b                 ; Canal 2 parado (altavoz en silencio)
           OUT    (CTC_CH2),A
           LD     A,120
           LD     HL,NVRAM+NV_CLK
@@ -70,7 +76,50 @@ _hz:      LD     (TCK_HZ),A
 ; Apagar el tic (las aplicaciones sin ZIOS). El canal 0 sigue andando porque
 ; puede ser el reloj de la consola.
 TMR_OFF:  LD     A,00000011b
+          OUT    (CTC_CH1),A
+          RET
+
+; --------- BEEP (v6)
+; Pitido de unos 0,1 s por el altavoz de la ZEPHYRUS: canal 2 del CTC como
+; temporizador con preescala 256 y TC=33 (873 Hz con 7,3728 MHz). Solo si la
+; NVRAM dice que la placa es la Rev 2.3; en la Rev 2.2 no hace nada. Suena
+; solo con el interruptor 7 (BEEP) del DIP en ON. Conserva todos los registros.
+BEEP:     PUSH   AF
+          LD     A,(NVRAM+NV_BOARD)
+          CP     BRD_23
+          JR     NZ,_bpx
+          PUSH   BC
+          LD     A,00100111b                 ; Temporizador, /256, sin int., sigue TC
           OUT    (CTC_CH2),A
+          LD     A,33
+          OUT    (CTC_CH2),A
+          LD     BC,28000                    ; ~0,1 s a 7,3728 MHz
+_bpw:     DEC    BC
+          LD     A,B
+          OR     C
+          JR     NZ,_bpw
+          LD     A,00000011b                 ; Parar
+          OUT    (CTC_CH2),A
+          POP    BC
+_bpx:     POP    AF
+          RET
+
+; BEL_HK: lo llama la salida de caracteres (servicio 4). Con BEL (07h) pita.
+BEL_HK:   CP     7
+          CALL   Z,BEEP
+          RET
+
+; --------- LD_GPIO (servicio 37, v6)
+; Escribir las 6 salidas del GPIO de la ZEPHYRUS (74HC174 en 6Ch).
+; INPUT: E - bits 0-5 = Q0-Q5. OUTPUT: A = 0
+LD_GPIO:  LD     A,E
+          OUT    (6Ch),A
+          XOR    A
+          RET
+
+; --------- LD_BEEP (servicio 38, v6): un pitido (solo en la Rev 2.3)
+LD_BEEP:  CALL   BEEP
+          XOR    A
           RET
 
 ; --------- LD_TICK (servicio 31)

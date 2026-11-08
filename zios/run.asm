@@ -105,7 +105,7 @@ _nxtisr:  LD     (HL),E
           LD   HL,SPCISB
           LD   (8000h+SIO_BSP),HL
           LD   HL,TCK_ISR              ; Tic del CTC
-          LD   (8000h+CTC_ICH2),HL
+          LD   (8000h+CTC_ICH1),HL
 
           ; And patch the timer ISR
           LD   HL,CTC_ISR

@@ -14,7 +14,7 @@ import pcb_def.asm
           extrn  P_ALLOC,P_FREE
           extrn  SDTXLTD
           extrn  SD_BKRD,SD_BKWR,SD_PRG,SD_CINV
-          extrn  LD_TICK,LD_SERCFG,LD_SPI,LD_I2C,LD_MEMINV
+          extrn  LD_TICK,LD_SERCFG,LD_SPI,LD_I2C,LD_MEMINV,LD_GPIO,LD_BEEP,BEL_HK
           extrn  MD_CARD,MD_SEC,MD_INF
           extrn  DEV_OUT,DEV_IN,DEV_CHK
           extrn  NVRAM,NVSAV
@@ -115,6 +115,7 @@ LD_PGSEL: LD     A,E
 TX_CHR:   LD     A,E        ; Character to print
           PUSH   DE
           PUSH   HL
+          CALL   BEL_HK     ; v6: BEL (07h) pita en la ZEPHYRUS
           CALL   DEV_OUT
           POP    HL
           POP    DE
@@ -724,6 +725,8 @@ JTAB:     DW     LD_MON       ; CMD 0  - Jump back to ZLoader
           DW     LD_I2C       ; CMD 34 - Escribir/leer/probar un dispositivo I2C
           DW     LD_MEMINV    ; CMD 35 - Paginas de RAM instaladas y libres
           DW     LD_DRVINF    ; CMD 36 - Tipo y tamano de una unidad logica
+          DW     LD_GPIO      ; CMD 37 - GPIO de la ZEPHYRUS (6Ch): E = salidas Q0-Q5 (v6)
+          DW     LD_BEEP      ; CMD 38 - Pitido por el altavoz de la ZEPHYRUS (v6)
 
 MAX_CODE: EQU          ($ - JTAB) >> 1
 

@@ -15,4 +15,6 @@ for a, n, t, m in re.findall(r'^([0-9a-f]{4})\s+([0-9a-f]{4})\s+([PD])\s+-\s+(\S
         print('Datos de ZLoader pisan el historial (3C00):', m, hex(fin)); mal = True
     if 0xC500 <= a < 0xFE00 and t == 'P' and fin > 0xFD00:
         print('ZIOS deja menos de 256 bytes de pila bajo FE00:', m, hex(fin)); mal = True
+    if 0x9000 <= a < 0xC000 and t == 'P' and fin > 0xBFF0:
+        print('El overlay (pagina 02 de la flash) pisa la cabecera del disco en flash (BFF0):', m, hex(fin)); mal = True
 sys.exit(1 if mal else 0)

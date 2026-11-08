@@ -61,6 +61,8 @@ zmac $INCLUDE $AFLAGS ./cmdhelp.asm
 zmac $INCLUDE $AFLAGS ./cmdcons.asm
 zmac $INCLUDE $AFLAGS ./more.asm
 zmac $INCLUDE $AFLAGS ./cmdhw5.asm
+zmac $INCLUDE $AFLAGS ./ovlstub.asm
+zmac $INCLUDE $AFLAGS ./ovl.asm
 
 ld80 -o ./loader.tmp -P 0068 -D 3600 -O ihex -s - -m -S 2048 \
         ./zout/loader.rel \
@@ -92,6 +94,7 @@ ld80 -o ./loader.tmp -P 0068 -D 3600 -O ihex -s - -m -S 2048 \
         ./zout/cmdcons.rel \
         ./zout/more.rel \
         ./zout/cmdhw5.rel \
+        ./zout/ovlstub.rel \
         ../zios/zout/hwsvc.rel \
         ../zios/zout/memdsk.rel \
         -P C500 -D C000 \
@@ -122,6 +125,8 @@ ld80 -o ./loader.tmp -P 0068 -D 3600 -O ihex -s - -m -S 2048 \
         ../zios/zout/run.rel \
         -P FE00 \
         ../zios/zout/appl.rel \
+        -P 9000 \
+        ./zout/ovl.rel \
 
 node ../tools/hextform --fix --move=C000,FFFF,4000 loader.tmp > loader.hex
 rm ./loader.tmp

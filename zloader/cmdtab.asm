@@ -9,6 +9,7 @@ import zlib.asm
    extrn FLSH_ID,FLSH_M,FLSH_PRG,FLSH_CHR
    extrn CFGCONS
    extrn BAUD,RAMDSK,I2CSCAN
+   extrn TESTC,REVC,OLEDC
 
    public BDG_TABLE,CMD_TABLE,FNDCMD,SETMODE
 
@@ -121,6 +122,7 @@ BDG_TABLE:   CMDDEF 'BOS?',SDDIR
              CMDDEF 'B',   BP
              CMDDEF 'N',   NSTEP
              CMDDEF 'RD',  RAMDSK
+             CMDDEF 'REV', REVC
              CMDDEF 'R',   SET_RGS
              CMDDEF 'SM',  SMAP
              CMDDEF 'SD',  SDUMP
@@ -159,14 +161,17 @@ CMD_TABLE:   CMDDEF 'BAUD',BAUD
              CMDDEF 'MS',  SDMOD
              CMDDEF 'M',   MODIFY
              CMDDEF 'N',   NSTEP
+             CMDDEF 'OLED',OLEDC
              CMDDEF 'O',   OUTPUT
              CMDDEF 'P',   PAGECMD              ; Display/change application page assignment
              CMDDEF 'Q',   DECCHR
              CMDDEF 'RD',  RAMDSK
+             CMDDEF 'REV', REVC
              CMDDEF 'SM',  SMAP              ; Map a logical to physical SD card.
              CMDDEF 'SD',  SDUMP             ; Display SDCard sector contents
              CMDDEF 'SW',  SWRITE            ; Write to an SDCard sesctor
              CMDDEF 'S',   MAPDSK            ; Map a logical to physical SD card.
+             CMDDEF 'TEST',TESTC
              CMDDEF 'T',   EXDBG
              CMDDEF '.',   SHWHIST
              CMDDEF 'G',   RUN
