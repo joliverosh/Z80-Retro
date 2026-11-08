@@ -555,7 +555,7 @@ _HEX_CHRS     .BYTE  "0123456789ABCDEF"
 
 
 m_intro       .BYTE  "SDCard Volume Format",10,13,"$"
-m_ro          .BYTE  "Unidad de solo lectura",10,13,'$'
+m_ro          .BYTE  "Read-only drive",10,13,'$'
 m_baddrv      .BYTE  "Specify drive to format (A: - H:)",10,13,'$'
 m_nobios      .BYTE  "Can't find BIOS entry",10,13,"$"
 m_conf        .BYTE  "Are you sure you want to format $"

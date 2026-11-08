@@ -32,7 +32,9 @@ cp zout/bios3.rel zout/ldrbios.rel $B/
 cp dri/cpmldr.asm dri/makedate.lib dri/scb.asm dri/resbdos3.spr dri/bnkbdos3.spr \
    dri/gencpm.com dri/link.com dri/rmac.com gencpm.dat $B/
 cd $B
-run() { BINDIR80=$PWD/ "$ZXCC" "$@"; }
+# zxcc necesita su bios.bin: se copia del directorio del ejecutable
+cp "$(dirname "$(command -v "$ZXCC")")/bios.bin" . 2>/dev/null || true
+run() { BINDIR80=$PWD/ LIBDIR80=$PWD/ "$ZXCC" "$@"; }
 
 # 3. CPMLDR = CPMLDR.REL (DRI) + LDRBIOS, cargado en 0100h
 run rmac cpmldr '$PZSZ' > rmac_cpmldr.log

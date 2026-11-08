@@ -660,9 +660,9 @@ _cm1:     LD     A,(DE)
 ; ---------------------------------------------------------------------------
 ; Datos en memoria comun
 ; ---------------------------------------------------------------------------
-SIGNON:   DB     CR,LF,'CP/M 3 con bancos para Z80-Retro (ZIOS)',CR,LF,0
-MNOCCP:   DB     CR,LF,'BIOS: falta A:CCP.COM - pulse una tecla',0
-MNOMEM:   DB     CR,LF,'BIOS: no hay paginas de memoria para los bancos',CR,LF,0
+SIGNON:   DB     CR,LF,'CP/M 3 banked for the Z80-Retro (ZIOS)',CR,LF,0
+MNOCCP:   DB     CR,LF,'BIOS: A:CCP.COM missing - press a key',0
+MNOMEM:   DB     CR,LF,'BIOS: no memory pages for the banks',CR,LF,0
 
 CCPFCB:   DB     1,'CCP     COM',0,0,0,0
           DW     0,0,0,0,0,0,0,0
@@ -973,8 +973,8 @@ PHEX4:    AND    0Fh
           POP    HL
           RET
 
-MERR1:    DB     CR,LF,'BIOS: error de lectura/escritura en la SD, unidad ',0
-MERR2:    DB     ': pista ',0
+MERR1:    DB     CR,LF,'BIOS: SD read/write error, drive ',0
+MERR2:    DB     ': track ',0
 MERR3:    DB     ' sector ',0
 MERR4:    DB     CR,LF,0
 

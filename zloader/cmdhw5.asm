@@ -246,10 +246,10 @@ _skprate: CALL  _skpstr
           RET
 
 _m_sio:   DEFB  "SIO ",0
-_m_clku:  DEFB  " (reloj por CLKU)",0
-_m_set:   DEFB  "Guardado. El canal ",0
-_m_set2:  DEFB  " cambia ahora (con los interruptores en 11 se arranca con los valores de siempre)",0
-_m_ctc:   DEFB  "El otro canal usa el CTC con otra velocidad (el CTC es comun a los dos)",0
+_m_clku:  DEFB  " (clock from CLKU)",0
+_m_set:   DEFB  "Saved. Channel ",0
+_m_set2:  DEFB  " changes now (with the switches at 11 it boots with the default settings)",0
+_m_ctc:   DEFB  "The other channel uses the CTC at another speed (the CTC is shared by both)",0
 
 ; ---------------- RD [n]
 RAMDSK:   CALL  WASTESPC
@@ -329,14 +329,14 @@ _dskkb:   EX    DE,HL
           JP    PRINT
 
 _m_ram:   DEFB  "RAM: ",0
-_m_free:  DEFB  ", libre para programas: ",0
+_m_free:  DEFB  ", free for programs: ",0
 _m_kb:    DEFB  " KB",0
-_m_rd:    DEFB  "Disco en RAM: ",0
-_m_rd2:   DEFB  " (unidad G)",0
-_m_fd:    DEFB  "Disco en flash: ",0
-_m_fd2:   DEFB  " (unidad H, solo lectura)",0
+_m_rd:    DEFB  "RAM disk: ",0
+_m_rd2:   DEFB  " (drive G)",0
+_m_fd:    DEFB  "Flash disk: ",0
+_m_fd2:   DEFB  " (drive H, read only)",0
 _m_no:    DEFB  "no",0
-_m_rdr:   DEFB  "Guardado. Se aplica al reiniciar (el disco en RAM se vuelve a formatear).",0
+_m_rdr:   DEFB  "Saved. Applied on reset (the RAM disk is formatted again).",0
 
 ; ---------------- I2C
 ; Probar las direcciones 08-77 (7 bits) y mostrar las que responden, en el

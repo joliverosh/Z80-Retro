@@ -233,7 +233,7 @@ CMD_B:          PUSH     AF
                 LD       A,0FFh
                 OR       A
                 RET
-_m_sb:          DEFB     "SIO B en modo serie (opcion 'SIO B para la Pi' en C)",0
+_m_sb:          DEFB     "SIO B in serial mode (option 'SIO B for the Pi' in C)",0
 _cmdok:
                 ; DI antes de seleccionar WR5: si la interrupcion de la SIO A
                 ; entraba entre los dos OUT, su escritura a SIOA_C caia en WR5

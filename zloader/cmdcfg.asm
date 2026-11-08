@@ -191,6 +191,6 @@ CFG_TAB:        DEFB      00000001b                ; Bit 0
 
                 DEFB      00100000b                ; Bit 5
                 DEFB      0
-                DEFB      "SIO B para la Pi (al reiniciar): ",0
+                DEFB      "SIO B for the Pi (on reset): ",0
 
                 DEFB      0         ; Terminator

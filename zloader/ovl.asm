@@ -695,53 +695,53 @@ _al4:     LD    A,C
 ; ---------------------------------------------------------------- textos
 _b22:     DEFB  "Z80 CPU Rev 2.2",0
 _b23:     DEFB  "ZEPHYRUS Rev 2.3",0
-_m_plc:   DEFB  "Placa                    ",0
-_m_ck22:  DEFB  " (reloj del CTC: P6/P3 en CLK0_OUT)",0
-_m_ck23:  DEFB  " (reloj del CTC: interruptor 8 BAUD del DIP en ON)",0
-_m_bj22:  DEFB  "Esta velocidad sale del CTC: su puente (P6 canal A, P3 canal B) debe estar en CLK0_OUT",0
-_m_bj23:  DEFB  "Esta velocidad sale del CTC: pon el interruptor 8 (BAUD) del DIP en ON; cambia los dos canales a la vez",0
-_m_rvok:  DEFB  "Guardado. ",0
-_m_rvbad: DEFB  "Uso: REV 2.2 o REV 2.3",0
-_m_rvh:   DEFB  "(REV 2.2 o REV 2.3 la cambia; se guarda en la NVRAM)",0
-_m_nool:  DEFB  "No hay pantalla OLED en 3Ch",0
-_m_olok:  DEFB  "Pantalla OLED actualizada",0
+_m_plc:   DEFB  "Board                    ",0
+_m_ck22:  DEFB  " (clock from the CTC: P6/P3 on CLK0_OUT)",0
+_m_ck23:  DEFB  " (clock from the CTC: DIP switch 8 BAUD ON)",0
+_m_bj22:  DEFB  "This speed comes from the CTC: its jumper (P6 channel A, P3 channel B) must be on CLK0_OUT",0
+_m_bj23:  DEFB  "This speed comes from the CTC: set DIP switch 8 (BAUD) ON; it changes both channels at once",0
+_m_rvok:  DEFB  "Saved. ",0
+_m_rvbad: DEFB  "Use: REV 2.2 or REV 2.3",0
+_m_rvh:   DEFB  "(REV 2.2 or REV 2.3 changes it; saved in NVRAM)",0
+_m_nool:  DEFB  "No OLED display at 3Ch",0
+_m_olok:  DEFB  "OLED display updated",0
 _m_ver:   DEFB  "ZIOS 2.1.4 v6",0
-_m_nortc: DEFB  "sin reloj",0
+_m_nortc: DEFB  "no clock",0
 _m_sd1:   DEFB  "SD1 ",0
 _m_sd2:   DEFB  "  SD2 ",0
-_m_si:    DEFB  "si",0
+_m_si:    DEFB  "yes",0
 _m_no:    DEFB  "no",0
 _m_ram:   DEFB  "RAM ",0
 _m_kb:    DEFB  " KB",0
 _m_oli:   DEFB  "OLIVEROS 2026",0
-_t_hdr:   DEFB  "TEST de la placa",13,10,0
+_t_hdr:   DEFB  "Board TEST",13,10,0
 _t_ram:   DEFB  "RAM ",0
-_t_ok:    DEFB  " bien",0
-_t_rbad:  DEFB  " ERROR en la pagina ",0
-_t_dir:   DEFB  ", direccion ",0
-_t_alias: DEFB  " ERROR de direcciones: la pagina no guarda lo suyo: ",0
-_t_bus:   DEFB  "Bus 64h (MISO en reposo): ",0
-_t_bus1:  DEFB  "1, bien",0
-_t_bus0:  DEFB  "0, MAL: algo tira MISO abajo (modulo SD que no lo suelta, pata doblada o pista)",0
+_t_ok:    DEFB  " OK",0
+_t_rbad:  DEFB  " ERROR in page ",0
+_t_dir:   DEFB  ", address ",0
+_t_alias: DEFB  " ADDRESS ERROR: page does not keep its own data: ",0
+_t_bus:   DEFB  "Bus 64h (MISO idle): ",0
+_t_bus1:  DEFB  "1, OK",0
+_t_bus0:  DEFB  "0, BAD: something pulls MISO low (SD module that does not release it, bent pin or track)",0
 _t_sd:    DEFB  "SD",0
-_t_sdno:  DEFB  "sin tarjeta",0
-_t_sdsc:  DEFB  "responde (SDSC)",0
-_t_sdhc:  DEFB  "responde (SDHC/SDXC)",0
-_t_sdnr:  DEFB  "no responde (normal si ese conector no tiene adaptador)",0
-_t_rtc:   DEFB  "Reloj DS1307: ",0
-_t_nr:    DEFB  "no responde en el I2C",0
-_t_rtcst: DEFB  "detenido (pon la hora con DT)",0
-_t_rtcna: DEFB  "responde pero no avanza",0
-_t_rtcok: DEFB  "responde y avanza",0
-_t_ol:    DEFB  "Pantalla OLED (3Ch): ",0
-_t_gpio:  DEFB  "GPIO 6Ch: un bit cada 1/4 s de Q0 a Q5 (mira los LEDs)",0
-_t_spk:   DEFB  "Altavoz: un pitido (con el interruptor 7 BEEP en ON)",0
-_t_allok: DEFB  "TEST: todo bien",0
+_t_sdno:  DEFB  "no card",0
+_t_sdsc:  DEFB  "responds (SDSC)",0
+_t_sdhc:  DEFB  "responds (SDHC/SDXC)",0
+_t_sdnr:  DEFB  "no response (normal if that connector has no adapter)",0
+_t_rtc:   DEFB  "RTC DS1307: ",0
+_t_nr:    DEFB  "no response on I2C",0
+_t_rtcst: DEFB  "stopped (set the time with DT)",0
+_t_rtcna: DEFB  "responds but does not advance",0
+_t_rtcok: DEFB  "responds and runs",0
+_t_ol:    DEFB  "OLED display (3Ch): ",0
+_t_gpio:  DEFB  "GPIO 6Ch: one bit every 1/4 s from Q0 to Q5 (watch the LEDs)",0
+_t_spk:   DEFB  "Speaker: one beep (with switch 7 BEEP ON)",0
+_t_allok: DEFB  "TEST: all OK",0
 _t_res:   DEFB  "TEST: ",0
-_t_res2:  DEFB  " falla(s)",0
-_t_olok:  DEFB  "TEST: todo bien",0
+_t_res2:  DEFB  " failure(s)",0
+_t_olok:  DEFB  "TEST: all OK",0
 _t_olf1:  DEFB  "TEST: ",0
-_t_olf2:  DEFB  " FALLA(S)",0
+_t_olf2:  DEFB  " FAILURE(S)",0
 
 ; Inicializacion del SSD1306 (128x64, direccionamiento horizontal)
 _olinit:  DEFB  0AEh,0D5h,80h,0A8h,3Fh,0D3h,00h,40h,8Dh,14h,20h,00h,0A1h,0C8h
