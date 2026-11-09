@@ -251,6 +251,7 @@ SI8:    LD      A,C
         LD      (CMNPG),A
         LD      A,(BNKPG)
         OUT     (PGPORT),A
+        CALL    RDPRB           ; y las del disco en RAM de ZIOS, que no las entrego
         CALL    PGPOOL          ; paginas libres -> bancos 1-7 segun cuantas haya
         CALL    CINIT           ; las paginas que sobran: cache de disco
         CALL    LSTINI          ; una para la impresora si va a un archivo
@@ -1553,6 +1554,132 @@ POOLTK: OR      A
         LDIR
         LD      (POOLP),HL
         RET
+
+; RDPRB: con ZIOS ya afuera, prueba las paginas del bus (40-7F y C0-FF; las
+; 80-BF pueden ser gemelas de la placa) que ZIOS no entrego, que son las de su
+; disco en RAM, y agrega a POOL+32 las que tienen RAM propia: guardan lo que se
+; escribe y no son un espejo de otra pagina conocida.
+RDPRB:  LD      C,40h
+RP1:    LD      A,C
+        CP      80h
+        JR      NZ,RP2
+        LD      C,0C0h
+RP2:    CALL    ENEXT           ; ya esta en la lista?
+        JR      Z,RP9
+        LD      A,(NEXT)
+        CP      MAXEXT
+        JR      NC,RP10
+        CALL    RPTEST
+        JR      NZ,RP9
+        LD      HL,POOL+32      ; RAM propia: a la lista
+        LD      A,(NEXT)
+        ADD     A,L
+        LD      L,A
+        JR      NC,RP3
+        INC     H
+RP3:    LD      (HL),C
+        LD      HL,NEXT
+        INC     (HL)
+RP9:    INC     C
+        JR      NZ,RP1
+RP10:   LD      A,(BNKPG)       ; la ventana 0 como estaba
+        OUT     (PGPORT),A
+        RET
+; ENEXT: Z si la pagina C esta en la lista del bus
+ENEXT:  LD      HL,POOL+32
+        LD      A,(NEXT)
+        OR      A
+        JR      Z,EN9
+        LD      B,A
+EN1:    LD      A,(HL)
+        CP      C
+        RET     Z
+        INC     HL
+        DJNZ    EN1
+EN9:    OR      1
+        RET
+; RPTEST: Z si la pagina C tiene RAM propia (prueba en 3FF0 de la ventana 0)
+RPTEST: LD      A,C
+        OUT     (PGPORT),A
+        LD      HL,3FF0h
+        LD      A,(HL)
+        LD      (RPS),A
+        LD      (HL),55h
+        LD      A,(HL)
+        CP      55h
+        JR      NZ,RPNO
+        LD      (HL),0AAh
+        LD      A,(HL)
+        CP      0AAh
+        JR      NZ,RPNO
+        LD      A,(RPS)
+        LD      (HL),A
+        XOR     A               ; foto de las paginas conocidas
+        LD      (RPM),A
+        CALL    KNOWN
+        LD      A,C             ; cambiar la candidata
+        OUT     (PGPORT),A
+        LD      A,(RPS)
+        CPL
+        LD      (3FF0h),A
+        LD      A,1             ; cambio alguna conocida? -> espejo
+        LD      (RPM),A
+        CALL    KNOWN
+        PUSH    AF
+        LD      A,C
+        OUT     (PGPORT),A
+        LD      A,(RPS)
+        LD      (3FF0h),A
+        POP     AF
+        RET
+RPNO:   OR      1
+        RET
+; KNOWN: recorre la placa (20-3F) y la lista del bus: RPM = 0 guarda 3FF0 de
+; cada una en RPV; RPM = 1 compara (NZ si alguna cambio)
+KNOWN:  LD      DE,RPV
+        LD      B,20h
+KN1:    LD      A,B
+        CALL    KONE
+        RET     NZ
+        INC     B
+        LD      A,B
+        CP      40h
+        JR      NZ,KN1
+        LD      HL,POOL+32
+        LD      A,(NEXT)
+        OR      A
+        RET     Z
+        LD      B,A
+KN2:    LD      A,(HL)
+        PUSH    HL
+        CALL    KONE
+        POP     HL
+        RET     NZ
+        INC     HL
+        DJNZ    KN2
+        XOR     A
+        RET
+KONE:   OUT     (PGPORT),A
+        LD      A,(3FF0h)
+        EX      DE,HL
+        PUSH    AF
+        LD      A,(RPM)
+        OR      A
+        JR      NZ,KO2
+        POP     AF
+        LD      (HL),A
+        INC     HL
+        EX      DE,HL
+        XOR     A
+        RET
+KO2:    POP     AF
+        CP      (HL)
+        INC     HL
+        EX      DE,HL
+        RET
+RPS:    DEFB    0
+RPM:    DEFB    0
+RPV:    DEFS    32+MAXEXT
 
 NBNKS:  DEFB    MAXBNK
 NEXT:   DEFB    0
