@@ -8,6 +8,8 @@ Uso:
   - ENTRADA.bin: imagen de ZLoader (zloader_sst39sf040.bin)
   - Si un nombre se repite, gana el ultimo.
   - -uN: los archivos que siguen van al area de usuario N (por omision 0).
+  - -s / -n: los archivos que siguen llevan (o no) el atributo SYS (para MP/M:
+    los de la unidad del sistema con SYS se ven desde todas las unidades).
   - Los .pkg son paquetes de DOWNLOAD.COM (como images/cpm22apps.pkg); los
     .hex con formato Intel se convierten en .COM (cargados desde 0100h); los
     demas archivos se copian tal cual.
@@ -82,10 +84,12 @@ def build(files, pages):
     disk = bytearray(b'\xE5' * (pages * PG))
     nextblk = DIRBLK
     entries = []
-    for user, name, data in files:
+    for user, name, data, sysat in files:
         recs = (len(data) + 127) // 128
         data = data + b'\x1A' * (recs * 128 - len(data))
         n8, e3 = cpmname(name)
+        if sysat:
+            e3 = bytes([e3[0], e3[1] | 0x80, e3[2]])
         ent = 0
         left = recs
         while True:
@@ -124,23 +128,27 @@ def main():
         sys.exit("La imagen de entrada debe ser de 512 KB")
     files = []
     user = 0
+    sysat = False
     for f in sys.argv[3:]:
         if f.startswith('-u'):
             user = int(f[2:])
             continue
+        if f in ('-s', '-n'):
+            sysat = f == '-s'
+            continue
         raw = open(f, 'rb').read()
         if f.lower().endswith('.pkg'):
-            files += [(user, n, d) for n, d in unpack_pkg(raw.decode('latin-1'))]
+            files += [(user, n, d, sysat) for n, d in unpack_pkg(raw.decode('latin-1'))]
         elif f.lower().endswith('.hex'):
-            files.append((user, os.path.basename(f)[:-4] + '.COM', hex2com(raw.decode('latin-1'))))
+            files.append((user, os.path.basename(f)[:-4] + '.COM', hex2com(raw.decode('latin-1')), sysat))
         else:
-            files.append((user, os.path.basename(f), raw))
+            files.append((user, os.path.basename(f), raw, sysat))
     # Si un archivo se repite gana el ultimo (p. ej. un FORMAT.COM nuevo
     # despues del paquete)
     final = {}
-    for u, n, d in files:
-        final[(u, n.upper())] = d
-    files = [(u, n, d) for (u, n), d in final.items()]
+    for u, n, d, sa in files:
+        final[(u, n.upper())] = (d, sa)
+    files = [(u, n, d, sa) for (u, n), (d, sa) in final.items()]
     # Paginas libres de la flash a partir de la 03 (lo que haya en 03-1F se pisa)
     if any(b != 0xFF for b in img[PG0 * PG:]):
         print("Aviso: habia datos en la flash despues de la pagina 02; se reemplazan")
@@ -151,7 +159,7 @@ def main():
     open(sys.argv[2], 'wb').write(img)
     print(f"Disco en flash: {len(files)} archivos, {used // 1024} KB usados de "
           f"{(dsm + 1) * 2} KB (DSM={dsm})")
-    for u, n, d in files:
+    for u, n, d, _sa in files:
         print(f"  {u:2d}:{n:12s} {len(d):7d}")
 
 if __name__ == '__main__':

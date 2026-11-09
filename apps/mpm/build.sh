@@ -1,0 +1,33 @@
+#!/bin/bash
+# build.sh - MP/M II para la Z80-Retro:
+#   xios.asm -> BNKXIOS.SPR (mkspr.py), GENSYS en cpmsim -> MPM.SYS,
+#   ldrbios.asm dentro de MPMLDR.COM, rtc.asm -> RTC.COM y la imagen de flash
+#   zloader_sst39sf040_v6_mpm.bin con MP/M en el disco H:.
+# Requiere zmac, z80pack ($Z80PACK) y pexpect. Ver LEEME.md.
+set -e
+cd "$(dirname "$0")"
+ZMAC=${ZMAC:-zmac}
+export ZMAC
+python3 mkspr.py xios.asm BNKXIOS.SPR
+python3 gensys.py ${RSPS:-} > gensys.log
+grep -q "^MPM.SYS" gensys.log || { cat gensys.log; exit 1; }
+$ZMAC -c --od zout --oo cim,lst ldrbios.asm >/dev/null
+$ZMAC -c --od zout --oo cim,lst rtc.asm >/dev/null && cp zout/rtc.cim RTC.COM
+python3 - <<'P'
+m=open('dri/MPMLDR.COM','rb').read(); l=open('zout/ldrbios.cim','rb').read()
+img=bytearray(m[:0x1600])+l; img+=b'\0'*(0x1800-len(img)); open('MPMLDR.COM','wb').write(img)
+P
+Z=../..
+P=prl
+# Con el atributo SYS (-s) los programas se ven desde todas las consolas y
+# usuarios; los .BAS quedan sin el (-n).
+python3 $Z/tools/mkflashdisk.py $Z/zloader/zloader_sst39sf040.bin zloader_sst39sf040_v6_mpm.bin \
+  MPMLDR.COM MPM.SYS \
+  -s $Z/cpmtools/download.hex $Z/images/cpm22apps.pkg $Z/cpmtools/format.hex \
+     $P/ABORT.PRL $P/CONSOLE.PRL $P/DIR.PRL $P/DSKRESET.PRL $P/DUMP.PRL $P/ED.PRL $P/ERA.PRL $P/ERAQ.PRL \
+     $P/MPMSTAT.PRL $P/PIP.PRL $P/PRLCOM.PRL $P/REN.PRL $P/SDIR.PRL $P/SET.PRL $P/SHOW.PRL $P/STAT.PRL \
+     $P/SUBMIT.PRL $P/TOD.PRL $P/TYPE.PRL $P/USER.PRL $P/SCHED.PRL $P/SPOOL.PRL $P/STOPSPLR.PRL \
+     $P/PRINTER.PRL $P/RDT.PRL \
+     RTC.COM $Z/apps/mat/PRIMOS.COM $Z/apps/mat/PRIMOS7.COM $Z/apps/pi/PI1K.COM $Z/apps/mat/bombe/BOMBE.COM \
+  -n $Z/apps/basic/bas/*.BAS > flash.log
+grep "Disco en flash" flash.log

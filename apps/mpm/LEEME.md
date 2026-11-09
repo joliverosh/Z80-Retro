@@ -1,0 +1,98 @@
+# MP/M II en la Z80-Retro
+
+MP/M II 2.0 de Digital Research, el CP/M multiusuario de 1981, sobre la Z80-Retro (Z80 CPU Rev 2.2 o ZEPHYRUS Rev 2.3) con ZLoader/ZIOS v6. El XIOS es propio (`xios.asm`); el resto son los archivos originales de Digital Research.
+
+Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
+- el arranque;
+- `DIR`, `STAT`, `TYPE`, `PIP`, `ERA`, `MPMSTAT` y `TOD`;
+- programas `.COM` y `.PRL`;
+- MBASIC con los juegos;
+- las dos consolas a la vez, en bancos distintos;
+- tarjetas SDSC y SDHC;
+- lo que MP/M escribe en la SD se lee después desde CP/M 2.2.
+
+**En la placa real todavía no se ha probado.**
+
+## Qué ofrece
+
+| | |
+|---|---|
+| Consolas | 2: **SIO A** (la consola de siempre) y **SIO B** (segundo terminal o NUNTIUS), a la velocidad que dejó ZIOS |
+| Memoria | 7 bancos de usuario de 48 KB (0000-BFFF) más el banco del sistema. La memoria común va de C000 a FFFF |
+| Discos | A-F en la SD, con el mismo mapa de ZIOS (`SM`) y el mismo formato que CP/M 2.2. H: es el disco en flash, de solo lectura |
+| Reloj | El tic de ZIOS: canal 1 del CTC, 120 Hz. MP/M recibe 60 tics por segundo |
+| Hora | `H:RTC` lee el DS1307 y pone en hora MP/M |
+
+G: no existe en MP/M: el disco en RAM de ZIOS se pierde porque sus páginas pasan a ser los bancos de usuario.
+
+## Cómo se usa
+
+1. Graba `zloader_sst39sf040_v6_mpm.bin` con la T48. Es la v6 con MP/M en el disco H:, en lugar de los programas de CP/M 3.
+2. Arranca CP/M 2.2 con `BOS 1`.
+3. Escribe `H:MPMLDR`.
+
+```
+a>H:MPMLDR
+...
+Z80-Retro XIOS 1.0 (OLIVEROS 2026): 2 consolas, 7 bancos, SD y flash
+MP/M II V2.0
+0A>H:RTC
+0A>TOD
+```
+
+- **El indicador** es `usuario` + `unidad` + `>`. La consola B arranca en el usuario 1 (`1A>`): con `USER 0` ve lo mismo que la A. Los programas del disco H: llevan el atributo SYS, así que se ven desde cualquier usuario y unidad.
+- **Programas útiles:** `MPMSTAT` muestra procesos, bancos y colas. `ABORT nombre` detiene un programa. `CONSOLE` dice en qué consola estás.
+- **Copiar un programa de H:** como es SYS, `PIP` necesita la opción `[R]`: `PIP A:=H:PRIMOS.COM[R]`.
+- **Los programas de la Z80-Retro que llaman a ZIOS** (`RST 30h`, por ejemplo para la hora) no se cuelgan: encuentran un `RET`. Por eso marcan 00:00:00.
+- **Para volver a ZLoader** hay que presionar RESET. MP/M se queda con la máquina.
+
+## Cómo está hecho
+
+- **`MPMLDR.COM`** es el cargador de Digital Research con nuestro `LDRBIOS` (`ldrbios.asm`) en 1700h. Corre como programa de CP/M y lee `MPM.SYS` de H: con el servicio 17 de ZIOS.
+- **`MPM.SYS`** lo arma `GENSYS` con estas opciones:
+  - tope en la página FD: deja libre FE00-FFFF, donde está el puente de ZIOS;
+  - 2 consolas, RST 7 para el depurador y 60 tics por segundo;
+  - unidad del sistema H: y memoria común desde C000;
+  - 7 segmentos de usuario.
+- **`SYSTEMINIT` del XIOS** se aprovecha de que ZIOS todavía está debajo:
+  - le pregunta qué páginas tiene el banco 0 (servicio 1);
+  - le pide el mapa de unidades (servicio 11);
+  - le pide el tamaño del disco en flash (servicio 36) y los tics por segundo (servicio 31).
+
+  Después desactiva las interrupciones y toma la máquina:
+  - encuentra la página común;
+  - reparte las páginas libres entre los bancos 1-7;
+  - escribe la página cero de cada banco;
+  - pone sus rutinas en la tabla de vectores IM 2 de ZIOS: SIO en FFE0-FFEE y CTC en FFF0-FFF6;
+  - activa la recepción por interrupción en las dos SIO;
+  - averigua con CMD58 si cada tarjeta es SDHC.
+- **La SD** usa un driver SPI propio, con los métodos de `zlib/libspi.asm` y un búfer de 512 bytes en la memoria común.
+- **El disco en flash** se lee mapeando la página de flash en la ventana 0 por un momento.
+- **El directorio y los DPB** van en la memoria común: `READ` copia con el banco del usuario puesto, y los programas leen el DPB con la función 31.
+
+## Construir
+
+Hace falta:
+- zmac;
+- z80pack de Udo Munk, con `cpmsim/srcsim` y `cpmsim/srctools` compilados: GENSYS corre dentro de `cpmsim`;
+- `pip install pexpect`.
+
+```
+git clone https://github.com/udo-munk/z80pack ~/z80pack
+make -C ~/z80pack/cpmsim/srcsim && make -C ~/z80pack/cpmsim/srctools
+apps/mpm/build.sh
+```
+
+**Archivos:**
+- **Nuestros:** `xios.asm`, `ldrbios.asm`, `rtc.asm`, `mkspr.py` (arma el SPR ensamblando en 0000h y en 0100h), `gensys.py` (responde a GENSYS dentro de cpmsim) e `ibm3740.py` (lee y escribe discos de 8" para cpmsim).
+- **De Digital Research** (MP/M II 2.0, distribución libre desde 2001):
+  - `dri/` (`GENSYS.COM`, `MPMLDR.COM` y los SPR);
+  - `prl/` (las utilidades);
+  - vienen de los discos de MP/M II de z80pack.
+
+## Pendiente
+
+- Probar en la placa real.
+- La hora no se pone sola al arrancar: hay que ejecutar `H:RTC`.
+- G: (el disco en RAM) no está en MP/M.
+- Impresora: `LIST` descarta lo que recibe.

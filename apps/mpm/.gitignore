@@ -1,0 +1,4 @@
+zout/
+*.log
+zloader_sst39sf040_v6_mpm.bin
+__pycache__/
