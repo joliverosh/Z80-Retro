@@ -62,6 +62,7 @@ LSTPG   EQU     0FFCDh          ; pagina de 16 KB del anillo
 LSTH    EQU     0FFCEh          ; cabeza (la saca LSTFILE), 0-3FFF
 LSTT    EQU     0FFD0h          ; cola (la pone LIST)
 CURPG2  EQU     0FFD2h          ; pagina de la ventana 2 del banco puesto (para LSTFILE)
+CURPG1  EQU     0FFD4h          ; y de la ventana 1 (BKCALL la repone)
 VQN     EQU     0FFD3h          ; cuantos hay en VQ
 VSIO    EQU     0FFE0h          ; vectores de la SIO (WR2 = E0h, lo puso ZIOS)
 VCTC    EQU     0FFF0h          ; vectores del CTC (vector F0h, lo puso ZIOS)
@@ -92,6 +93,14 @@ STDAY   EQU     3CDEh           ; dia de MP/M de la fecha ya calculada
 VIEWOFS EQU     3CE0h           ; filas hacia atras que se estan mirando (0 = al dia)
 NVC     EQU     3CE1h           ; consolas virtuales: 4, o 5 con CONSOLE4=VIRTUAL
 VRING   EQU     3CE2h           ; filas del anillo de cada una: 48 (4) o 36 (5)
+VQD0    EQU     3CE3h           ; VQFL: donde empieza la tanda (2) y su columna
+VQC0    EQU     3CE5h
+GCOL    EQU     3CE6h           ; redibujo: columna de la fila que va saliendo,
+GATTR   EQU     3CE7h           ; atributo que ya tiene el terminal
+GRLEN   EQU     3CE8h           ; y largo de la fila
+; Los atributos de cada caracter van en otra pagina (VTAPG), en la ventana 1
+; durante BKCALL: el de (HL) esta en (HL+4000h). Bits: 0 negrita, 1 subrayado,
+; 2 parpadeo, 3 inverso, 4-6 color del texto, 7 hay color.
 VRXB    EQU     3D00h           ; lo tecleado en cada consola virtual: 64 bytes cada una
 VRXP    EQU     3E40h           ; y su cabeza y cola (5 x 2)
 BKSTK   EQU     4000h           ; tope de la pila de BKCALL
@@ -289,6 +298,8 @@ SI8:    LD      A,C
         LD      (CMNPG),A
         LD      A,(BNKPG+2)     ; (BKCALL las repone)
         LD      (CURPG2),A
+        LD      A,(BNKPG+1)
+        LD      (CURPG1),A
         LD      A,(BNKPG)
         LD      (CURPG0),A
         OUT     (PGPORT),A
@@ -1628,6 +1639,9 @@ PP3:    LD      A,B
                                 ; virtuales (y lo que se teclea en ellas)
         LD      DE,VTPG
         CALL    POOLTK
+        LD      A,1             ; y otra para sus atributos
+        LD      DE,VTAPG
+        CALL    POOLTK
         LD      HL,VTINI
         CALL    BKCALL
         LD      A,(POOLN)
@@ -2256,6 +2270,11 @@ VTINI:  LD      HL,0
         LD      BC,4*0F00h-1
         LD      (HL),' '
         LDIR
+        LD      HL,4000h        ; atributos en cero
+        LD      DE,4001h
+        LD      BC,4*0F00h-1
+        LD      (HL),0
+        LDIR
         LD      HL,VST
         LD      DE,VST+1
         LD      BC,VRXP+8-VST-1
@@ -2346,12 +2365,22 @@ VCLR:   CALL    VROWA
         LD      L,A
         JR      NC,VCL1
         INC     H
-VCL1:   LD      A,79
+VCL1:   LD      A,80
         SUB     E
+        PUSH    HL
+        PUSH    AF
+        CALL    VCL2            ; los caracteres: espacios
+        POP     AF
+        POP     HL
+        SET     6,H             ; los atributos: 0
+        LD      E,0
+        JR      VCL3
+VCL2:   LD      E,' '
+VCL3:   LD      (HL),E
+        DEC     A
+        RET     Z
         LD      C,A
         LD      B,0
-        LD      (HL),' '
-        RET     Z
         LD      D,H
         LD      E,L
         INC     DE
@@ -2378,11 +2407,13 @@ VQF1:   LD      A,(IX+3)        ; lo comun: caracteres que se ven, fuera de una
         CP      80
         JR      NC,VQS
         LD      C,A             ; C = columna, DE = donde va
+        LD      (VQC0),A
         ADD     A,(IX+8)
         LD      E,A
         LD      A,(IX+9)
         ADC     A,0
         LD      D,A
+        LD      (VQD0),DE
 VQR:    LD      A,(HL)
         CP      20h
         JR      C,VQRX
@@ -2396,12 +2427,12 @@ VQR:    LD      A,(HL)
         CP      80
         JR      Z,VQRE
         DJNZ    VQR
-        LD      (IX+1),C
+        CALL    VQAT
         RET
-VQRE:   LD      (IX+1),C        ; fin de la fila: lo que siga, uno por uno
+VQRE:   CALL    VQAT            ; fin de la fila: lo que siga, uno por uno
         DJNZ    VQF1
         RET
-VQRX:   LD      (IX+1),C
+VQRX:   CALL    VQAT
 VQS:    LD      C,(HL)
         PUSH    HL
         PUSH    BC
@@ -2410,6 +2441,23 @@ VQS:    LD      C,(HL)
         POP     HL
         INC     HL
         DJNZ    VQF1
+        RET
+
+; VQAT: termina una tanda: columna nueva y el atributo de cada caracter
+VQAT:   LD      (IX+1),C
+        PUSH    HL
+        PUSH    BC
+        LD      A,(VQC0)
+        LD      B,A
+        LD      A,C
+        SUB     B
+        JR      Z,VQA9
+        LD      HL,(VQD0)
+        SET     6,H
+        LD      E,(IX+15)
+        CALL    VCL3
+VQA9:   POP     BC
+        POP     HL
         RET
 
 ; VTPUT: caracter C de la consola D a su pantalla. Entiende lo que mandan los
@@ -2489,6 +2537,9 @@ VTP4:   LD      A,(IX+1)
         JR      NC,VTP2
         INC     H
 VTP2:   LD      (HL),C
+        SET     6,H
+        LD      A,(IX+15)
+        LD      (HL),A
         INC     (IX+1)
         RET
 VTLF:   LD      A,(IX+0)
@@ -2525,6 +2576,7 @@ VTESC:  DEC     A
         LD      (IX+4),A
         LD      (IX+5),A
         LD      (IX+6),A
+        LD      (IX+11),A
         LD      A,2
 VTE0:   LD      (IX+3),A
         RET
@@ -2532,13 +2584,10 @@ VTCSI:  LD      A,C             ; ESC [ ...
         SUB     '0'
         CP      10
         JR      NC,VCS1
-        LD      B,A             ; digito
-        LD      A,(IX+6)
-        OR      A
-        LD      A,(IX+4)
-        JR      Z,VCS0
-        LD      A,(IX+5)
-VCS0:   CP      25
+        LD      B,A             ; digito: al parametro que va (hasta 3)
+        CALL    VPARP
+        LD      A,(HL)
+        CP      25
         RET     NC
         LD      E,A
         ADD     A,A
@@ -2546,18 +2595,29 @@ VCS0:   CP      25
         ADD     A,E
         ADD     A,A
         ADD     A,B
-        LD      E,A
-        LD      A,(IX+6)
-        OR      A
-        JR      NZ,VCS0B
-        LD      (IX+4),E
+        LD      (HL),A
         RET
-VCS0B:  LD      (IX+5),E
+; VPARP: HL -> el parametro A (o el actual con VPARP), en IX+4, IX+5 o IX+11
+VPARP:  LD      A,(IX+6)
+VPARA:  LD      E,4
+        OR      A
+        JR      Z,VPA1
+        INC     E
+        DEC     A
+        JR      Z,VPA1
+        LD      E,11
+VPA1:   PUSH    IX
+        POP     HL
+        LD      D,0
+        ADD     HL,DE
         RET
 VCS1:   LD      A,C
         CP      ';'
         JR      NZ,VCS2
-        LD      (IX+6),1
+        LD      A,(IX+6)
+        CP      2
+        RET     NC
+        INC     (IX+6)
         RET
 VCS2:   CP      40h
         RET     C               ; (?, espacios: sigue la secuencia)
@@ -2571,6 +2631,8 @@ VCS2:   CP      40h
         JR      Z,VED
         CP      'K'
         JP      Z,VEL
+        CP      'm'
+        JP      Z,VSGR
         SUB     'A'
         CP      4
         RET     NC
@@ -2664,6 +2726,68 @@ VEL:    LD      A,B             ; K: 0 desde el cursor, 2 la linea
         LD      E,0
 VEL1:   LD      A,(IX+0)
         JP      VCLR
+
+; VSGR: ESC [ ... m: cambia el atributo actual de la consola
+VSGR:   LD      A,(IX+6)
+        INC     A
+        LD      B,A
+        LD      C,0
+VSG1:   LD      A,C
+        CALL    VPARA
+        LD      A,(HL)
+        CALL    VSG
+        INC     C
+        DJNZ    VSG1
+        RET
+VSG:    LD      D,(IX+15)
+        OR      A
+        JR      NZ,VSG2
+        LD      D,A
+VSG2:   CP      1
+        JR      NZ,$+4
+        SET     0,D
+        CP      4
+        JR      NZ,$+4
+        SET     1,D
+        CP      5
+        JR      NZ,$+4
+        SET     2,D
+        CP      7
+        JR      NZ,$+4
+        SET     3,D
+        CP      22
+        JR      NZ,$+4
+        RES     0,D
+        CP      24
+        JR      NZ,$+4
+        RES     1,D
+        CP      25
+        JR      NZ,$+4
+        RES     2,D
+        CP      27
+        JR      NZ,$+4
+        RES     3,D
+        CP      39
+        JR      NZ,VSG3
+        LD      A,D
+        AND     0Fh
+        LD      D,A
+        JR      VSG9
+VSG3:   SUB     30
+        CP      8
+        JR      NC,VSG9
+        RLCA
+        RLCA
+        RLCA
+        RLCA
+        OR      80h
+        LD      E,A
+        LD      A,D
+        AND     0Fh
+        OR      E
+        LD      D,A
+VSG9:   LD      (IX+15),D
+        RET
 
 ; KEYIN: caracter C de la SIO A. Teclas del XIOS (con cualquier modificador m):
 ;   ESC [ 1 ; m P..S   Ctrl-F1..F4: elegir la consola
@@ -3008,6 +3132,9 @@ GCHUNK: LD      A,(GENACT)
         INC     (HL)
         OR      A
         JR      NZ,GC1
+        XOR     A
+        LD      (GCOL),A
+        LD      (GATTR),A
         LD      HL,GPRE         ; 0: cancelar, borrar la pantalla
         CALL    GSTR
         LD      A,(STATON)
@@ -3016,46 +3143,83 @@ GCHUNK: LD      A,(GENACT)
         CALL    NZ,GSTR
         LD      HL,GCLS
         CALL    GSTR
-        JR      GCEND
+        JP      GCEND
 GC1:    DEC     A               ; 1..VNR: las filas
         LD      HL,VNR
         CP      (HL)
-        JR      NC,GC5
+        JP      NC,GC5
         LD      B,A
         LD      A,(VIEWOFS)     ; mirando hacia atras: filas del pasado
         NEG
         ADD     A,B
         LD      HL,VRING
         ADD     A,(HL)
-        CALL    VROWA
-        PUSH    HL
-        LD      DE,79           ; sin los espacios del final
+        CALL    VROWA           ; HL = la fila
+        LD      A,(GCOL)
+        OR      A
+        JR      NZ,GC3
+        PUSH    HL              ; al empezar la fila: su largo, sin los espacios
+        LD      DE,79           ; sin atributo del final
         ADD     HL,DE
         LD      C,80
 GC2:    LD      A,(HL)
         CP      ' '
-        JR      NZ,GC3
+        JR      NZ,GC2B
+        SET     6,H
+        LD      A,(HL)
+        RES     6,H
+        OR      A
+        JR      NZ,GC2B
         DEC     HL
         DEC     C
         JR      NZ,GC2
-GC3:    POP     HL
+GC2B:   LD      A,C
+        LD      (GRLEN),A
+        POP     HL
+GC3:    LD      A,(GCOL)        ; desde donde iba
+        LD      E,A
+        LD      D,0
+        ADD     HL,DE
         LD      DE,GBUF
+GC3B:   LD      A,(GRLEN)
+        LD      C,A
+        LD      A,(GCOL)
+        CP      C
+        JR      NC,GC4          ; fin de la fila
+        LD      A,E
+        CP      (GBUF+100) AND 0FFh
+        JR      NC,GC3E         ; GBUF lleno: lo demas en el trozo siguiente
+        SET     6,H             ; atributo distinto: mandarlo
+        LD      A,(HL)
+        RES     6,H
+        LD      C,A
+        LD      A,(GATTR)
+        CP      C
+        JR      Z,GC3C
         LD      A,C
-        OR      A
-        JR      Z,GC4
-        PUSH    BC
-        LD      B,0
-        LDIR
-        POP     BC
-GC4:    LD      A,(VNR)
+        LD      (GATTR),A
+        CALL    GSGR
+GC3C:   LD      A,(HL)
+        CALL    GPUT
+        INC     HL
+        LD      A,(GCOL)
+        INC     A
+        LD      (GCOL),A
+        JR      GC3B
+GC3E:   LD      HL,GSTG         ; la misma fila otra vez
+        DEC     (HL)
+        JP      GCEND
+GC4:    XOR     A
+        LD      (GCOL),A
+        LD      A,(VNR)
         DEC     A
         CP      B
-        JR      Z,GCEND
+        JP      Z,GCEND
         LD      A,13
         CALL    GPUT
         LD      A,10
         CALL    GPUT
-        JR      GCEND
+        JP      GCEND
 GC5:    SCF
         RET     NZ              ; VNR + 1: el cursor
         LD      DE,GBUF
@@ -3065,7 +3229,8 @@ GC5:    SCF
         LD      HL,GHIDE
         CALL    GSTR
         JP      GCEND
-GC5B:
+GC5B:   LD      A,(IX+15)       ; el atributo actual de la consola
+        CALL    GSGR
         LD      HL,GCUR
         CALL    GSTR
         LD      A,(IX+0)
@@ -3089,6 +3254,40 @@ GCEND:  EX      DE,HL           ; GCNT = lo que se escribio en GBUF
         LD      (GCNT),A
         OR      A
         RET
+
+; GSGR: ESC [ 0 ; ... m del atributo A
+GSGR:   PUSH    HL
+        PUSH    BC
+        LD      C,A
+        LD      HL,GSGR0
+        CALL    GSTR
+        LD      HL,GSGRT
+        LD      B,4
+GSG1:   RRC     C
+        JR      NC,GSG2
+        LD      A,';'
+        CALL    GPUT
+        LD      A,(HL)
+        CALL    GPUT
+GSG2:   INC     HL
+        DJNZ    GSG1
+        BIT     3,C             ; (C ya giro 4: el bit 7 quedo en el 3)
+        JR      Z,GSG3
+        LD      A,';'
+        CALL    GPUT
+        LD      A,'3'
+        CALL    GPUT
+        LD      A,C
+        AND     7
+        ADD     A,'0'
+        CALL    GPUT
+GSG3:   LD      A,'m'
+        CALL    GPUT
+        POP     BC
+        POP     HL
+        RET
+GSGR0:  DEFB    1Bh,'[0',0
+GSGRT:  DEFB    '1457'
 
 GSTR:   LD      A,(HL)          ; copia el texto HL (termina en 0) a DE
         OR      A
@@ -4868,6 +5067,8 @@ BKCALL: LD      (BKSV),SP
         OUT     (PGPORT+2),A
         LD      A,(VTPG)
         OUT     (PGPORT),A
+        LD      A,(VTAPG)
+        OUT     (PGPORT+1),A
         LD      SP,BKSTK
         PUSH    IX
         PUSH    BC
@@ -4881,6 +5082,8 @@ BKCALL: LD      (BKSV),SP
         OUT     (PGPORT+2),A
         LD      A,(CURPG0)
         OUT     (PGPORT),A
+        LD      A,(CURPG1)
+        OUT     (PGPORT+1),A
         LD      SP,(BKSV)
         LD      A,(BKA)
         RET
@@ -4927,6 +5130,7 @@ SB1:    LD      A,(HL)
         OUT     (PGPORT),A
         INC     HL
         LD      A,(HL)
+        LD      (CURPG1),A
         OUT     (PGPORT+1),A
         INC     HL
         LD      A,(HL)
@@ -5336,6 +5540,7 @@ HDB:    DEFB    0
 TLB:    DEFB    0
 CURPG0: DEFB    0
 VTPG:   DEFB    0               ; pagina de las pantallas de las consolas virtuales
+VTAPG:  DEFB    0               ; y la de sus atributos
 ACTVC:  DEFB    0               ; consola que se ve en la SIO A
 VIEWING: DEFB   0               ; se esta mirando hacia atras (Shift-RePag)
 GENACT: DEFB    0               ; la SIO A manda: 1 el redibujo, 2 la linea de estado
