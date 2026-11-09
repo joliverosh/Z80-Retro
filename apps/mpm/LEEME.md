@@ -15,32 +15,44 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 
 **La 1.3 en la placa real** (9/11/2026): arranca con 7 bancos, 64 KB de caché y G: de 48 KB; `DIR H:` y `MPMSTAT` salen completos con la salida por interrupción; `TOD` da la hora del DS1307; PI1K desde G: calcula los 1000 decimales en 27 s; PRIMOS tarda 7 s; `H:ZLOADER` vuelve a ZLoader sin RESET.
 
-**La 1.4** (9/11/2026) está probada en el emulador; falta la placa real. Novedades:
+**La 1.4 en la placa real** (9/11/2026): Ctrl-F1..F3 cambian de consola y los programas corren a la vez en varias (PI1K y otro). Lo de la segunda tanda (historial, atributos, línea de estado ampliada, `H:VC`, `CONSOLE4=`, `H:XFER`, SD más rápida) está probado en el emulador.
+
+**La 1.4** (9/11/2026). Novedades:
 - **consolas virtuales como en Linux**: la SIO A tiene cuatro consolas (0-3), cada una con su pantalla, y Ctrl-F1..F4 elige la que se ve;
 - **línea de estado** en la fila 24 (`STATUS=ON` en `A:MPM.CFG`);
 - **`A:MPM.CFG` ampliado**: impresora, línea de estado, velocidades y mapa de unidades;
 - **la RAM del disco en RAM de ZIOS** en el bus de expansión vuelve a MP/M;
 - **memoria común liberada**: los discos y su búfer pasaron a la parte con bancos;
-- **arreglo de XDOS**: un programa que terminaba con `RET` podía hacer caer a otro (ver *Parches a XDOS.SPR*).
+- **arreglo de XDOS**: un programa que terminaba con `RET` podía hacer caer a otro (ver *Parches a XDOS.SPR*);
+- **historial hacia atrás** en cada consola: Shift-RePag / Shift-AvPag (24 filas guardadas);
+- **atributos guardados**: negrita, subrayado, parpadeo, inverso y color del texto se ven igual al volver a una consola;
+- **línea de estado** con el programa de la consola que se ve y cuánto trabaja la CPU;
+- **`H:VC n`** cambia de consola desde un programa o un SUBMIT; **`CONSOLE4=`** en `A:MPM.CFG` deja la SIO B como terminal, sin consola o la vuelve una quinta consola virtual (Ctrl-F5);
+- **`H:XFER`**: archivos por XMODEM desde y hacia el PC, sin sacar la SD;
+- **la SD lee un 31 % más rápido** (bucle de SPI desenrollado);
+- **más memoria común libre**: la fecha y el I2C pasaron a la parte con bancos.
 
 ## Qué ofrece
 
 | | |
 |---|---|
 | Consolas | 5: **0-3 virtuales en la SIO A** (Ctrl-F1..F4 elige la que se ve, como en Linux; cada una guarda su pantalla de 80 x 24 y lo tecleado) y la **4 en la SIO B** (segundo terminal o NUNTIUS). La salida va por interrupción, con un búfer de 32 caracteres por canal: un programa que escribe mucho ya no frena a los demás, y las consolas de atrás nunca esperan |
-| Línea de estado | Opcional (`STATUS=ON`): la fila 24 muestra la versión, las consolas (la que se ve entre corchetes, `*` en las que escribieron algo que no se vio) y la fecha y hora, cada segundo |
-| Configuración | **`A:MPM.CFG`**: impresora, línea de estado, velocidad de cada SIO y unidades |
+| Historial de pantalla | **Shift-RePag / Shift-AvPag** (o Ctrl-\\ U / D) miran 12 filas hacia atrás o adelante en la consola que se ve; se guardan 24 filas además de las que se ven. Cualquier tecla o salida vuelve al día |
+| Atributos | Negrita, subrayado, parpadeo, inverso y color del texto se guardan con cada carácter y se repiten al redibujar |
+| Línea de estado | Opcional (`STATUS=ON`): la fila 24 muestra cada segundo la versión, las consolas (la que se ve entre corchetes, `*` en las que escribieron algo que no se vio), el programa que escribió último en la consola que se ve, cuánto trabajó la CPU en el último segundo y la fecha y hora |
+| Pasar archivos | **`H:XFER R archivo`** recibe y **`H:XFER S archivo`** manda por XMODEM (CRC o suma) por la consola donde corre |
+| Configuración | **`A:MPM.CFG`**: impresora, línea de estado, velocidad de cada SIO, unidades y qué es la consola 4 |
 | Velocidad | La que dejó ZIOS. **`H:BAUD`** la muestra y la cambia en el momento, y la guarda en la NVRAM del DS1307 igual que la orden `BAUD` de ZLoader |
-| Memoria | **7 bancos** de usuario de 48 KB (0000-BFFF), el máximo de MP/M II, ya con los 512 KB de la placa. La RAM es primero para MP/M: una página para las pantallas de las consolas virtuales y los bancos; la caché y G: se llevan lo que sobra. La memoria común va de C000 a FFFF. Con RAM de expansión, también se usan las páginas del disco en RAM de ZIOS |
+| Memoria | **7 bancos** de usuario de 48 KB (0000-BFFF), el máximo de MP/M II, ya con los 512 KB de la placa. La RAM es primero para MP/M: dos páginas para las consolas virtuales (pantallas y atributos) y los bancos; la caché y G: se llevan lo que sobra. La memoria común va de C000 a FFFF. Con RAM de expansión, también se usan las páginas del disco en RAM de ZIOS |
 | Discos | **A-P**: las unidades de la SD con el mismo mapa de ZIOS (`SM`) y el mismo formato que CP/M 2.2; H: es el disco en flash, de solo lectura; **G:** es un disco en RAM |
-| Disco en RAM | **G:**, solo con las páginas que sobran: 32 KB con los 512 KB de la placa (16 KB si la impresora va a un archivo); con RAM de expansión, hasta 2 MB (992 KB con 1 MB más). Se borra en cada arranque |
+| Disco en RAM | **G:**, solo con las páginas que sobran: 16 KB con los 512 KB de la placa (ninguno si la impresora va a un archivo); con RAM de expansión, hasta 2 MB (976 KB con 1 MB más). Se borra en cada arranque |
 | Impresora | **`LST:` sale por SIO B** (la misma línea que la consola 4) **o a un archivo**, según `A:MPM.CFG` |
 | Reloj | El tic de ZIOS: canal 1 del CTC, 120 Hz. MP/M recibe 60 tics por segundo |
 | Hora | Se toma del DS1307 al arrancar. **Si se cambia con `TOD`, se escribe en el DS1307** |
 | Caché de disco | 64 KB con la RAM de la placa, 128 KB con RAM de expansión: el directorio y los programas no se vuelven a leer de la SD. Escritura inmediata: la SD siempre está al día |
 | Historial | **`^W`** en el indicador repite la última orden; otro `^W`, la anterior (8 órdenes por consola) |
 | Arranque | Si existe **`A:STARTUP.SUB`** (usuario 0), se ejecuta solo al arrancar |
-| Servicios de ZIOS | Los programas que llaman a ZIOS con `RST 30h` funcionan: consola (0, 4, 5, 6), mapa de unidades (10, 11), hora (28), tics (31), I2C (34) y datos de una unidad (36) |
+| Servicios de ZIOS | Los programas que llaman a ZIOS con `RST 30h` funcionan: consola (0, 4, 5, 6), mapa de unidades (10, 11), hora (28), tics (31), I2C (34) y datos de una unidad (36). Dos propios: 40 (ver la consola E, para `H:VC`) y 41 (modo crudo de la consola, para `H:XFER`) |
 | Errores de la SD | Si una lectura o escritura falla, el XIOS vuelve a iniciar la tarjeta y reintenta. Si vuelve a fallar, avisa en la consola del programa qué unidad, pista y sector |
 | Cambio de tarjeta | Se puede cambiar la SD con MP/M andando: después de cambiarla, `H:DSKRESET`. Cada unidad que se registra olvida lo que la caché tenía de su tarjeta |
 | Volver a ZLoader | **`H:ZLOADER`**, sin RESET |
@@ -71,7 +83,7 @@ a>H:MPMLDR
 ...
 ZEPHYRUS XIOS 1.4 (OLIVEROS 2026): 5 consoles, 7 banks, drives A-P
 64 KB disk cache
-G: RAM disk, 32 KB
+G: RAM disk, 16 KB
 A:STARTUP.SUB
 MP/M II 2.0 ZEPHYRUS 1.4
 (C) 1981 Digital Research
@@ -90,14 +102,17 @@ Thu 10/15/26 10:30:02
 - **Las consolas virtuales.** El terminal de la SIO A muestra una de las consolas 0-3; al arrancar, la 0. **Ctrl-F1, Ctrl-F2, Ctrl-F3 y Ctrl-F4** pasan a la consola 0, 1, 2 o 3: la pantalla se borra y se vuelve a dibujar con lo que esa consola tenía, con el cursor donde estaba. Cada consola tiene su TMP (`0A>`), su historial y lo que se tecleó en ella. Los programas de las consolas que no se ven siguen corriendo y escribiendo en su pantalla guardada, sin esperar al terminal. `MPMSTAT` y `CONSOLE` dan el número de cada una.
   - Las teclas: las terminales de Linux (xterm, GNOME, Konsole) mandan `ESC [ 1 ; 5 P` (hasta `S`) con Ctrl-F1..F4, y picocom las pasa tal cual; con Alt o Mayúsculas en lugar de Ctrl también sirven. Si el escritorio se queda con Ctrl-F1..F4 (KDE las usa para los escritorios), está **Ctrl-\\ seguido de 1, 2, 3 o 4**; Ctrl-\\ dos veces manda un Ctrl-\\ al programa.
   - Un ESC solo llega al programa con 50 ms de demora (el XIOS espera a ver si es Ctrl-F); las flechas y las demás secuencias pasan sin cambio.
-  - La pantalla guardada entiende lo que se usa con un terminal ANSI: CR, LF, BS, TAB, `ESC [ fila ; col H`, `ESC [ J`, `ESC [ K` y el movimiento del cursor. Los colores y atributos salen al terminal pero no se guardan: al volver a una consola, el texto aparece sin ellos.
+  - La pantalla guardada entiende lo que se usa con un terminal ANSI: CR, LF, BS, TAB, `ESC [ fila ; col H`, `ESC [ J`, `ESC [ K`, el movimiento del cursor y `ESC [ ... m` con negrita, subrayado, parpadeo, inverso y color del texto (hasta 3 parámetros). El color de fondo no se guarda.
+  - **Mirar hacia atrás:** Shift-RePag sube 12 filas y Shift-AvPag baja 12 (también con Ctrl o Alt, o con **Ctrl-\\ U** y **Ctrl-\\ D**). Cada consola guarda 24 filas además de las que se ven. Mientras se mira hacia atrás el cursor no se ve y la línea de estado dice `HIST -n`; cualquier tecla o algo que escriba el programa vuelve al día. La terminal de GNOME y xterm usan Shift-RePag para su propio historial: ahí sirve Ctrl-RePag o Ctrl-\\ U.
+  - **`H:VC n`** muestra la consola n (1 a 4, o 5): sirve en un `SUBMIT` o desde un programa (servicio 40).
+  - **La consola 4** es la SIO B. Con `CONSOLE4=VIRTUAL` en `A:MPM.CFG` es una quinta consola virtual en la SIO A (Ctrl-F5 o Ctrl-\\ 5; cada consola guarda entonces 12 filas hacia atrás en lugar de 24); con `CONSOLE4=OFF` no tiene terminal (lo que escribe se pierde) y la SIO B queda solo para la impresora.
 - **La línea de estado** (`STATUS=ON`): la fila 24 queda fija y los programas usan las filas 1-23 (el XIOS fija esa zona de desplazamiento en el terminal). Ejemplo:
 
   ```
-   MP/M II ZEPHYRUS 1.4 | Console [1] 2* 3  4  | Mon 2026-11-09 12:23:45
+   ZEPHYRUS 1.4 | [1] 2* 3  4  | PRIMOS   | CPU 100% | Mon 2026-11-09 12:23:45
   ```
 
-  Se actualiza una vez por segundo, guardando y reponiendo el cursor (`ESC 7` / `ESC 8`), sin cortar una secuencia que un programa esté mandando.
+  Se actualiza una vez por segundo, guardando y reponiendo el cursor (`ESC 7` / `ESC 8`), sin cortar una secuencia que un programa esté mandando. `PRIMOS` es el programa que escribió último en la consola que se ve (en el indicador, `Tmp0`); `CPU` es la parte del último segundo en que la CPU no estuvo libre.
 - **`A:MPM.CFG`** (usuario 0) es un archivo de texto que el XIOS lee al arrancar, de hasta 512 bytes. Una opción por línea; lo que empieza con `;` o no se entiende se salta:
 
   ```
@@ -106,11 +121,23 @@ Thu 10/15/26 10:30:02
   STATUS=ON            ; linea de estado en la fila 24 (OFF: sin ella)
   BAUD A=115200        ; velocidad de la SIO A (o B) para esta sesion
   DRIVE C=SD0:12       ; C: = disco virtual 12 de la tarjeta 0 (SD1:n, RAM, FLASH u OFF)
+  CONSOLE4=B           ; la consola 4: B (la SIO B), OFF o VIRTUAL (Ctrl-F5)
   ```
 
   `BAUD` acepta las mismas velocidades que `H:BAUD` y no toca la NVRAM. `DRIVE` cambia el mapa de unidades que dejó ZIOS solo para MP/M: `RAM` es el disco en RAM, `FLASH` el disco en flash y `OFF` deja la unidad sin disco.
 - **La impresora** (`LST:`, `^P`, `PIP LST:=archivo`) se elige con `LST=` en `A:MPM.CFG`. `LST=B`, o sin el archivo, la manda a SIO B: si ahí hay un terminal, la salida aparece en él. `LST=A:IMPRESOR.TXT` (cualquier nombre, con o sin unidad; sin unidad es A:) la guarda en ese documento. Lo impreso se agrega al final, así que el archivo crece hasta que lo borres. Al arrancar se ejecuta solo `H:LSTFILE`, que queda corriendo suelto (ocupa un banco) y pasa lo impreso al archivo cada medio segundo. Lo cierra tras 2 s sin impresión: mientras se imprime, `TYPE` responde `File Currently Open`; hay que esperar un momento.
 - **`H:BAUD`** sin parámetros muestra la velocidad guardada de cada canal; `H:BAUD B 9600` la cambia y la guarda. Velocidades: 230400, 115200, 9600, 4800, 2400, 1200, 600 y 300 (con la CPU a 14,7456 MHz, el doble). Las de 9600 o menos usan el CTC: el puente del reloj de la SIO tiene que estar en CLK0_OUT (P6 para el canal A, P3 para el B), y los dos canales comparten esa constante. El mismo `BAUD.COM` funciona en CP/M 2.2 (allí cambia la velocidad con el servicio 32 de ZIOS; bajo MP/M programa la SIO directamente).
+- **`H:XFER`** pasa archivos por XMODEM por la consola donde corre, que tiene que ser la que se ve en el terminal (o la 4, en la SIO B). Con picocom en oli (hace falta `lrzsz`):
+
+  ```
+  sudo apt install lrzsz
+  picocom -b 115200 --send-cmd "sx -vv" --receive-cmd "rx -vv" /dev/ttyUSB0
+  ```
+
+  - **Del PC a la placa:** en MP/M `H:XFER R A:ARCHIVO.EXT`; en picocom Ctrl-A Ctrl-S y el nombre del archivo.
+  - **De la placa al PC:** en MP/M `H:XFER S A:ARCHIVO.EXT`; en picocom Ctrl-A Ctrl-R y el nombre con que se guarda.
+  - Mientras dura, los bytes pasan tal cual: no hay Ctrl-F ni línea de estado. Al terminar, la pantalla se vuelve a dibujar y dice cuántos bloques pasaron.
+  - XMODEM manda bloques de 128 bytes: el archivo recibido queda con el último registro completado con `^Z` (1Ah), como es costumbre en CP/M.
 - **Para volver a ZLoader**: `H:ZLOADER`. Pide confirmación (`Y`), espera a que nadie esté usando el disco y deja la máquina como después de un RESET. Lo que está corriendo se pierde, pero lo escrito en la SD ya está en la tarjeta.
 - **Con RAM de expansión** en el bus (ZEPHYRUS), MP/M la usa sola: la caché sube a 128 KB y G: crece. También recupera las páginas que ZIOS usaba para su disco en RAM (ZIOS no las entrega): las prueba una por una y toma las que guardan lo escrito y no son un espejo de otra. El mensaje de arranque dice cuántos bancos y cuánto G: quedaron.
 
@@ -146,21 +173,24 @@ Los mensajes que se ven en pantalla (arranque, errores, programas propios) está
 - **La caché de disco** usa las páginas de RAM que no son de ningún banco ni la común (hasta 8 páginas, 256 bloques). Guarda bloques de 512 bytes de la SD, asociativa de 2 vías, en la parte del XIOS con bancos. La página de la caché se pone un momento en la ventana 0, con las interrupciones apagadas de 64 en 64 bytes para no perder caracteres. Las escrituras van a la SD en el acto y también a la caché.
 - **El disco en RAM (G:)** usa las páginas que quedan después de la caché (3 con 512 KB). Con menos de 16 páginas tiene bloques de 1 KB y 64 entradas de directorio; con 16 o más, bloques de 2 KB y 128 entradas. `SYSTEMINIT` lo crea vacío.
 - **La salida de las consolas** va a un búfer circular por canal. Si el transmisor está parado, el carácter sale directo; si no, la interrupción de transmisor vacío manda el siguiente. Con el búfer lleno el proceso espera una bandera de MP/M (12 para A, 13 para B), que pone la interrupción cuando el búfer baja a 8 caracteres (no a cada uno). Por si se pierde una interrupción, el tic revisa cada canal.
-- **Las consolas virtuales** viven en una página de 16 KB (`VTPG`), en la parte con bancos del XIOS:
-  - la página: 4 pantallas de 2 KB (80 x 24, sin atributos) en 0000-1FFF; el estado de cada consola (cursor, fila de arriba de la pantalla como anillo, estado de la secuencia ESC, consola con salida sin ver); el trozo que se está mandando; lo tecleado en cada consola (64 bytes); la pila de `BKCALL` arriba;
-  - `BKCALL` (en la memoria común) llama a una rutina de la parte con bancos desde cualquier banco y desde las interrupciones: pone en la ventana 2 la página del banco 0 y en la 0 la de las pantallas, cambia la pila, llama y repone todo (`SELBNK` anota la página de la ventana 2 antes del `OUT`);
+- **Las consolas virtuales** viven en dos páginas de 16 KB, en la parte con bancos del XIOS:
+  - `VTPG`: un anillo de 48 filas de 80 por consola (24 que se ven y 24 de historial; 36 con 5 consolas) en 0000-3BFF; el estado de cada consola (cursor, fila de arriba en el anillo, estado de la secuencia ESC, parámetros, atributo actual, filas guardadas); el trozo que se está mandando; lo tecleado en cada consola (64 bytes); la pila de `BKCALL` arriba;
+  - `VTAPG`: el atributo de cada carácter, en el mismo lugar que el carácter (va en la ventana 1 durante `BKCALL`, así que el de `(HL)` está en `(HL+4000h)`), y el anillo de 256 bytes del modo crudo de `H:XFER`;
+  - `BKCALL` (en la memoria común) llama a una rutina de la parte con bancos desde cualquier banco y desde las interrupciones: pone en la ventana 2 la página del banco 0, en la 0 la de las pantallas y en la 1 la de los atributos, cambia la pila, llama y repone todo (`SELBNK` anota las páginas de las ventanas 1 y 2 antes del `OUT`);
   - `CONOUT` de la consola que se ve deja el carácter en una cola de 32 (FE00) y lo manda a la SIO; la cola pasa a la pantalla de una vez, con una sola llamada al banco 0. Una consola de atrás solo escribe en su pantalla. La salida pesada cuesta alrededor de un 20 % más de CPU que en la 1.3;
   - la interrupción de recepción de la SIO A pasa cada carácter por `KEYIN`, que reconoce Ctrl-F1..F4 y Ctrl-\\ 1..4 y deja lo demás en la consola que se ve. Un ESC espera 6 tics al resto de la secuencia;
   - al cambiar de consola se vacía lo que faltaba mandar y la SIO A "genera" el redibujo: cuando su búfer se vacía, la interrupción lo vuelve a llenar con el siguiente trozo (CAN para cortar una secuencia a medias, `ESC [ 0 m`, la zona de desplazamiento, borrar, cada fila sin los espacios del final y la posición del cursor). Mientras tanto, la consola que se ve espera para escribir;
-  - la línea de estado sale igual, una vez por segundo, desde el tic. La fecha se calcula solo cuando cambia el día.
+  - el redibujo manda cada fila en trozos de hasta 100 bytes, con `ESC [ 0 ; ... m` cada vez que cambia el atributo, y al final el atributo actual de la consola;
+  - la línea de estado sale igual, una vez por segundo, desde el tic. La fecha se calcula solo cuando cambia el día. Para la CPU, el tic mira si interrumpió a `IDLE`;
+  - el modo crudo (servicio 41): las interrupciones de recepción dejan todo en el anillo de 256 bytes sin pasar por `KEYIN`, y el programa manda directo al búfer de la SIO, sin la pantalla guardada.
 - **Memoria alta:** de FE00 a FFFF, sobre el tope de MP/M: la cola de la pantalla (FE00), la entrada de la SIO B (FE40), el búfer de directorio (FE80), el paso entre BUF y el DMA (FF00), la pila de las interrupciones (FF40-FF7F; las interrupciones de las SIO también la usan, para no gastar la pila corta del proceso), los búferes de salida, el control de la impresora, el contador de la cola (FFD3) y los vectores.
-- **Memoria común:** las rutinas de disco y BUF están en la parte con bancos (el BDOS las llama con el banco 0 puesto) y copian al DMA de 64 en 64 bytes por FF00. El historial, el búfer de `MPM.CFG` y las tablas de páginas usan la RAM baja del banco 0 (4000-54FF).
+- **Memoria común:** la fecha (`DAY2YMD`) y el I2C están en la parte con bancos; los servicios 28 y 34 los llaman con `BKCALL` (el 34, un byte cada vez). Las rutinas de disco y BUF están en la parte con bancos (el BDOS las llama con el banco 0 puesto) y copian al DMA de 64 en 64 bytes por FF00. El historial, el búfer de `MPM.CFG` y las tablas de páginas usan la RAM baja del banco 0 (4000-54FF).
 - **Impresora a un archivo:** `SYSTEMINIT` busca `A:MPM.CFG` al mismo tiempo que `STARTUP.SUB` y lee su primer registro. Con `LST=` y algo que no sea `B`, toma una página de 16 KB para un anillo: `LIST` deja ahí cada carácter (con la página un momento en la ventana 0) y, si está lleno, espera un tic. El bloque de control está en FFCC-FFD2: modo, página, cabeza, cola y la página de la ventana 2 del banco puesto, que `SELMEM` anota para que `LSTFILE` pueda devolverla. `LSTFILE` pone la página del anillo en su ventana 2, con las interrupciones apagadas, de 64 en 64 bytes. Las órdenes del arranque (`H:LSTFILE` y `H:SUBMIT A:STARTUP`) se entregan por `CONIN`; mientras quedan, `CONST` dice que no hay nada, porque el TMP vacía lo tecleado antes de leer.
 - **Errores de la SD:** cada lectura o escritura que falla se reintenta una vez después de iniciar la tarjeta otra vez (CMD0, CMD8, ACMD41, CMD58) y olvidar su caché.
 - **La hora al DS1307:** una vez por segundo el XIOS compara la hora de XDOS con la del arranque más los segundos contados. Si difieren en más de 3 s (alguien usó `TOD`), escribe la fecha nueva en el DS1307 por I2C.
 - **`RST 30h`** apunta en cada banco a `ZEMU`, en la memoria común, que imita los servicios 0, 4, 5, 6, 10, 11, 28, 31, 34 y 36 de ZIOS. El 10 libera antes la unidad con la función 37 del BDOS.
 - **Historial y STARTUP.SUB:** `CONIN` y `CONST` miran si el proceso que corre se llama `Tmp...`. Si es así, guardan cada línea y reproducen la pedida con `^W` (borra la línea con `^X` y la escribe de nuevo). La orden de `STARTUP.SUB` se entrega por `CONIN` sin anunciarla en `CONST`, porque el TMP descarta lo que ve tecleado antes de leer.
-- **La SD** usa un driver SPI propio, con los métodos de `zlib/libspi.asm` y un búfer de 512 bytes en la parte con bancos.
+- **La SD** usa un driver SPI propio, con los métodos de `zlib/libspi.asm` y un búfer de 512 bytes en la parte con bancos. Los 512 bytes de un bloque se leen y escriben con el bucle desenrollado (`SPIRB`, `SPIWB`): leer pasó de unos 620 a 400 ciclos por byte. No hay lectura anticipada con CMD18: con la SPI por software, pasar el bloque (unos 30 ms) pesa mucho más que la espera de cada orden.
 - **El disco en flash** se lee mapeando la página de flash en la ventana 0 por un momento.
 - **El directorio y los DPB** van en la memoria común: `READ` copia con el banco del usuario puesto, y los programas leen el DPB con la función 31.
 
