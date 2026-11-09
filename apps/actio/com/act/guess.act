@@ -1,0 +1,41 @@
+; Adivina el numero (1-99)
+; El numero secreto sale de contar mientras el jugador tarda en pulsar una tecla.
+; Multiplicar por 10 sin '*': n*10 = n*8 + n*2 = (n LSH 3) + (n LSH 1)
+BYTE SECRET, GUESS, TRIES, C, N
+
+PROC READNUM()                    ; lee un numero decimal en n, termina con Enter
+  N = 0
+  WHILE 1 DO
+    C = GET()
+    IF C = 13 THEN EXIT FI
+    IF C >= '0' AND C <= '9' THEN
+      PUT(C)
+      N = (N LSH 3) + (N LSH 1) + (C - '0')
+    FI
+  OD
+  CRLF()
+END
+
+PROC MAIN()
+  PRINT("Adivina el numero (1-99). Pulsa una tecla...")
+  SECRET = 1
+  WHILE KEY() = 0 DO
+    SECRET = SECRET + 1
+    IF SECRET > 99 THEN SECRET = 1 FI
+  OD
+  CRLF()
+  TRIES = 0
+  WHILE 1 DO
+    PRINT("? ")
+    READNUM()
+    GUESS = N
+    TRIES = TRIES + 1
+    IF GUESS < SECRET THEN PRINT("Mas alto") CRLF()
+    ELSEIF GUESS > SECRET THEN PRINT("Mas bajo") CRLF()
+    ELSE EXIT
+    FI
+  OD
+  PRINT("Correcto! Era ") PRINTB(SECRET)
+  PRINT(" y lo hallaste en ") PRINTB(TRIES) PRINT(" intentos.")
+  CRLF()
+END

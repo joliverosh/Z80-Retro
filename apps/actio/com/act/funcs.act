@@ -1,0 +1,51 @@
+; Etapa 2: parametros, FUNC y RETURN
+CARD FUNC FACT(BYTE N)
+  CARD R
+  BYTE K
+  R = 1
+  FOR K = 2 TO N DO R = R * K OD
+  RETURN(R)
+END
+
+CARD FUNC GCD(CARD A, B)
+  CARD T
+  WHILE B <> 0 DO
+    T = A MOD B
+    A = B
+    B = T
+  OD
+  RETURN(A)
+END
+
+INT FUNC MAX3(INT A, B, C)
+  INT M
+  M = A
+  IF B > M THEN M = B FI
+  IF C > M THEN M = C FI
+  RETURN(M)
+END
+
+BYTE FUNC UPPER(BYTE CH)
+  IF CH >= 'a' AND CH <= 'z' THEN RETURN(CH - 32) FI
+  RETURN(CH)
+END
+
+BYTE FUNC ADD(BYTE A, B)
+  RETURN(A + B)
+END
+
+PROC SAY(CARD MSG, BYTE TIMES)
+  BYTE I
+  FOR I = 1 TO TIMES DO PRINT(MSG) OD
+END
+
+PROC MAIN()
+  PRINTC(FACT(8)) PUT(' ')
+  PRINTC(GCD(1071, 462)) PUT(' ')
+  PRINTI(MAX3(-5, 12, 7)) PUT(' ')
+  PRINTI(MAX3(-5, -12, -7)) PUT(' ')
+  PUT(UPPER('q')) PUT(UPPER('Z')) PUT(' ')
+  PRINTB(ADD(ADD(1, 2), ADD(3, 4))) PUT(' ')     ; llamadas anidadas a la misma FUNC
+  SAY("ab", 3)
+  CRLF()
+END

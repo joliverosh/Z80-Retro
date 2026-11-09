@@ -29,5 +29,8 @@ echo "OK: zloader/zloader_sst39sf040.bin"
 python3 ../tools/mkflashdisk.py zloader_sst39sf040.bin zloader_sst39sf040_fd.bin \
     ../cpmtools/download.hex ../images/cpm22apps.pkg ../cpmtools/format.hex \
     ../apps/pi/PI1K.COM ../apps/pi/PI10K.COM \
+    ../apps/mat/PRIMOS.COM ../apps/mat/PRIMOS7.COM ../apps/mat/PRIMOS8.COM ../apps/mat/bombe/BOMBE.COM \
+    ../apps/basic/bas/*.BAS \
+    ../apps/actio/com/SIEVE.COM ../apps/actio/com/GUESS.COM ../apps/actio/com/FUNCS.COM ../apps/actio/com/SIXTEEN.COM \
     -u3 ../apps/cpm3/cpm3.pkg > mkflashdisk.log && \
     echo "OK: zloader/zloader_sst39sf040_fd.bin (con disco en flash)"

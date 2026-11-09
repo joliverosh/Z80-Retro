@@ -1,0 +1,32 @@
+; Criba de Eratostenes hasta 8000 (el ejemplo de GRAMMAR.md)
+DEFINE N = 8000
+BYTE ARRAY FLAGS[N]
+CARD COUNT
+
+PROC SIEVE()
+  CARD I, J
+  FOR I = 2 TO N - 1 DO FLAGS[I] = 1 OD
+  I = 2
+  WHILE I * I < N DO
+    IF FLAGS[I] THEN
+      J = I * I
+      WHILE J < N DO
+        FLAGS[J] = 0
+        J = J + I
+      OD
+    FI
+    I = I + 1
+  OD
+END
+
+PROC MAIN()
+  CARD I
+  SIEVE()
+  COUNT = 0
+  FOR I = 2 TO N - 1 DO
+    IF FLAGS[I] THEN COUNT = COUNT + 1 FI
+  OD
+  PRINT("Primes below 8000: ")
+  PRINTC(COUNT)
+  CRLF()
+END
