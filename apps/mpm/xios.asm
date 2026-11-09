@@ -26,6 +26,11 @@ NDRV    EQU     16              ; unidades A-P
 MAXBNK  EQU     7               ; bancos de usuario (GENSYS: user memory segments)
 MAXRPG  EQU     128             ; paginas del disco en RAM como maximo (2 MB)
 MAXEXT  EQU     160             ; paginas del bus de expansion que se toman
+; Memoria baja del banco 0 (4000-63FF): MP/M empieza mas arriba y la ventana 1
+; no cambia durante SYSINIT. Solo para lo que se usa con el banco 0 puesto.
+B0MEM   EQU     4000h
+HSTB    EQU     B0MEM           ; historial: HSZ bytes por consola (hasta 5)
+; CFGBUF B0MEM+1000h, RPV +1300h, POOL +1400h (ver mas abajo)
 TPS     EQU     60              ; tics por segundo para MP/M (GENSYS)
 
 PGPORT  EQU     60h             ; registros de pagina: 60h + ventana
@@ -141,6 +146,11 @@ SYSINIT: LD     (SVSP),SP
         CALL    PGQRY           ; ---- 1. paginas del banco 0 (en la comun)
         CALL    RTCTOD          ; ---- 1b. la hora del DS1307 (servicio 28) a la TOD de XDOS
         CALL    TODBAS          ;          y la referencia para notar cambios de hora
+        LD      HL,HSTB         ; historial vacio
+        LD      DE,HSTB+1
+        LD      BC,NMBCNS*HSZ-1
+        LD      (HL),0
+        LDIR
         CALL    STFIND          ; ---- 1c. hay A:STARTUP.SUB?
         CALL    EXTQRY          ; ---- 1d. RAM del bus de expansion (servicio 2)
         ; ---- 2. mapa de unidades (servicio 11) y disco en flash (servicio 36)
@@ -1681,13 +1691,13 @@ KO2:    POP     AF
         RET
 RPS:    DEFB    0
 RPM:    DEFB    0
-RPV:    DEFS    32+MAXEXT
+RPV     EQU     B0MEM+1300h     ; (en la memoria baja del banco 0)
 
 NBNKS:  DEFB    MAXBNK
 NEXT:   DEFB    0
 POOLN:  DEFB    0
 POOLP:  DEFW    POOL
-POOL:   DEFS    32+MAXEXT
+POOL    EQU     B0MEM+1400h
 
 ; ------------------------------------------------------------- historial de ordenes
 ; Solo para el TMP (el indicador nA>): ^W recupera la orden anterior; cada ^W
@@ -1698,12 +1708,19 @@ POOL:   DEFS    32+MAXEXT
 HLEN    EQU     80              ; caracteres por linea
 HNUM    EQU     8               ; lineas por consola
 
-; HCON: IX = estado de la consola D
-HCON:   LD      IX,HST0
+; HCON: IX = estado de la consola D (HSTB + D * HSZ)
+HCON:   PUSH    DE
+        PUSH    BC
+        LD      IX,HSTB
+        LD      BC,HSZ
         LD      A,D
-        OR      A
-        RET     Z
-        LD      IX,HST1
+        INC     A
+HC1:    DEC     A
+        JR      Z,HC2
+        ADD     IX,BC
+        JR      HC1
+HC2:    POP     BC
+        POP     DE
         RET
 ; estado por consola (desplazamientos en IX):
 ;  0 largo de la linea actual   1 reproduciendo: caracteres que faltan
@@ -1899,8 +1916,6 @@ HL1:    ADD     HL,DE
         POP     DE
         RET
 
-HST0:   DEFS    HSZ
-HST1:   DEFS    HSZ
 
 ; ------------------------------------------------------------- STARTUP.SUB
 ; STFIND: busca STARTUP.SUB en el usuario 0 de A: leyendo el directorio con
@@ -2310,7 +2325,7 @@ CFOK:   DEFB    0
 CFDRV:  DEFB    0
 STATON: DEFB    0
 CFBW4:  DEFB    0,0,0,0         ; WR4 y constante del CTC de los canales A y B
-CFGBUF: DEFS    4*128+1
+CFGBUF  EQU     B0MEM+1000h
 
 ; STCMP: Z si el nombre de la entrada HL (usuario en HL) es el de DE (11
 ; letras). Deja HL en el byte 12 de la entrada.
