@@ -24,7 +24,7 @@ for f in ['RESBDOS.SPR','XDOS.SPR','BNKBDOS.SPR','BNKXDOS.SPR','TMP.SPR']:
         # Parche: el mensaje de arranque dice que es la version para ZEPHYRUS
         # (mismo largo, 56 bytes; el texto no lleva bits de reubicacion).
         old = b'\r\n\nMP/M II V2.0\r\nCopyright (C) 1981, Digital Research\r\n$'
-        new = b'\r\nMP/M II 2.0 ZEPHYRUS 1.2\r\n(C) 1981 Digital Research\r\n$'
+        new = b'\r\nMP/M II 2.0 ZEPHYRUS 1.3\r\n(C) 1981 Digital Research\r\n$'
         assert d.count(old) == 1 and len(old) == len(new), 'XDOS.SPR: no encuentro el mensaje'
         d = d.replace(old, new)
     files.append((f, d))
@@ -41,7 +41,7 @@ ANS = [  # (texto de la pregunta, respuesta)
     ('Breakpoint RST', '07'), ('system call user stacks', 'Y'), ('Z80 CPU', 'Y'),
     ('ticks/second', '#60'), ('System Drive', 'H:'), ('Temporary file drive', 'A:'),
     ('locked records/process', ''), ('Total locked records', ''), ('open files/process', ''),
-    ('Total open files', ''), ('Bank switched memory', 'Y'), ('user memory segments', '#5'),
+    ('Total open files', ''), ('Bank switched memory', 'Y'), ('user memory segments', '#7'),
     ('Common memory base page', 'C0'), ('Dayfile logging', 'N'),
     ('Accept new system data', 'Y'), ('Accept new memory segment', 'Y'),
 ]

@@ -23,7 +23,9 @@
 ; =============================================================================
 NMBCNS  EQU     2               ; consolas
 NDRV    EQU     16              ; unidades A-P
-NBNK    EQU     5               ; bancos de usuario (GENSYS: user memory segments)
+MAXBNK  EQU     7               ; bancos de usuario (GENSYS: user memory segments)
+MAXRPG  EQU     128             ; paginas del disco en RAM como maximo (2 MB)
+MAXEXT  EQU     160             ; paginas del bus de expansion que se toman
 TPS     EQU     60              ; tics por segundo para MP/M (GENSYS)
 
 PGPORT  EQU     60h             ; registros de pagina: 60h + ventana
@@ -38,14 +40,22 @@ SPICS   EQU     64h             ; seleccion de la tarjeta
 CSOFF   EQU     01h
 ZIOS    EQU     0FE00h          ; entrada al API de ZIOS desde la aplicacion
 
-RXA     EQU     0FE00h          ; bufer circular de la consola 0 (128 bytes)
-RXB     EQU     0FE80h          ; bufer circular de la consola 1
+RXA     EQU     0FE00h          ; bufer circular de la consola 0 (64 bytes)
+RXB     EQU     0FE40h          ; bufer circular de la consola 1
+DIRBF   EQU     0FE80h          ; bufer de directorio (en la comun: READ copia con el banco del usuario puesto)
 ISTK    EQU     0FF80h          ; pila de las interrupciones (FF00-FF7F)
+TXA     EQU     0FF80h          ; buferes de salida (6 + 32 bytes cada uno), FF80-FFCB
+TXB     EQU     TXA+6+TXMSK+1
 VSIO    EQU     0FFE0h          ; vectores de la SIO (WR2 = E0h, lo puso ZIOS)
 VCTC    EQU     0FFF0h          ; vectores del CTC (vector F0h, lo puso ZIOS)
 
 POLL    EQU     131
 FLAGSET EQU     133
+FLAGWT  EQU     132
+FLTXA   EQU     12              ; banderas: hay lugar en el bufer de salida de la SIO A / B
+FLTXB   EQU     13
+TXMSK   EQU     31              ; bufer de salida de 32 caracteres por canal
+CTC0    EQU     40h             ; canal 0 del CTC (reloj de la SIO por P3/P6)
 
         ORG     ORIGEN
 
@@ -125,6 +135,7 @@ SYSINIT: LD     (SVSP),SP
         CALL    RTCTOD          ; ---- 1b. la hora del DS1307 (servicio 28) a la TOD de XDOS
         CALL    TODBAS          ;          y la referencia para notar cambios de hora
         CALL    STFIND          ; ---- 1c. hay A:STARTUP.SUB?
+        CALL    EXTQRY          ; ---- 1d. RAM del bus de expansion (servicio 2)
         ; ---- 2. mapa de unidades (servicio 11) y disco en flash (servicio 36)
         LD      HL,ZMAP
         LD      B,0
@@ -233,25 +244,13 @@ SI8:    LD      A,C
         LD      (CMNPG),A
         LD      A,(BNKPG)
         OUT     (PGPORT),A
-        ; paginas de los bancos 1-7: las libres, de arriba hacia abajo
-        LD      HL,BNKPG+3
-        LD      C,3Fh
-        LD      B,NBNK*3
-SI9:    LD      A,C
-        CALL    USADA
-        JR      Z,SI10
-        LD      (HL),C
-        INC     HL
-        DEC     B
-SI10:   DEC     C
-        INC     B               ; (no cambia Z)
-        DEC     B
-        JR      NZ,SI9
+        CALL    PGPOOL          ; paginas libres -> bancos 1-7 segun cuantas haya
         CALL    CINIT           ; las paginas que sobran: cache de disco
         CALL    RINIT           ; y las que quedan, el disco en RAM (G:)
         ; pagina cero de cada banco: JP a la tabla de saltos, el RST del
         ; depurador y un RET en 30h (los programas de la Z80-Retro llaman a ZIOS)
-        LD      B,NBNK
+        LD      A,(NBNKS)
+        LD      B,A
 SI11:   LD      A,B             ; ventana 0 <- primera pagina del banco B
         ADD     A,A
         ADD     A,B
@@ -303,6 +302,14 @@ SI12:   DEC     B
         LD      (HDB),A
         LD      (TLB),A
 
+        LD      HL,TXINI        ; buferes de salida vacios
+        LD      DE,TXA
+        LD      BC,6
+        LDIR
+        LD      HL,TXINI+6
+        LD      DE,TXB
+        LD      C,6
+        LDIR
         LD      HL,SIOINI
         LD      B,SIOINN
 SI13:   LD      C,(HL)
@@ -330,7 +337,12 @@ SI14B:  IN      A,(SIOAC)
         OUT     (SIOAD),A
         INC     HL
         JR      SI14
-SI15:   LD      A,(NCPG)        ; "nn KB de cache de disco"
+SI15:   LD      A,(NBNKS)       ; "n bancos, unidades A-P"
+        ADD     A,'0'
+        CALL    SIOPUT
+        LD      HL,MSGB
+        CALL    PRSTR
+        LD      A,(NCPG)        ; "nn KB de cache de disco"
         LD      HL,MSGC
         CALL    PRKB
         LD      A,(NRPG)        ; "G: disco en RAM de nnn KB"
@@ -359,6 +371,9 @@ PRKB:   OR      A
         ADD     HL,HL
         ADD     HL,HL
         ADD     HL,HL
+        LD      B,0             ; 0: todavia no hay digitos (ceros a la izquierda)
+        LD      DE,1000
+        CALL    PRDIG
         LD      DE,100
         CALL    PRDIG
         LD      DE,10
@@ -374,7 +389,7 @@ PRSTR:  LD      A,(HL)
         CALL    SIOPUT
         INC     HL
         JR      PRSTR
-; PRDIG: digito de HL / DE (sin ceros a la izquierda: B = ya hubo digito)
+; PRDIG: digito de HL / DE; HL = resto
 PRDIG:  LD      A,'0'-1
 PRD1:   INC     A
         OR      A
@@ -383,12 +398,11 @@ PRD1:   INC     A
         ADD     HL,DE
         CP      '0'
         JR      NZ,PRD2
-        LD      C,A
-        LD      A,E
-        CP      100
-        LD      A,C
-        RET     Z               ; cero de las centenas: no se escribe
-PRD2:   JP      SIOPUT
+        INC     B
+        DEC     B
+        RET     Z
+PRD2:   LD      B,1
+        JP      SIOPUT
 
 ; RTCTOD: pide la fecha a ZIOS (servicio 28: seg, min, hora, dia, mes, anio en
 ; BCD) y la escribe en la TOD de XDOS, cuya direccion esta en SYSDAT+252. Si el
@@ -523,7 +537,7 @@ GB0:    LD      A,(NCPG)        ; con cache: buscarlo alli
 GB1:    LD      A,0FFh
         LD      (CCARD),A       ; invalido mientras se lee
         LD      (BUFSL),A
-        CALL    SDRD
+        CALL    SDRDX
         RET     NZ
         LD      A,(DSKC)
         LD      (CCARD),A
@@ -787,27 +801,17 @@ CPY2:   LD      A,B
 
 ; CINIT: paginas libres para la cache (las que no son de ningun banco ni la
 ; comun), de arriba hacia abajo: 4, 2, 1 o ninguna. Etiquetas vacias.
-CINIT:  LD      HL,CPG
-        LD      B,0             ; paginas encontradas
-        LD      C,3Fh
-CI1:    LD      A,C
-        CALL    USADA
-        JR      Z,CI2
-        LD      (HL),C
-        INC     HL
-        INC     B
-        LD      A,B
+CINIT:  LD      A,(POOLN)       ; hasta 4 de las que quedan en la reserva
         CP      4
-        JR      Z,CI3
-CI2:    DEC     C
-        LD      A,C
-        CP      1Fh
-        JR      NZ,CI1
-CI3:    LD      A,B             ; 3 -> 2 (los conjuntos van en potencia de 2)
-        CP      3
+        JR      C,CI3
+        LD      A,4
+CI3:    CP      3               ; 3 -> 2 (los conjuntos van en potencia de 2)
         JR      NZ,CI4
         DEC     A
 CI4:    LD      (NCPG),A
+        LD      DE,CPG
+        CALL    POOLTK
+        LD      A,(NCPG)
         ADD     A,A             ; conjuntos = paginas * 16
         ADD     A,A
         ADD     A,A
@@ -985,8 +989,10 @@ SDC3:   LD      A,(HL)
         CALL    SPITX
         DEC     HL
         DJNZ    SDC3
-        LD      A,0FFh          ; CRC (no se usa salvo CMD0/8)
+        LD      A,(SDCRC)       ; CRC (solo cuenta en CMD0 y CMD8)
         CALL    SPITX
+        LD      A,0FFh
+        LD      (SDCRC),A
         LD      B,16
 SDC4:   CALL    SPIRX
         CP      0FFh
@@ -1273,100 +1279,11 @@ RSW:    LD      A,(HL)
         DJNZ    RSW
 RS9:    JP      ISTOP
 
-; I2C por software en 64h/65h (de rtc.asm, rutinas de zlib/libi2c.asm de Peter
-; Wilson, MIT). Bit 1 = SDA; escribir en 65h sube SCL. El bit 0 (RRW) queda en 1.
-IDLY:   PUSH    BC
-        LD      B,3
-IDL1:   DJNZ    IDL1
-        POP     BC
-        RET
-ISTART: LD      A,1
-        CALL    ICLK
-        LD      A,1
-        CALL    IDAT
-        CALL    IDLY
-        XOR     A
-        CALL    IDAT
-        CALL    IDLY
-        XOR     A
-        CALL    ICLK
-        JP      IDLY
-ISTOP:  XOR     A
-        CALL    IDAT
-        CALL    IDLY
-        LD      A,1
-        CALL    ICLK
-        CALL    IDLY
-        LD      A,1
-        CALL    IDAT
-        CALL    IDLY
-        XOR     A
-        CALL    ICLK
-        JP      IDLY
-IWBI:   CALL    IDAT
-        CALL    IDLY
-        LD      A,1
-        CALL    ICLK
-        CALL    IDLY
-        XOR     A
-        CALL    ICLK
-        JP      IDLY
-IWBY:   PUSH    BC              ; manda A; devuelve el bit ACK (0 = reconocido)
-        LD      B,8
-        LD      C,A
-IW1:    RLC     C
-        LD      A,C
-        CALL    IWBI
-        DJNZ    IW1
-        CALL    IRBI
-        POP     BC
-        RET
-IRBI:   LD      A,1
-        CALL    IDAT
-        CALL    IDLY
-        LD      A,1
-        CALL    ICLK
-        CALL    IDLY
-        IN      A,(SPICS)
-        AND     2
-        PUSH    AF
-        XOR     A
-        CALL    ICLK
-        CALL    IDLY
-        POP     AF
-        SRA     A
-        RET
-IDAT:   PUSH    BC
-        AND     1
-        LD      A,(ICLKP)
-        LD      C,A
-        LD      A,(IVAL)
-        JR      Z,ID1
-        OR      2
-        JR      ID2
-ID1:    AND     0FDh
-ID2:    LD      (IVAL),A
-        OUT     (C),A
-        POP     BC
-        RET
-ICLK:   PUSH    BC
-        RRCA
-        LD      A,SPICS
-        ADC     A,0
-        LD      (ICLKP),A
-        LD      C,A
-        LD      A,(IVAL)
-        OUT     (C),A
-        POP     BC
-        RET
-
 ACC:    DEFS    4
 X32:    DEFS    4
 BASE:   DEFS    4               ; segundos de la hora de referencia
 BSECS:  DEFW    0               ; SECS cuando se tomo la referencia
 LASTS:  DEFW    0
-IVAL:   DEFB    3
-ICLKP:  DEFB    SPICS
 
 ; ------------------------------------------------------------- disco en RAM
 ; G: (la unidad que ZIOS tenia como disco en RAM) en las paginas libres que no
@@ -1420,36 +1337,47 @@ RAMWR:  CALL    RAMADR
 
 ; RINIT: las paginas que quedan libres (despues de la cache) para el disco en
 ; RAM, su DPB, el DPH de la unidad y el directorio vacio (E5).
-RINIT:  LD      HL,RAMPG
-        LD      B,0
-        LD      C,3Fh
-RI1:    LD      A,C
-        CALL    USADA
-        JR      Z,RI2
-        CALL    ESCACHE
-        JR      Z,RI2
-        LD      (HL),C
-        INC     HL
-        INC     B
-        LD      A,B
-        CP      16
-        JR      Z,RI3
-RI2:    DEC     C
-        LD      A,C
-        CP      1Fh
-        JR      NZ,RI1
-RI3:    LD      A,B
-        LD      (NRPG),A
+RINIT:  LD      A,(POOLN)       ; todas las que quedan (hasta MAXRPG)
+        CP      MAXRPG+1
+        JR      C,RI1
+        LD      A,MAXRPG
+RI1:    LD      (NRPG),A
+        LD      DE,RAMPG
+        CALL    POOLTK
+        LD      A,(NRPG)
         OR      A
         RET     Z
-        ADD     A,A             ; DSM = paginas * 16 - 1
-        ADD     A,A
-        ADD     A,A
-        ADD     A,A
-        DEC     A
-        LD      (DPBRM+5),A
-        XOR     A
-        LD      (DPBRM+6),A
+        LD      L,A
+        LD      H,0
+        CP      16
+        JR      NC,RI2
+        ADD     HL,HL           ; hasta 15 paginas: bloques de 1 KB,
+        ADD     HL,HL           ; DSM = paginas * 16 - 1
+        ADD     HL,HL
+        ADD     HL,HL
+        DEC     HL
+        LD      BC,0307h        ; BSH, BLM
+        LD      DE,03F00h       ; DRM = 63 (2 bloques de 1 KB), EXM = 0
+        JR      RI3
+RI2:    ADD     HL,HL           ; 16 o mas: bloques de 2 KB, DSM = paginas * 8 - 1
+        ADD     HL,HL
+        ADD     HL,HL
+        DEC     HL
+        LD      BC,040Fh
+        LD      DE,07F01h       ; DRM = 127 (2 bloques de 2 KB), EXM = 1 con DSM < 256
+        LD      A,H
+        OR      A
+        JR      Z,RI3
+        DEC     E               ; EXM = 0
+RI3:    LD      (DPBRM+5),HL
+        LD      A,B
+        LD      (DPBRM+2),A
+        LD      A,C
+        LD      (DPBRM+3),A
+        LD      A,E
+        LD      (DPBRM+4),A
+        LD      A,D
+        LD      (DPBRM+7),A
         LD      HL,DCARD        ; las unidades con tarjeta 2 usan DPBRM
         LD      B,0
 RI4:    LD      A,(HL)
@@ -1475,10 +1403,10 @@ RI5:    INC     HL
         LD      A,B
         CP      NDRV
         JR      NZ,RI4
-        LD      A,(RAMPG)       ; directorio (2 KB al principio) en E5
+        LD      A,(RAMPG)       ; directorio (hasta 4 KB al principio) en E5
         LD      (CPAGE),A
         LD      HL,0
-        LD      B,32            ; 32 trozos de 64
+        LD      B,64            ; 64 trozos de 64
 RI6:    PUSH    BC
         LD      A,I
         DI
@@ -1498,23 +1426,118 @@ RI8:    POP     BC
         DJNZ    RI6
         RET
 
-; ESCACHE: Z si la pagina C es de la cache
-ESCACHE: PUSH   HL
+NRPG:   DEFB    0               ; paginas del disco en RAM (0 = no hay)
+RAMPG:  DEFS    MAXRPG
+
+; ------------------------------------------------------------- reserva de paginas
+; EXTQRY: con ZIOS todavia debajo, le pide todas sus paginas libres (servicio 2)
+; y guarda las del bus de expansion (40h en adelante) en POOL+32. ZIOS ya probo
+; cuales tienen RAM y reservo las que no.
+EXTQRY: LD      HL,POOL+32
+        LD      B,0
+EQ1:    PUSH    HL
         PUSH    BC
-        LD      HL,CPG
-        LD      B,4
-EC1:    LD      A,(HL)
-        CP      C
-        JR      Z,EC9
-        INC     HL
-        DJNZ    EC1
-        OR      1               ; NZ
-EC9:    POP     BC
+        LD      C,2
+        CALL    ZIOS            ; A = pagina (0 = no quedan)
+        POP     BC
         POP     HL
+        OR      A
+        JR      Z,EQ9
+        CP      40h
+        JR      C,EQ1           ; las de la placa se cuentan despues
+        LD      (HL),A
+        INC     HL
+        INC     B
+        LD      A,B
+        CP      MAXEXT
+        JR      NZ,EQ1
+EQ9:    LD      A,B
+        LD      (NEXT),A
         RET
 
-NRPG:   DEFB    0               ; paginas del disco en RAM (0 = no hay)
-RAMPG:  DEFS    16
+; PGPOOL: arma la reserva (las paginas de la placa que no son del banco 0 ni la
+; comun, de arriba hacia abajo, y despues las del bus), decide cuantos bancos
+; de usuario hay (3 paginas cada uno, dejando 13 para la cache y G:, entre 1 y
+; MAXBNK), les da sus paginas y deja ese numero de segmentos en SYSDAT.
+PGPOOL: LD      HL,POOL
+        LD      B,0
+        LD      C,3Fh
+PP1:    LD      A,C
+        CALL    USADA
+        JR      Z,PP2
+        LD      (HL),C
+        INC     HL
+        INC     B
+PP2:    DEC     C
+        LD      A,C
+        CP      1Fh
+        JR      NZ,PP1
+        LD      A,(NEXT)        ; las del bus, a continuacion
+        OR      A
+        JR      Z,PP3
+        PUSH    BC
+        EX      DE,HL
+        LD      HL,POOL+32
+        LD      C,A
+        LD      B,0
+        LDIR
+        POP     BC
+        LD      A,(NEXT)
+        ADD     A,B
+        LD      B,A
+PP3:    LD      A,B
+        LD      (POOLN),A
+        LD      HL,POOL
+        LD      (POOLP),HL
+        SUB     13              ; bancos = (paginas - 13) / 3
+        JR      NC,PP4
+        XOR     A
+PP4:    LD      C,A
+        LD      B,0
+PP5:    LD      A,C
+        SUB     3
+        JR      C,PP6
+        LD      C,A
+        INC     B
+        LD      A,B
+        CP      MAXBNK
+        JR      NZ,PP5
+PP6:    LD      A,B
+        OR      A
+        JR      NZ,PP7
+        INC     A               ; al menos uno
+PP7:    LD      (NBNKS),A
+        LD      B,A             ; 3 paginas por banco
+        ADD     A,A
+        ADD     A,B
+        LD      DE,BNKPG+3
+        CALL    POOLTK
+        LD      HL,(SYSDAT)     ; SYSDAT+15: segmentos de memoria (el del
+        LD      L,15            ; sistema y los de usuario)
+        LD      A,(NBNKS)
+        INC     A
+        LD      (HL),A
+        RET
+
+; POOLTK: copia A paginas de la reserva a DE y las saca de la reserva
+POOLTK: OR      A
+        RET     Z
+        LD      C,A
+        LD      B,0
+        LD      HL,POOLN
+        LD      A,(HL)
+        SUB     C
+        LD      (HL),A
+        LD      HL,(POOLP)
+        LDIR
+        LD      (POOLP),HL
+        RET
+
+NBNKS:  DEFB    MAXBNK
+NEXT:   DEFB    0
+POOLN:  DEFB    0
+POOLP:  DEFW    POOL
+POOL:   DEFS    32+MAXEXT
 
 ; ------------------------------------------------------------- historial de ordenes
 ; Solo para el TMP (el indicador nA>): ^W recupera la orden anterior; cada ^W
@@ -1817,7 +1840,179 @@ US9:    POP     BC
         RET
 
 ; SDTIPO: tarjeta A -> HCARD (1 = SDHC). Sin tarjeta queda en 0.
+; SDRDX / SDWRX: lectura / escritura de la SD con un reintento. Si falla, la
+; tarjeta se vuelve a iniciar (pudo haberse cambiado) y su cache se olvida. Si
+; vuelve a fallar, un mensaje en la consola del proceso dice donde.
+SDRDX:  CALL    SDRD
+        RET     Z
+        CALL    SDREIN
+        CALL    Z,SDRD
+        RET     Z
+        LD      HL,MSGRD
+        JR      SDFAIL
+SDWRX:  CALL    SDWR
+        RET     Z
+        CALL    SDREIN
+        CALL    Z,SDWR
+        RET     Z
+        LD      HL,MSGWR
+SDFAIL: CALL    SDMSG
+        LD      A,1
+        OR      A
+        RET
+
+; SDREIN: inicia otra vez la tarjeta DSKC (CMD0, CMD8, ACMD41, CMD58). Z = bien.
+SDREIN: CALL    CPURGE
+        LD      A,CSOFF         ; 80 relojes con CS arriba
+        OUT     (SPICS),A
+        LD      B,10
+SRI1:   CALL    SPIRX
+        DJNZ    SRI1
+        LD      HL,0
+        LD      (ARG),HL
+        LD      (ARG+2),HL
+        LD      A,95h
+        LD      (SDCRC),A
+        LD      C,40h+0
+        CALL    SDCMDE
+        CP      1               ; en espera
+        RET     NZ
+        LD      HL,01AAh
+        LD      (ARG),HL
+        LD      A,87h
+        LD      (SDCRC),A
+        LD      C,40h+8
+        CALL    SDCMD           ; (las tarjetas viejas no lo conocen: da igual)
+        CALL    SPIRX
+        CALL    SPIRX
+        CALL    SPIRX
+        CALL    SPIRX
+        CALL    SDEND
+        LD      DE,4000         ; ACMD41 hasta que salga del estado de espera
+SRI2:   PUSH    DE
+        LD      HL,0
+        LD      (ARG),HL
+        LD      (ARG+2),HL
+        LD      C,40h+55
+        CALL    SDCMDE
+        LD      HL,4000h        ; HCS
+        LD      (ARG+2),HL
+        LD      C,40h+41
+        CALL    SDCMDE
+        POP     DE
+        OR      A
+        JR      Z,SRI3
+        DEC     DE
+        LD      A,D
+        OR      E
+        JR      NZ,SRI2
+        INC     A               ; NZ
+        RET
+SRI3:   LD      A,(DSKC)
+        CALL    SDTIPO          ; SDHC o SDSC
+        XOR     A
+        RET
+SDCMDE: CALL    SDCMD
+        PUSH    AF
+        CALL    SDEND
+        POP     AF
+        RET
+
+; CPURGE: olvida lo que hay en la cache (y en BUF) de la tarjeta DSKC
+CPURGE: LD      A,(DSKC)
+        LD      C,A
+        LD      HL,CCARD
+        CP      (HL)
+        JR      NZ,CPU1
+        LD      (HL),0FFh
+        LD      A,0FFh
+        LD      (BUFSL),A
+CPU1:   LD      HL,CTAG
+        LD      DE,5
+        LD      B,128
+CPU2:   LD      A,(HL)
+        CP      C
+        JR      NZ,CPU3
+        LD      (HL),0FFh
+CPU3:   ADD     HL,DE
+        DJNZ    CPU2
+        RET
+
+; SDMSG: el texto HL, la unidad, pista y sector, por la consola del proceso
+SDMSG:  PUSH    HL
+        CALL    TODADR          ; datapg+5: el proceso que corre; su consola en +0Eh
+        LD      DE,5
+        ADD     HL,DE
+        LD      A,(HL)
+        INC     HL
+        LD      H,(HL)
+        LD      L,A
+        LD      E,0Eh
+        ADD     HL,DE
+        LD      A,(HL)
+        AND     1
+        LD      (MCON),A
+        POP     HL
+        CALL    MPSTR
+        LD      A,(DRV)
+        ADD     A,'A'
+        CALL    MPCH
+        LD      HL,MSGPT
+        CALL    MPSTR
+        LD      HL,(TRK)
+        CALL    MPHX16
+        LD      HL,MSGSC
+        CALL    MPSTR
+        LD      HL,(SEC)
+        CALL    MPHX16
+        LD      HL,MSGFIN
+MPSTR:  LD      A,(HL)
+        OR      A
+        RET     Z
+        CALL    MPCH
+        INC     HL
+        JR      MPSTR
+MPHX16: LD      A,H
+        CALL    MPHEX
+        LD      A,L
+MPHEX:  PUSH    AF
+        RRCA
+        RRCA
+        RRCA
+        RRCA
+        CALL    MPNIB
+        POP     AF
+MPNIB:  AND     15
+        ADD     A,90h
+        DAA
+        ADC     A,40h
+        DAA
+MPCH:   PUSH    HL
+        PUSH    DE
+        PUSH    BC
+        LD      C,A
+        LD      A,(MCON)
+        LD      D,A
+        CALL    CONOUT
+        POP     BC
+        POP     DE
+        POP     HL
+        RET
+MCON:   DEFB    0
+SDCRC:  DEFB    0FFh
+MSGRD:  DEFB    13,10,'SD: no se pudo leer ',0
+MSGWR:  DEFB    13,10,'SD: no se pudo escribir ',0
+MSGPT:  DEFB    ': pista ',0
+MSGSC:  DEFB    'h, sector ',0
+MSGFIN: DEFB    'h',13,10,0
+
 SDTIPO: LD      (DSKC),A
+        LD      HL,HCARD        ; SDSC mientras no diga otra cosa
+        ADD     A,L
+        LD      L,A
+        JR      NC,SDT0
+        INC     H
+SDT0:   LD      (HL),0
         LD      HL,0
         LD      (ARG),HL
         LD      (ARG+2),HL
@@ -1846,14 +2041,17 @@ SIOINI: DEFB    SIOAC,28h, SIOAC,10h, SIOAC,30h     ; reponer TX, estado y error
         DEFB    SIOAC,5, SIOAC,0EAh                 ; RTS activo
         DEFB    SIOBC,5, SIOBC,0EAh
         DEFB    SIOBC,2, SIOBC,0E0h                 ; vector base E0h
-        DEFB    SIOBC,1, SIOBC,1Ch                  ; B: RX por int., estado afecta al vector
-        DEFB    SIOAC,1, SIOAC,18h                  ; A: RX por int.
+        DEFB    SIOBC,1, SIOBC,1Eh                  ; B: RX y TX por int., estado afecta al vector
+        DEFB    SIOAC,1, SIOAC,1Ah                  ; A: RX y TX por int.
 SIOINN  EQU     ($-SIOINI)/2
+TXINI:  DEFB    0,0,0,0,SIOAD,SIOAC
+        DEFB    0,0,0,0,SIOBD,SIOBC
 
 VECS:   DEFW    ITXB,IEXB,IRXB,ISPB,ITXA,IEXA,IRXA,ISPA    ; FFE0-FFEE
         DEFW    INULL,ITICK,INULL,INULL                    ; FFF0-FFF6 (CTC 0-3)
 
-MSG:    DEFB    13,10,'ZEPHYRUS XIOS 1.2 (OLIVEROS 2026): 2 consolas, 5 bancos, unidades A-P',13,10,0
+MSG:    DEFB    13,10,'ZEPHYRUS XIOS 1.3 (OLIVEROS 2026): 2 consolas, ',0
+MSGB:   DEFB    ' bancos, unidades A-P',13,10,0
 MSGC:   DEFB    ' KB de cache de disco',13,10,0
 MSGS:   DEFB    'A:STARTUP.SUB',13,10,0
 MSGG:   DEFB    'G: disco en RAM de ',0
@@ -1868,6 +2066,7 @@ SIOP1:  IN      A,(SIOAC)
         RET
 
 
+        DEFS    XPAD            ; relleno que pone mkspr.py (ver alli)
 ; =============================================================== memoria comun
 COMMONBASE:
         JP      COLDST
@@ -1952,7 +2151,7 @@ CIN1B:  LD      HL,HDB
 CINGET: LD      A,(HL)          ; HL = cabeza (lectura)
         PUSH    AF
         INC     A
-        AND     7Fh
+        AND     3Fh
         LD      (HL),A
         POP     AF
         ADD     A,E
@@ -1961,51 +2160,96 @@ CINGET: LD      A,(HL)          ; HL = cabeza (lectura)
         AND     7Fh
         RET
 
-COST0:  IN      A,(SIOAC)       ; listo para transmitir: A = FF
+; Salida por interrupcion: cada canal tiene un bufer circular. Si el transmisor
+; esta parado el caracter sale directo; si no, va al bufer y la interrupcion de
+; "transmisor vacio" manda el siguiente. Con el bufer lleno el proceso espera su
+; bandera (FLTXA/FLTXB), que pone la interrupcion al liberar un lugar.
+; Estructura: +0 cabeza, +1 cola, +2 transmitiendo, +3 alguien espera,
+;             +4 puerto de datos, +5 puerto de control, +6 bufer
+COST0:  LD      HL,TXA          ; hay lugar: A = FF
         JR      COSTR
-COST1:  IN      A,(SIOBC)
-COSTR:  AND     4
-        RET     Z
+COST1:  LD      HL,TXB
+COSTR:  LD      A,(HL)
+        INC     HL
+        LD      L,(HL)          ; (cola + 1) & TXMSK <> cabeza
+        INC     L
+        XOR     L
+        AND     TXMSK
+        RET     Z               ; lleno: A = 0
         LD      A,0FFh
         RET
 
 CONOUT: LD      A,D
         OR      A
         JR      NZ,COUT1
-COUT0:  CALL    COST0
+COUT0:  LD      HL,TXA
+        LD      E,FLTXA
+        JR      TXPUT
+COUT1:  LD      HL,TXB
+        LD      E,FLTXB
+; TXPUT: caracter C al canal HL; E = su bandera
+TXPUT:  LD      A,I
+        DI
+        PUSH    AF
+        PUSH    HL
+        INC     HL
+        INC     HL
+        LD      A,(HL)          ; transmitiendo?
         OR      A
-        JR      NZ,COUT0B
-        PUSH    BC
-        LD      C,POLL
-        LD      E,0
-        CALL    XDOS
-        POP     BC
-COUT0B: LD      A,C
-        OUT     (SIOAD),A
+        JR      NZ,TXP2
+        LD      (HL),1          ; no: sale directo
+        INC     HL
+        INC     HL
+        LD      A,C
+        LD      C,(HL)
+        OUT     (C),A
+        JR      TXP9
+TXP2:   POP     HL
+        PUSH    HL
+        LD      A,(HL)          ; cabeza
+        INC     HL
+        LD      B,(HL)          ; cola
+        INC     B
+        XOR     B
+        AND     TXMSK
+        JR      Z,TXPF          ; lleno
+        DEC     B
+        LD      A,B
+        INC     A
+        AND     TXMSK
+        LD      (HL),A          ; nueva cola
+        LD      A,B             ; bufer[cola vieja] = caracter
+        ADD     A,5
+        ADD     A,L
+        LD      L,A
+        JR      NC,TXP3
+        INC     H
+TXP3:   LD      (HL),C
+TXP9:   POP     HL
+        POP     AF
+        RET     PO
+        EI
         RET
-COUT1:  CALL    COST1
-        OR      A
-        JR      NZ,COUT1B
+TXPF:   INC     HL              ; lleno: marcar que se espera y esperar
+        INC     HL
+        LD      (HL),1
+        POP     HL
+        POP     AF
+        JP      PO,TXPF1
+        EI
+TXPF1:  PUSH    HL
         PUSH    BC
-        LD      C,POLL
-        LD      E,2
+        PUSH    DE
+        LD      C,FLAGWT
         CALL    XDOS
+        POP     DE
         POP     BC
-COUT1B: LD      A,C
-        OUT     (SIOBD),A
-        RET
+        POP     HL
+        JR      TXPUT
 
 ; LIST: la impresora (LST:) sale por la SIO B, la misma linea de la consola 1
 ; (un terminal, el NUNTIUS o un cable a oli que la capture).
-LIST:   CALL    COST1
-        OR      A
-        JR      NZ,COUT1B
-        PUSH    BC
-        LD      C,POLL
-        LD      E,4             ; dispositivo 4: impresora lista
-        CALL    XDOS
-        POP     BC
-        JR      COUT1B
+LIST:   JR      COUT1
 
 POLLDEV: LD     A,C
         CP      4
@@ -2054,7 +2298,7 @@ IRXPUT: PUSH    AF
         LD      (DE),A
         LD      A,(HL)
         INC     A
-        AND     7Fh
+        AND     3Fh
         DEC     HL              ; HL = cabeza
         CP      (HL)
         INC     HL
@@ -2083,15 +2327,69 @@ ISPB:   PUSH    AF
         LD      A,30h
         OUT     (SIOBC),A
         JR      IRET
-; Transmision y estado: solo reponer
+; Transmisor vacio: el siguiente caracter del bufer. Si alguien esperaba lugar,
+; se le pone su bandera (con el marco completo, como el tic).
 ITXA:   PUSH    AF
-        LD      A,28h
-        OUT     (SIOAC),A
-        JR      IRET
+        PUSH    HL
+        LD      HL,TXA
+        CALL    TXNEXT
+        LD      A,FLTXA
+        JR      ITX1
 ITXB:   PUSH    AF
-        LD      A,28h
-        OUT     (SIOBC),A
-        JR      IRET
+        PUSH    HL
+        LD      HL,TXB
+        CALL    TXNEXT
+        LD      A,FLTXB
+ITX1:   POP     HL
+        JR      NZ,ITX2
+        POP     AF
+        EI
+        RETI
+ITX2:   LD      (IFLGN),A
+        POP     AF
+        JR      IFLG
+
+; TXNEXT: HL = canal. NZ si alguien esperaba lugar (y ya no espera).
+TXNEXT: PUSH    BC
+        PUSH    DE
+        LD      D,H
+        LD      E,L
+        LD      A,(DE)          ; cabeza
+        INC     HL
+        CP      (HL)
+        JR      NZ,TXN1
+        INC     HL              ; vacio: el transmisor se para
+        LD      (HL),0
+        INC     HL
+        INC     HL
+        INC     HL
+        LD      C,(HL)
+        LD      A,28h           ; reponer "Tx int pending"
+        OUT     (C),A
+        JR      TXN8
+TXN1:   LD      HL,6            ; bufer[cabeza]
+        ADD     HL,DE
+        ADD     A,L
+        LD      L,A
+        JR      NC,TXN2
+        INC     H
+TXN2:   LD      A,(HL)
+        LD      HL,4
+        ADD     HL,DE
+        LD      C,(HL)
+        OUT     (C),A
+        LD      A,(DE)
+        INC     A
+        AND     TXMSK
+        LD      (DE),A
+TXN8:   LD      HL,3
+        ADD     HL,DE
+        LD      A,(HL)
+        LD      (HL),0
+        OR      A
+        POP     DE
+        POP     BC
+        RET
 IEXA:   PUSH    AF
         LD      A,10h
         OUT     (SIOAC),A
@@ -2103,8 +2401,12 @@ IRET:   POP     AF
 INULL:  EI
         RETI
 
-; Tic del CTC (canal 1)
-ITICK:  LD      (SVHL),HL
+; Tic del CTC (canal 1). IFLG: el mismo marco para poner la bandera IFLGN.
+ITICK:  PUSH    AF
+        XOR     A
+        LD      (IFLGN),A
+        POP     AF
+IFLG:   LD      (SVHL),HL
         POP     HL
         LD      (SVRET),HL
         PUSH    AF
@@ -2116,6 +2418,19 @@ ITICK:  LD      (SVHL),HL
         PUSH    BC
         LD      A,0FFh
         LD      (PREEMP),A
+        LD      A,(IFLGN)
+        OR      A
+        JR      Z,ITK0
+        LD      E,A             ; bandera de la salida de una SIO
+        LD      C,FLAGSET
+        CALL    XDOS
+        JR      ITDONE
+ITK0:   LD      HL,TXA          ; por si se perdio una interrupcion de transmision
+        LD      E,FLTXA
+        CALL    TXKICK
+        LD      HL,TXB
+        LD      E,FLTXB
+        CALL    TXKICK
         LD      HL,TDIV         ; 120 Hz -> 60 Hz
         DEC     (HL)
         JR      NZ,ITDONE
@@ -2169,6 +2484,29 @@ ITDONE: XOR     A
         LD      HL,(SVHL)
         RETI
 
+; TXKICK: si el canal HL figura transmitiendo pero el transmisor ya esta vacio,
+; manda el siguiente (y pone la bandera E si alguien esperaba lugar).
+TXKICK: PUSH    HL
+        INC     HL
+        INC     HL
+        LD      A,(HL)
+        OR      A
+        JR      Z,TXK9
+        INC     HL
+        INC     HL
+        INC     HL
+        LD      C,(HL)
+        IN      A,(C)
+        AND     4
+        JR      Z,TXK9
+        POP     HL
+        CALL    TXNEXT
+        RET     Z
+        LD      C,FLAGSET
+        JP      XDOS
+TXK9:   POP     HL
+        RET
+
 ; ------------------------------------------------------------- memoria
 ; SELMEM: BC = descriptor de memoria; el banco esta en (BC+3)
 SELMEM: LD      HL,3
@@ -2205,6 +2543,8 @@ SECTRAN: LD     H,B
         LD      L,C
         RET
 SELDSK: LD      HL,0
+        LD      A,E
+        LD      (SELE),A        ; bit 0 = 0: primera seleccion (la unidad se registra)
         LD      A,C
         CP      NDRV
         RET     NC
@@ -2217,10 +2557,18 @@ SELDSK: LD      HL,0
         CP      4
         RET     NC              ; sin unidad
         CP      2
-        JR      NZ,SELD1
+        JR      NZ,SELD0
         LD      A,(NRPG)        ; disco en RAM: solo si hay paginas
         OR      A
         RET     Z
+        JR      SELD1
+SELD0:  JR      NC,SELD1
+        LD      (DSKC),A        ; SD: al registrar la unidad (DSKRESET despues de
+        LD      A,(SELE)        ; cambiar la tarjeta) se olvida su cache
+        RRA
+        PUSH    BC
+        CALL    NC,CPURGE
+        POP     BC
 SELD1:
         LD      A,C
         LD      (DRV),A
@@ -2269,7 +2617,7 @@ WRITE:  CALL    TODCHK
         LD      A,(DSKC)
         CP      2
         JP      Z,RAMWR         ; disco en RAM
-        CALL    SDWR
+        CALL    SDWRX
         JP      Z,CWRREC        ; escrito: el registro tambien a la cache
         CALL    CWRERR          ; fallo: olvidar el bloque (BUF ya no es la tarjeta)
 ERR1:   LD      A,1
@@ -2462,16 +2810,26 @@ ZEMU:   LD      (ZHL),HL
         OR      A
         JP      Z,0             ; 0: terminar el programa
         CP      4
-        JR      Z,ZTX
+        JP      Z,ZTX
         CP      5
-        JR      Z,ZRX
+        JP      Z,ZRX
         CP      6
-        JR      Z,ZCK
+        JP      Z,ZCK
         CP      28
-        JR      Z,ZDT
+        JP      Z,ZDT
         CP      31
-        JR      Z,ZTK
-        LD      A,0FFh
+        JP      Z,ZTK
+        CP      10
+        JP      Z,ZMNT
+        CP      11
+        JP      Z,ZQMP
+        CP      36
+        JP      Z,ZDRV
+        CP      34
+        JP      Z,ZI2C
+        CP      32
+        JP      Z,ZSER
+ZERR:   LD      A,0FFh
 ZRET:   POP     BC
         POP     DE
         POP     HL
@@ -2483,12 +2841,12 @@ ZTX:    LD      A,E             ; E = caracter
         LD      C,2             ; FE y FF no se pueden mandar con la 6
 ZTX1:   CALL    5
         XOR     A
-        JR      ZRET
+        JP      ZRET
 ZRX:    LD      C,6             ; esperar un caracter, sin eco
         LD      E,0FFh
         CALL    5
         OR      A
-        JR      NZ,ZRET
+        JP      NZ,ZRET
         LD      C,141           ; ceder un tic a los demas procesos
         LD      DE,1
         CALL    5
@@ -2496,7 +2854,320 @@ ZRX:    LD      C,6             ; esperar un caracter, sin eco
 ZCK:    LD      C,11            ; A = FF si hay caracter
         CALL    5
         OR      A
-        JR      ZRET
+        JP      ZRET
+; 11: mapa de unidades, 3 bytes por unidad (tarjeta, disco virtual) en (HL)
+ZQMP:   LD      HL,(ZHL)
+        LD      C,0
+ZQ1:    LD      A,C
+        PUSH    HL
+        CALL    ZMPADR
+        POP     HL
+        LD      (HL),A
+        INC     HL
+        LD      (HL),E
+        INC     HL
+        LD      (HL),D
+        INC     HL
+        INC     C
+        LD      A,C
+        CP      NDRV
+        JR      NZ,ZQ1
+        XOR     A
+        JP      ZRET
+; ZMPADR: unidad A -> A = tarjeta, DE = disco virtual, HL -> su DMW
+ZMPADR: LD      E,A
+        LD      D,0
+        LD      HL,DCARD
+        ADD     HL,DE
+        LD      B,(HL)
+        LD      HL,DMW
+        ADD     HL,DE
+        ADD     HL,DE
+        PUSH    HL
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        LD      A,5             ; DMW = disco * 32
+ZMP1:   SRL     D
+        RR      E
+        DEC     A
+        JR      NZ,ZMP1
+        POP     HL
+        LD      A,B
+        RET
+; 36: H = unidad -> A = tarjeta, DE = DSM, B = 0
+ZDRV:   LD      A,(ZHL+1)
+        CP      NDRV
+        JP      NC,ZERR
+        PUSH    HL
+        CALL    ZMPADR
+        POP     HL
+        LD      HL,DPBSD+5
+        CP      2
+        JR      C,ZD1
+        LD      HL,DPBRM+5
+        JR      Z,ZD1
+        LD      HL,DPBFL+5
+ZD1:    LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        POP     BC
+        POP     HL              ; (DE de quien llama: se devuelve DSM)
+        POP     HL
+        LD      B,0
+        RET
+; 10: B = 0, D = unidad, E = tarjeta SD (0/1), HL = disco virtual. Solo para
+; unidades que ya estan en una SD. Antes se libera la unidad (BDOS 37): si
+; alguien tiene archivos abiertos en ella, A = FF y no cambia nada.
+ZMNT:   LD      A,B
+        OR      A
+        JP      NZ,ZERR
+        LD      A,E
+        CP      2
+        JP      NC,ZERR
+        LD      A,D
+        CP      NDRV
+        JP      NC,ZERR
+        PUSH    DE
+        CALL    ZMPADR          ; HL -> DMW de la unidad, A = su tarjeta
+        POP     DE
+        CP      2
+        JP      NC,ZERR
+        PUSH    HL
+        PUSH    DE
+        LD      HL,1            ; vector de la unidad D
+        INC     D
+ZMN1:   DEC     D
+        JR      Z,ZMN2
+        ADD     HL,HL
+        JR      ZMN1
+ZMN2:   EX      DE,HL
+        LD      C,37
+        CALL    5
+        POP     DE
+        POP     HL
+        OR      A
+        JP      NZ,ZERR
+        PUSH    HL
+        LD      HL,(ZHL)        ; disco * 32
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        EX      (SP),HL         ; HL -> DMW
+        POP     BC
+        LD      (HL),C
+        INC     HL
+        LD      (HL),B
+        LD      HL,DCARD
+        LD      C,D
+        LD      B,0
+        ADD     HL,BC
+        LD      (HL),E
+        XOR     A
+        JP      ZRET
+
+; 34: I2C. B = 0 escribir, 1 leer, 2 probar; D = direccion; E = bytes
+; (0 = 256); HL = bufer. A = 0 bien, 1 sin respuesta (NAK), FF funcion invalida.
+ZI2C:   LD      A,B
+        CP      3
+        JP      NC,ZERR
+        LD      C,A
+        LD      A,3             ; SCL y SDA arriba
+        LD      (IVAL),A
+        OUT     (SPICS+1),A
+        CALL    ISTART
+        LD      A,D
+        AND     0FEh
+        BIT     0,C
+        JR      Z,ZI1
+        INC     A
+ZI1:    CALL    IWBY
+        AND     1
+        JR      NZ,ZINAK
+        LD      A,C
+        CP      2
+        JR      Z,ZIOK
+        LD      HL,(ZHL)
+        LD      B,E
+        OR      A
+        JR      NZ,ZIRD
+ZIWR:   LD      A,(HL)
+        INC     HL
+        CALL    IWBY
+        AND     1
+        JR      NZ,ZINAK
+        DJNZ    ZIWR
+        JR      ZIOK
+ZIRD:   LD      A,B             ; el ultimo byte se contesta con NAK
+        DEC     A
+        LD      A,0
+        JR      NZ,ZIR1
+        INC     A
+ZIR1:   CALL    IRBY
+        LD      (HL),A
+        INC     HL
+        DJNZ    ZIRD
+ZIOK:   CALL    ISTOP
+        XOR     A
+        JP      ZRET
+ZINAK:  CALL    ISTOP
+        LD      A,1
+        OR      A
+        JP      ZRET
+
+; 32: reloj de un canal de la SIO. B = canal (0 = A), D = modo 1/2/3 (x16, x32,
+; x64; 0 = no cambia), E = constante del canal 0 del CTC (0 = no cambia).
+ZSER:   LD      A,B
+        CP      2
+        JP      NC,ZERR
+        LD      A,D
+        CP      4
+        JP      NC,ZERR
+        DI
+        LD      A,E
+        OR      A
+        JR      Z,ZS1
+        LD      A,07h           ; temporizador, /16, sin interrupcion
+        OUT     (CTC0),A
+        LD      A,E
+        OUT     (CTC0),A
+ZS1:    LD      A,D
+        OR      A
+        JR      Z,ZS9
+        RRCA                    ; 1, 2, 3 -> bits 7-6
+        RRCA
+        OR      04h             ; 1 bit de parada, sin paridad
+        LD      H,A
+        LD      C,SIOAC
+        LD      DE,0E11Ah       ; WR3 y WR1 del canal A
+        LD      A,B
+        OR      A
+        JR      Z,ZS2
+        LD      C,SIOBC
+        LD      DE,0C11Eh
+ZS2:    LD      A,4             ; WR4 primero, despues WR1, WR3 y WR5
+        OUT     (C),A
+        OUT     (C),H
+        LD      A,1
+        OUT     (C),A
+        OUT     (C),E
+        LD      A,3
+        OUT     (C),A
+        OUT     (C),D
+        LD      A,5
+        OUT     (C),A
+        LD      A,0EAh
+        OUT     (C),A
+ZS9:    EI
+        XOR     A
+        JP      ZRET
+
+; I2C por software en 64h/65h (de rtc.asm, rutinas de zlib/libi2c.asm de Peter
+; Wilson, MIT). Bit 1 = SDA; escribir en 65h sube SCL. El bit 0 (RRW) queda en 1.
+IDLY:   PUSH    BC
+        LD      B,3
+IDL1:   DJNZ    IDL1
+        POP     BC
+        RET
+ISTART: LD      A,1
+        CALL    ICLK
+        LD      A,1
+        CALL    IDAT
+        CALL    IDLY
+        XOR     A
+        CALL    IDAT
+        CALL    IDLY
+        XOR     A
+        CALL    ICLK
+        JP      IDLY
+ISTOP:  XOR     A
+        CALL    IDAT
+        CALL    IDLY
+        LD      A,1
+        CALL    ICLK
+        CALL    IDLY
+        LD      A,1
+        CALL    IDAT
+        CALL    IDLY
+        XOR     A
+        CALL    ICLK
+        JP      IDLY
+IWBI:   CALL    IDAT
+        CALL    IDLY
+        LD      A,1
+        CALL    ICLK
+        CALL    IDLY
+        XOR     A
+        CALL    ICLK
+        JP      IDLY
+IWBY:   PUSH    BC              ; manda A; devuelve el bit ACK (0 = reconocido)
+        LD      B,8
+        LD      C,A
+IW1:    RLC     C
+        LD      A,C
+        CALL    IWBI
+        DJNZ    IW1
+        CALL    IRBI
+        POP     BC
+        RET
+IRBI:   LD      A,1
+        CALL    IDAT
+        CALL    IDLY
+        LD      A,1
+        CALL    ICLK
+        CALL    IDLY
+        IN      A,(SPICS)
+        AND     2
+        PUSH    AF
+        XOR     A
+        CALL    ICLK
+        CALL    IDLY
+        POP     AF
+        SRA     A
+        RET
+IDAT:   PUSH    BC
+        AND     1
+        LD      A,(ICLKP)
+        LD      C,A
+        LD      A,(IVAL)
+        JR      Z,ID1
+        OR      2
+        JR      ID2
+ID1:    AND     0FDh
+ID2:    LD      (IVAL),A
+        OUT     (C),A
+        POP     BC
+        RET
+ICLK:   PUSH    BC
+        RRCA
+        LD      A,SPICS
+        ADC     A,0
+        LD      (ICLKP),A
+        LD      C,A
+        LD      A,(IVAL)
+        OUT     (C),A
+        POP     BC
+        RET
+IRBY:   PUSH    BC              ; recibe un byte; A = bit que se contesta (0 = ACK)
+        PUSH    DE
+        LD      C,A
+        LD      B,8
+IR1:    CALL    IRBI
+        RRA
+        RL      E
+        DJNZ    IR1
+        LD      A,C
+        CALL    IWBI
+        LD      A,E
+        POP     DE
+        POP     BC
+        RET
+IVAL:   DEFB    3
+ICLKP:  DEFB    SPICS
+
+
 ZDT:    CALL    TODADR          ; copia de la hora de XDOS sin que el tic la cambie
         LD      DE,ZTOD
         LD      BC,5
@@ -2524,7 +3195,7 @@ ZDT:    CALL    TODADR          ; copia de la hora de XDOS sin que el tic la cam
         LD      A,(DYEAR)
         LD      (HL),A
         XOR     A
-        JR      ZRET
+        JP      ZRET
 ZTK:    POP     BC              ; DEHL = tics, A = tics por segundo
         POP     AF
         POP     AF
@@ -2540,6 +3211,8 @@ ZTOD:   DEFS    5
 ; ------------------------------------------------------------- datos (comun)
 TICKN:  DEFB    0
 TICKS:  DEFS    4               ; tics desde el arranque (servicio 31 de ZIOS)
+IFLGN:  DEFB    0               ; bandera que pone IFLG (0 = es el tic)
+
 SECS:   DEFW    0               ; segundos desde el arranque
 PREEMP: DEFB    0
 TDIV:   DEFB    2
@@ -2569,15 +3242,14 @@ CCARD:  DEFB    0FFh
 CBLK:   DEFS    4
 HCARD:  DEFB    0,0
 DCARD:  DEFS    NDRV
+SELE:   DEFB    0
 DMW:    DEFS    2*NDRV
 JTBL:   DEFW    0
 DBGE:   DEFW    0
 DBGR:   DEFB    0
 FIRMA:  DEFB    0
-ZMAP:   DEFS    64
-        DEFS    48
-LSTK:
-DIRBF:  DEFS    128             ; en la comun: READ copia con el banco del usuario puesto
+ZMAP    EQU     BUF             ; SYSINIT usa BUF para el mapa de ZIOS y su pila
+LSTK    EQU     BUF+512
 BUF:    DEFS    512
         DEFB    0               ; para que el SPR incluya el bufer
         END
