@@ -74,25 +74,26 @@ FLTXB   EQU     13
 TXMSK   EQU     31              ; bufer de salida de 32 caracteres por canal
 CTC0    EQU     40h             ; canal 0 del CTC (reloj de la SIO por P3/P6)
 ; Pagina VTPG (en la ventana 0 durante BKCALL): las pantallas de las consolas
-; virtuales (0-3): un anillo de NRING filas de 80 cada una (24 se ven, el resto
-; es lo que se fue por arriba), los datos y la pila de BKCALL al final
-NRING   EQU     48              ; filas del anillo de cada consola (0F00h bytes)
+; virtuales: un anillo de VRING filas de 80 cada una (24 se ven, el resto es lo
+; que se fue por arriba), los datos y la pila de BKCALL al final
 GBUF    EQU     3C00h           ; trozo que se esta mandando (redibujo, linea de estado)
-VST     EQU     3C80h           ; estado por consola, 16 bytes: fila, columna, fila de
-                                ; arriba (en el anillo), estado ESC, param 1, param 2,
-                                ; param actual, salida sin ver, direccion de la fila
-                                ; del cursor (2), si vale (1), pantalla (byte alto),
-                                ; filas guardadas arriba (12)
-VNR     EQU     3CC0h           ; filas (24, o 23 con la linea de estado)
-KN      EQU     3CC1h           ; teclado: bytes de una secuencia en KBUF (10: Ctrl-\)
-KBUF    EQU     3CC2h           ; (8)
-GSTG    EQU     3CCAh           ; redibujo: etapa (0 prefijo, 1..VNR filas, VNR+1 cursor)
-GCNT    EQU     3CCBh
-GPTR    EQU     3CCCh
-STDAY   EQU     3CCEh           ; dia de MP/M de la fecha ya calculada
-VIEWOFS EQU     3CD0h           ; filas hacia atras que se estan mirando (0 = al dia)
+VST     EQU     3C80h           ; estado por consola (5 x 16 bytes): fila, columna, fila
+                                ; de arriba (en el anillo), estado ESC, param 1, param 2,
+                                ; param actual, salida sin ver, direccion de la fila del
+                                ; cursor (2), si vale (1), -, filas guardadas arriba (12),
+                                ; principio de su anillo (13-14)
+VNR     EQU     3CD0h           ; filas que se ven (24, o 23 con la linea de estado)
+KN      EQU     3CD1h           ; teclado: bytes de una secuencia en KBUF (10: Ctrl-\)
+KBUF    EQU     3CD2h           ; (8)
+GSTG    EQU     3CDAh           ; redibujo: etapa (0 prefijo, 1..VNR filas, VNR+1 cursor)
+GCNT    EQU     3CDBh
+GPTR    EQU     3CDCh
+STDAY   EQU     3CDEh           ; dia de MP/M de la fecha ya calculada
+VIEWOFS EQU     3CE0h           ; filas hacia atras que se estan mirando (0 = al dia)
+NVC     EQU     3CE1h           ; consolas virtuales: 4, o 5 con CONSOLE4=VIRTUAL
+VRING   EQU     3CE2h           ; filas del anillo de cada una: 48 (4) o 36 (5)
 VRXB    EQU     3D00h           ; lo tecleado en cada consola virtual: 64 bytes cada una
-VRXP    EQU     3E00h           ; y su cabeza y cola
+VRXP    EQU     3E40h           ; y su cabeza y cola (5 x 2)
 BKSTK   EQU     4000h           ; tope de la pila de BKCALL
 
         ORG     ORIGEN
@@ -402,7 +403,11 @@ SI15C:  LD      A,(STSUB)       ; "A:STARTUP.SUB"
         OR      A
         LD      HL,MSGL
         CALL    NZ,PRSTR
-SI15E:  LD      A,(STATON)      ; con linea de estado: redibujar (fija las filas
+SI15E:  CALL    TODADR          ; donde XDOS tiene el proceso que corre
+        LD      DE,5
+        ADD     HL,DE
+        LD      (RLRA),HL
+        LD      A,(STATON)      ; con linea de estado: redibujar (fija las filas
         OR      A               ; que se desplazan)
         JR      Z,SI15F
         LD      (GENACT),A
@@ -2186,14 +2191,37 @@ VTINI:  LD      HL,0
         LD      BC,VRXP+8-VST-1
         LD      (HL),0
         LDIR
-        LD      HL,VST+11       ; pantalla de cada consola: c * 800h
-        LD      DE,16
-        XOR     A
-VTI1:   LD      (HL),A
+        LD      A,(SIOBM)       ; 4 consolas de 48 filas, o 5 de 36
+        CP      2
+        LD      BC,0430h
+        JR      NZ,VTI0
+        LD      BC,0524h
+VTI0:   LD      A,B
+        LD      (NVC),A
+        LD      A,C
+        LD      (VRING),A
+        LD      L,C             ; DE = filas * 80
+        LD      H,0
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        LD      D,H
+        LD      E,L
+        ADD     HL,HL
+        ADD     HL,HL
         ADD     HL,DE
-        ADD     A,0Fh
-        CP      4*0Fh
-        JR      NZ,VTI1
+        EX      DE,HL
+        LD      IX,VST
+        LD      HL,0
+VTI1:   LD      (IX+13),L       ; principio del anillo de cada consola
+        LD      (IX+14),H
+        ADD     HL,DE
+        PUSH    DE
+        LD      DE,16
+        ADD     IX,DE
+        POP     DE
+        DJNZ    VTI1
         LD      A,(STATON)
         LD      B,A
         LD      A,24
@@ -2213,13 +2241,14 @@ VSTIX:  LD      A,D
         RET
 
 ; VROWA: HL = direccion de la fila A (de la pantalla, 0 = la de arriba)
-VROWA:  ADD     A,(IX+2)        ; (A puede venir sumado NRING: fila del pasado)
-        CP      NRING
+VROWA:  ADD     A,(IX+2)        ; (A puede venir sumado VRING: fila del pasado)
+        LD      HL,VRING
+        CP      (HL)
         JR      C,VR1
-        SUB     NRING
-        CP      NRING
+        SUB     (HL)
+        CP      (HL)
         JR      C,VR1
-        SUB     NRING
+        SUB     (HL)
 VR1:    LD      L,A
         LD      H,0
         ADD     HL,HL
@@ -2232,10 +2261,10 @@ VR1:    LD      L,A
         ADD     HL,HL
         ADD     HL,HL
         ADD     HL,DE           ; * 80
+        LD      E,(IX+13)
+        LD      D,(IX+14)
+        ADD     HL,DE
         POP     DE
-        LD      A,(IX+11)
-        ADD     A,H
-        LD      H,A
         RET
 
 ; VCLR: borra la fila A desde la columna E
@@ -2316,9 +2345,10 @@ VQS:    LD      C,(HL)
 ; VTPUT: caracter C de la consola D a su pantalla. Entiende lo que mandan los
 ; programas para un terminal ANSI: CR, LF, BS, TAB y ESC [ ... H f J K A B C D
 ; (lo demas, como los colores, no cambia el texto y se ignora).
-VTPUT:  LD      A,D
-        CP      4
-        RET     NC
+VTPUT:  LD      A,(NVC)
+        DEC     A
+        CP      D
+        RET     C
         CALL    VSTIX
         LD      A,(ACTVC)
         CP      D
@@ -2399,13 +2429,15 @@ VTLF:   LD      A,(IX+0)
         JR      NC,VTSCR
         LD      (IX+0),A
         RET
-VTSCR:  LD      A,(IX+2)        ; desplazar: la fila de arriba queda en el
-        INC     A               ; anillo (historial) y se agrega una en blanco
-        CP      NRING
+VTSCR:  LD      A,(VRING)       ; desplazar: la fila de arriba queda en el
+        LD      B,A             ; anillo (historial) y se agrega una en blanco
+        LD      A,(IX+2)
+        INC     A
+        CP      B
         JR      C,VTS1
         XOR     A
 VTS1:   LD      (IX+2),A
-        LD      A,NRING
+        LD      A,B
         SUB     (HL)
         CP      (IX+12)
         JR      Z,VTS2
@@ -2590,9 +2622,11 @@ KITMO:  LD      A,6             ; 6 tics para que llegue el resto
         RET
 KI10:   XOR     A
         LD      (KN),A
+        LD      A,(NVC)
+        LD      B,A
         LD      A,C
         SUB     '1'
-        CP      4
+        CP      B
         JP      C,VSW
         LD      A,C
         OR      20h
@@ -2623,7 +2657,7 @@ KIP1:   LD      A,(HL)
         INC     (HL)
         LD      A,D
         ADD     A,A
-        INC     A
+        ADD     A,(VRXP AND 0FFh)+1
         LD      L,A
         LD      H,VRXP SHR 8
         LD      A,(HL)          ; cola
@@ -2631,13 +2665,22 @@ KIP1:   LD      A,(HL)
         INC     A
         AND     3Fh
         LD      (HL),A
-        LD      A,D
+        CALL    VRXA
+        LD      (HL),C
+        RET
+; VRXA: HL = VRXB + D * 64 + E
+VRXA:   LD      A,D
+        AND     3
         RRCA
         RRCA
         ADD     A,E
         LD      L,A
-        LD      H,VRXB SHR 8
-        LD      (HL),C
+        LD      A,D
+        RRCA
+        RRCA
+        AND     1
+        ADD     A,VRXB SHR 8
+        LD      H,A
         RET
 KI1:    LD      E,A             ; E = KN (1-6): ESC [ parametros final
         LD      D,0
@@ -2648,7 +2691,7 @@ KI1:    LD      E,A             ; E = KN (1-6): ESC [ parametros final
         JR      NZ,KI2
         LD      A,C
         CP      '['
-        JR      NZ,KIBAD
+        JP      NZ,KIBAD
 KINX:   LD      HL,KN
         INC     (HL)
         JR      KITMO
@@ -2660,43 +2703,68 @@ KI2:    LD      A,C
         JR      NC,KI4
 KI3:    LD      A,E
         CP      6
-        JR      NC,KIBAD
+        JP      NC,KIBAD
         JR      KINX
 KI4:    LD      A,C             ; letra final: ESC [ x ; m f
         CP      40h
-        JR      C,KIBAD
+        JP      C,KIBAD
         LD      A,E
+        CP      6
+        JR      Z,KI7
         CP      5
-        JR      NZ,KIBAD
+        JP      NZ,KIBAD
         LD      A,(KBUF+3)
         CP      ';'
-        JR      NZ,KIBAD
+        JP      NZ,KIBAD
         LD      A,(KBUF+4)
         SUB     '2'
         CP      7
-        JR      NC,KIBAD
+        JP      NC,KIBAD
         LD      A,(KBUF+2)
         CP      '1'
         JR      NZ,KI5
         LD      A,C
         SUB     'P'
         CP      4
-        JR      NC,KIBAD
+        JP      NC,KIBAD
         CALL    KCLR
         JP      VSW
 KI5:    LD      B,A
         LD      A,C
         CP      '~'
-        JR      NZ,KIBAD
+        JP      NZ,KIBAD
         LD      A,B
         CP      '5'
         JR      Z,KI6
         CP      '6'
-        JR      NZ,KIBAD
+        JP      NZ,KIBAD
         CALL    KCLR
         JP      VSDN
 KI6:    CALL    KCLR
         JP      VSUP
+KI7:    LD      HL,(KBUF+2)     ; ESC [ 1 5 ; m ~ : Ctrl-F5 (la consola 4)
+        LD      A,L
+        CP      '1'
+        JP      NZ,KIBAD
+        LD      A,H
+        CP      '5'
+        JP      NZ,KIBAD
+        LD      A,(KBUF+4)
+        CP      ';'
+        JP      NZ,KIBAD
+        LD      A,(KBUF+5)
+        SUB     '2'
+        CP      7
+        JP      NC,KIBAD
+        LD      A,C
+        CP      '~'
+        JP      NZ,KIBAD
+        LD      A,(NVC)
+        CP      5
+        JP      NZ,KIBAD
+        CALL    KCLR
+        LD      A,4
+        JP      VSW
 KCLR:   LD      B,A
         XOR     A
         LD      (KN),A
@@ -2736,6 +2804,7 @@ KFL2:   LD      C,(HL)
 ; VRXGET: A = el siguiente caracter tecleado en la consola D (hay)
 VRXGET: LD      A,D
         ADD     A,A
+        ADD     A,VRXP AND 0FFh
         LD      L,A
         LD      H,VRXP SHR 8
         LD      A,(HL)          ; cabeza
@@ -2743,12 +2812,7 @@ VRXGET: LD      A,D
         INC     A
         AND     3Fh
         LD      (HL),A
-        LD      A,D
-        RRCA
-        RRCA
-        ADD     A,E
-        LD      L,A
-        LD      H,VRXB SHR 8
+        CALL    VRXA
         LD      C,(HL)
         LD      HL,RXCNT
         LD      E,D
@@ -2781,7 +2845,12 @@ VSET:   LD      HL,VIEWOFS
 
 ; VSW: se ve la consola A: se vacia lo que faltaba mandar por la SIO A y se
 ; redibuja su pantalla (lo tecleado en cada consola queda en la suya)
+VSWE:   LD      A,E             ; (servicio 40 de ZIOS: H:VC)
 VSW:    LD      E,A
+        LD      A,(NVC)
+        DEC     A
+        CP      E
+        RET     C
         LD      A,(ACTVC)
         CP      E
         RET     Z
@@ -2793,6 +2862,8 @@ VSW:    LD      E,A
         LD      (ACTVC),A
         CALL    VSTIX
         LD      (IX+7),0
+        LD      HL,0
+        LD      (LASTPD),HL
 VSNAP:  XOR     A               ; (de aqui: volver a la pantalla al dia)
         LD      (VIEWOFS),A
         LD      (VIEWING),A
@@ -2884,7 +2955,8 @@ GC1:    DEC     A               ; 1..VNR: las filas
         LD      A,(VIEWOFS)     ; mirando hacia atras: filas del pasado
         NEG
         ADD     A,B
-        ADD     A,NRING
+        LD      HL,VRING
+        ADD     A,(HL)
         CALL    VROWA
         PUSH    HL
         LD      DE,79           ; sin los espacios del final
@@ -3022,10 +3094,74 @@ STS2:   CALL    GPUT
         LD      A,' '
 STS3:   CALL    GPUT
         INC     B
-        LD      A,B
-        CP      4
+        LD      A,(NVC)
+        CP      B
         JR      NZ,STS1
         LD      HL,STSEP
+        CALL    GSTR
+        LD      A,(VIEWOFS)     ; mirando hacia atras: HIST -n
+        OR      A
+        JR      Z,STS6
+        LD      HL,STHIST
+        CALL    GSTR
+        LD      A,(VIEWOFS)
+        CALL    GDEC
+        LD      A,' '
+        CALL    GPUT
+        CALL    GPUT
+        JR      STS8
+STS6:   LD      HL,(LASTPD)     ; el proceso que escribio ultimo en esta consola
+        LD      A,H
+        CP      0C0h            ; (su descriptor en la memoria comun)
+        JR      NC,STS6B
+        LD      HL,STNONE
+STS6B:  LD      BC,6
+        ADD     HL,BC
+        LD      B,8
+STS7:   LD      A,(HL)
+        AND     7Fh
+        CP      ' '
+        JR      NC,STS7B
+        LD      A,' '
+STS7B:  CALL    GPUT
+        INC     HL
+        DJNZ    STS7
+STS8:   LD      HL,STCPU        ; CPU ocupada en el ultimo segundo
+        CALL    GSTR
+        LD      A,(IDLES)
+        LD      C,A
+        LD      A,TPS
+        SUB     C
+        JR      NC,STS9
+        XOR     A
+STS9:   LD      L,A             ; * 100 / TPS
+        LD      H,0
+        LD      B,H
+        LD      C,L
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,BC           ; (B = 0) * 5
+        LD      BC,-3
+        LD      A,-1
+STS10:  INC     A
+        ADD     HL,BC
+        JR      C,STS10         ; / 3
+        LD      C,A             ; tres columnas, a la derecha
+        CP      100
+        JR      C,STS11
+        LD      HL,ST100
+        CALL    GSTR
+        JR      STS12
+STS11:  LD      A,' '
+        CALL    GPUT
+        LD      A,C
+        CP      10
+        JR      NC,STS11B
+        LD      A,' '
+        CALL    GPUT
+STS11B: LD      A,C
+        CALL    GDEC
+STS12:  LD      HL,STPCT
         CALL    GSTR
         PUSH    DE              ; la fecha: se calcula cuando cambia el dia
         CALL    TODADR
@@ -3083,8 +3219,13 @@ STS5:   LD      A,C
         LD      A,2
         LD      (GENACT),A
         JP      GCEND
-STPRE:  DEFB    1Bh,'7',1Bh,'[24;1H',1Bh,'[7m MP/M II ZEPHYRUS 1.4 | Console ',0
+STPRE:  DEFB    1Bh,'7',1Bh,'[24;1H',1Bh,'[7m ZEPHYRUS 1.4 | ',0
 STSEP:  DEFB    ' | ',0
+STHIST: DEFB    'HIST -',0
+STNONE: DEFB    0,0,0,0,0,0,'        '
+STCPU:  DEFB    ' | CPU',0
+ST100:  DEFB    ' 100',0
+STPCT:  DEFB    '% | ',0
 ST20:   DEFB    ' 20',0
 STFIN:  DEFB    ' ',1Bh,'[0m',1Bh,'[K',1Bh,'8',0
 STDOW:  DEFB    'SunMonTueWedThuFriSat'
@@ -3218,6 +3359,9 @@ CP0:    CALL    SKIPSP
         LD      DE,KDRV
         CALL    KWMAT
         JP      Z,DODRV
+        LD      DE,KCON4
+        CALL    KWMAT
+        JR      Z,DOCON4
 CPNL:   LD      A,(HL)          ; al final de la linea
         CP      1Ah
         RET     Z
@@ -3241,6 +3385,17 @@ DOLST:  LD      A,(HL)          ; LST=B: SIO B; otra cosa: un archivo
         JR      C,DOL2
 DOL1:   LD      A,1
 DOL2:   LD      (LSTMD),A
+        JR      CPNL
+DOCON4: LD      DE,KOFF         ; CONSOLE4=B | OFF | VIRTUAL
+        CALL    KWMAT
+        LD      A,1
+        JR      Z,DOC41
+        LD      DE,KVIRT
+        CALL    KWMAT
+        LD      A,2
+        JR      Z,DOC41
+        XOR     A
+DOC41:  LD      (SIOBM),A
         JR      CPNL
 DOSTAT: LD      DE,KON
         CALL    KWMAT
@@ -3477,6 +3632,8 @@ KLST:   DEFB    'LST=',0
 KSTAT:  DEFB    'STATUS=',0
 KBAUD:  DEFB    'BAUD ',0
 KDRV:   DEFB    'DRIVE ',0
+KCON4:  DEFB    'CONSOLE4=',0
+KVIRT:  DEFB    'VIRTUAL',0
 KON:    DEFB    'ON',0
 KOFF:   DEFB    'OFF',0
 KRAM:   DEFB    'RAM',0
@@ -4001,8 +4158,14 @@ CONST:  CALL    ISTMP           ; el TMP (indicador de ordenes): historial
         JP      Z,TCONST
 CONSTR: LD      A,D
         CP      4
+        JR      C,CSTV
+        LD      A,(SIOBM)       ; la 4: la SIO B, nada o virtual
+        OR      A
         JR      Z,CST1
-        LD      HL,RXCNT        ; consolas virtuales: cada una tiene lo suyo
+        DEC     A
+        RET     Z
+        LD      A,4
+CSTV:   LD      HL,RXCNT        ; consolas virtuales: cada una tiene lo suyo
         ADD     A,L
         LD      L,A
         JR      NC,CST0
@@ -4042,7 +4205,11 @@ CIN1:   PUSH    DE
         JR      CONINR
 CIN2:   LD      A,D
         CP      4
+        JR      C,CIN3
+        LD      A,(SIOBM)
+        OR      A
         JR      Z,CIN4
+CIN3:
         LD      HL,VRXGET
         CALL    BKCALL
         JR      CIN5
@@ -4084,7 +4251,13 @@ COST1:  LD      HL,TXB          ; LISTST: hay lugar en la SIO B: A = FF
 
 CONOUT: LD      A,D
         CP      4
-        JR      NZ,VCOUT
+        JR      C,VCOUT
+        LD      A,(SIOBM)
+        OR      A
+        JR      Z,COUT1
+        DEC     A
+        RET     Z               ; CONSOLE4=OFF: se pierde
+        JR      VCOUT
 COUT1:  LD      HL,TXB
         LD      E,FLTXB
 ; TXPUT: caracter C al canal HL; E = su bandera
@@ -4171,6 +4344,12 @@ VCOUT:  LD      A,I
 VCO:    LD      A,(ACTVC)
         CP      D
         JR      NZ,VCBG
+        LD      HL,(RLRA)       ; quien escribe (para la linea de estado)
+        LD      A,(HL)
+        INC     HL
+        LD      H,(HL)
+        LD      L,A
+        LD      (LASTPD),HL
         LD      A,(VIEWING)     ; se miraba hacia atras: volver al dia
         OR      A
         JR      NZ,VCSN
@@ -4547,10 +4726,21 @@ ITK1:   LD      A,(TICKN)
         LD      C,FLAGSET       ; bandera 1: cada tic
         LD      E,1
         CALL    XDOS
-IT1:    LD      HL,CNTSEC
+IT1:    LD      HL,(SVRET)      ; el tic cayo en IDLE (la CPU sin trabajo)?
+        LD      DE,IDLE+2
+        OR      A
+        SBC     HL,DE
+        JR      NZ,IT1A
+        LD      HL,IDLEC
+        INC     (HL)
+IT1A:   LD      HL,CNTSEC
         DEC     (HL)
         JR      NZ,ITDONE
         LD      (HL),TPS
+        LD      A,(IDLEC)
+        LD      (IDLES),A
+        XOR     A
+        LD      (IDLEC),A
         LD      HL,(SECS)       ; segundos desde el arranque (para TODCHK)
         INC     HL
         LD      (SECS),HL
@@ -4808,6 +4998,8 @@ ZEMU:   LD      (ZHL),HL
         JP      Z,ZDRV
         CP      34
         JP      Z,ZI2C
+        CP      40
+        JP      Z,ZVC
 ZERR:   LD      A,0FFh
 ZRET:   POP     BC
         POP     DE
@@ -4993,6 +5185,14 @@ ZINAK:  LD      HL,ISTOP
         LD      A,1
         OR      A
         JP      ZRET
+; 40 (propio): ver la consola virtual E (0-4; H:VC)
+ZVC:    LD      HL,VSWE
+        CALL    ZBK
+        DI
+        CALL    TXSTA
+        EI
+        XOR     A
+        JP      ZRET
 ; ZBK: BKCALL con las interrupciones apagadas; A y Z de la rutina
 ZBK:    DI
         CALL    BKCALL
@@ -5056,7 +5256,12 @@ CNTMIN: DEFB    60
 SVHL:   DEFW    0
 SVRET:  DEFW    0
 SVSP:   DEFW    0
-RXCNT:  DEFS    4               ; caracteres tecleados en cada consola virtual
+RXCNT:  DEFS    5               ; caracteres tecleados en cada consola virtual
+SIOBM:  DEFB    0               ; consola 4: 0 la SIO B, 1 nada (OFF), 2 virtual
+LASTPD: DEFW    0               ; proceso que escribio ultimo en la consola que se ve
+RLRA:   DEFW    0               ; donde esta el proceso que corre (datapg+5)
+IDLEC:  DEFB    0               ; tics del segundo en que la CPU no hacia nada
+IDLES:  DEFB    TPS             ; los del segundo anterior
 HDB:    DEFB    0
 TLB:    DEFB    0
 CURPG0: DEFB    0
