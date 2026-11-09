@@ -1017,6 +1017,90 @@ SRX1:   LD      A,1
         POP     BC
         RET
 
+; SPIRB: 512 bytes de la SD a (HL), con el bucle desenrollado (400 ciclos por
+; byte en lugar de 620)
+SPIRB:  LD      C,SPIIN
+        LD      A,1
+        LD      B,0
+        CALL    SRB1
+SRB1:
+        OUT     (SPIL),A
+        OUT     (SPIH),A
+        IN      D,(C)
+        RR      D
+        RL      E
+        OUT     (SPIL),A
+        OUT     (SPIH),A
+        IN      D,(C)
+        RR      D
+        RL      E
+        OUT     (SPIL),A
+        OUT     (SPIH),A
+        IN      D,(C)
+        RR      D
+        RL      E
+        OUT     (SPIL),A
+        OUT     (SPIH),A
+        IN      D,(C)
+        RR      D
+        RL      E
+        OUT     (SPIL),A
+        OUT     (SPIH),A
+        IN      D,(C)
+        RR      D
+        RL      E
+        OUT     (SPIL),A
+        OUT     (SPIH),A
+        IN      D,(C)
+        RR      D
+        RL      E
+        OUT     (SPIL),A
+        OUT     (SPIH),A
+        IN      D,(C)
+        RR      D
+        RL      E
+        OUT     (SPIL),A
+        OUT     (SPIH),A
+        IN      D,(C)
+        RR      D
+        RL      E
+        LD      (HL),E
+        INC     HL
+        DJNZ    SRB1
+        RET
+
+; SPIWB: 512 bytes de (HL) a la SD, desenrollado
+SPIWB:  LD      B,0
+        CALL    SWB1
+SWB1:   LD      A,(HL)
+        RLCA
+        OUT     (SPIL),A
+        OUT     (SPIH),A
+        RLCA
+        OUT     (SPIL),A
+        OUT     (SPIH),A
+        RLCA
+        OUT     (SPIL),A
+        OUT     (SPIH),A
+        RLCA
+        OUT     (SPIL),A
+        OUT     (SPIH),A
+        RLCA
+        OUT     (SPIL),A
+        OUT     (SPIH),A
+        RLCA
+        OUT     (SPIL),A
+        OUT     (SPIH),A
+        RLCA
+        OUT     (SPIL),A
+        OUT     (SPIH),A
+        RLCA
+        OUT     (SPIL),A
+        OUT     (SPIH),A
+        INC     HL
+        DJNZ    SWB1
+        RET
+
 ; SDSEL: CS de la tarjeta DSKC (0 o 1)
 SDSEL:  XOR     A
         OUT     (SPIL),A
@@ -1106,14 +1190,7 @@ SDR1:   CALL    SPIRX           ; token de datos FE
         JR      NZ,SDR1
         JR      SDERR
 SDR2:   LD      HL,BUF
-        LD      DE,512
-SDR3:   CALL    SPIRX
-        LD      (HL),A
-        INC     HL
-        DEC     DE
-        LD      A,D
-        OR      E
-        JR      NZ,SDR3
+        CALL    SPIRB
         CALL    SPIRX           ; CRC
         CALL    SPIRX
         CALL    SDEND
@@ -1132,14 +1209,7 @@ SDWR:   CALL    SDARG
         LD      A,0FEh
         CALL    SPITX
         LD      HL,BUF
-        LD      DE,512
-SDW1:   LD      A,(HL)
-        CALL    SPITX
-        INC     HL
-        DEC     DE
-        LD      A,D
-        OR      E
-        JR      NZ,SDW1
+        CALL    SPIWB
         LD      A,0FFh          ; CRC
         CALL    SPITX
         CALL    SPITX
