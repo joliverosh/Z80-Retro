@@ -21,6 +21,12 @@ for f in ['RESBDOS.SPR','XDOS.SPR','BNKBDOS.SPR','BNKXDOS.SPR','TMP.SPR']:
         new = bytes([0x21,0x0e,0,0x19,0x70, 0x01,0x08,0,0x09,0x70])
         assert d.count(old) == 1, 'XDOS.SPR: no encuentro el TMP disk$slct'
         d = d.replace(old, new)
+        # Parche: el mensaje de arranque dice que es la version para ZEPHYRUS
+        # (mismo largo, 56 bytes; el texto no lleva bits de reubicacion).
+        old = b'\r\n\nMP/M II V2.0\r\nCopyright (C) 1981, Digital Research\r\n$'
+        new = b'\r\nMP/M II 2.0 ZEPHYRUS 1.2\r\n(C) 1981 Digital Research\r\n$'
+        assert d.count(old) == 1 and len(old) == len(new), 'XDOS.SPR: no encuentro el mensaje'
+        d = d.replace(old, new)
     files.append((f, d))
 files.append(('BNKXIOS.SPR', open('BNKXIOS.SPR','rb').read()))
 for r in rsps:

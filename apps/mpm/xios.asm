@@ -1853,7 +1853,7 @@ SIOINN  EQU     ($-SIOINI)/2
 VECS:   DEFW    ITXB,IEXB,IRXB,ISPB,ITXA,IEXA,IRXA,ISPA    ; FFE0-FFEE
         DEFW    INULL,ITICK,INULL,INULL                    ; FFF0-FFF6 (CTC 0-3)
 
-MSG:    DEFB    13,10,'Z80-Retro XIOS 1.2 (OLIVEROS 2026): 2 consolas, 5 bancos, unidades A-P',13,10,0
+MSG:    DEFB    13,10,'ZEPHYRUS XIOS 1.2 (OLIVEROS 2026): 2 consolas, 5 bancos, unidades A-P',13,10,0
 MSGC:   DEFB    ' KB de cache de disco',13,10,0
 MSGS:   DEFB    'A:STARTUP.SUB',13,10,0
 MSGG:   DEFB    'G: disco en RAM de ',0

@@ -15,6 +15,8 @@ $ZMAC -c --od zout --oo cim,lst ldrbios.asm >/dev/null
 $ZMAC -c --od zout --oo cim,lst rtc.asm >/dev/null && cp zout/rtc.cim RTC.COM
 python3 - <<'P'
 m=open('dri/MPMLDR.COM','rb').read(); l=open('zout/ldrbios.cim','rb').read()
+o=b'MP/M II V2.0 Loader   '; n=b'MP/M II 2.0 ZEPHYRUS  '   # mismo largo
+assert m.count(o)==1 and len(o)==len(n); m=m.replace(o,n)
 img=bytearray(m[:0x1600])+l; img+=b'\0'*(0x1800-len(img)); open('MPMLDR.COM','wb').write(img)
 # MPMLDR.HEX: el mismo cargador para arrancar MP/M directo desde ZLoader (L + WI + WB)
 out=[]

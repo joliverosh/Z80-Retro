@@ -1,6 +1,6 @@
-# MP/M II en la Z80-Retro
+# MP/M II 2.0 ZEPHYRUS 1.2
 
-MP/M II 2.0 de Digital Research, el CP/M multiusuario de 1981, sobre la Z80-Retro (Z80 CPU Rev 2.2 o ZEPHYRUS Rev 2.3) con ZLoader/ZIOS v6. El XIOS es propio (`xios.asm`); el resto son los archivos originales de Digital Research.
+MP/M II 2.0 de Digital Research, el CP/M multiusuario de 1981, adaptado a ZEPHYRUS (corre también en la Z80 CPU Rev 2.2) con ZLoader/ZIOS v6. El XIOS es propio (`xios.asm`) y da el número de versión: 1.2. El resto son los archivos originales de Digital Research, con dos parches pequeños a `XDOS.SPR` (usuario 0 y el mensaje de arranque) y el título del cargador.
 
 Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 - el arranque;
@@ -53,11 +53,12 @@ Desde entonces `BOS 5` arranca MP/M. El cargador queda en los sectores 70h-7Bh d
 ```
 a>H:MPMLDR
 ...
-Z80-Retro XIOS 1.2 (OLIVEROS 2026): 2 consolas, 5 bancos, unidades A-P
+ZEPHYRUS XIOS 1.2 (OLIVEROS 2026): 2 consolas, 5 bancos, unidades A-P
 64 KB de cache de disco
 G: disco en RAM de 144 KB
 A:STARTUP.SUB
-MP/M II V2.0
+MP/M II 2.0 ZEPHYRUS 1.2
+(C) 1981 Digital Research
 0A>TOD
 Thu 10/15/26 10:30:02
 ```
@@ -94,7 +95,7 @@ Thu 10/15/26 10:30:02
   - pone sus rutinas en la tabla de vectores IM 2 de ZIOS: SIO en FFE0-FFEE y CTC en FFF0-FFF6;
   - activa la recepción por interrupción en las dos SIO;
   - averigua con CMD58 si cada tarjeta es SDHC.
-- **Parche a `XDOS.SPR`** (lo hace `gensys.py` antes de llamar a GENSYS): Digital Research pone a cada consola en el usuario igual a su número (`tmp$pd.disk$slct = i` en `mpm.asm`), así que la B arrancaba en `1A>`. Se cambian 3 bytes para que todas arranquen en el usuario 0.
+- **Parche a `XDOS.SPR`** (lo hace `gensys.py` antes de llamar a GENSYS): Digital Research pone a cada consola en el usuario igual a su número (`tmp$pd.disk$slct = i` en `mpm.asm`), así que la B arrancaba en `1A>`. Se cambian 3 bytes para que todas arranquen en el usuario 0. Otro parche, del mismo largo, cambia el mensaje `MP/M II V2.0` por `MP/M II 2.0 ZEPHYRUS 1.2`; `build.sh` hace lo mismo con el título de `MPMLDR`.
 - **`mkspr.py`** agrega un byte si el código mide un múltiplo exacto de 128: GENSYS reubica mal esos módulos (ver `gensys.txt` en cpm.z80.de).
 - **La caché de disco** usa las páginas de RAM que no son de ningún banco ni la común (4 páginas con 512 KB de RAM). Guarda bloques de 512 bytes de la SD, asociativa de 2 vías, en la parte del XIOS con bancos. La página de la caché se pone un momento en la ventana 0, con las interrupciones apagadas de 64 en 64 bytes para no perder caracteres. Las escrituras van a la SD en el acto y también a la caché.
 - **El disco en RAM (G:)** usa las páginas que quedan después de la caché (9 con 512 KB). Su DPB tiene bloques de 1 KB y 64 entradas de directorio; `SYSTEMINIT` lo crea vacío.
