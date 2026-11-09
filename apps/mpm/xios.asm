@@ -43,7 +43,8 @@ ZIOS    EQU     0FE00h          ; entrada al API de ZIOS desde la aplicacion
 RXA     EQU     0FE00h          ; bufer circular de la consola 0 (64 bytes)
 RXB     EQU     0FE40h          ; bufer circular de la consola 1
 DIRBF   EQU     0FE80h          ; bufer de directorio (en la comun: READ copia con el banco del usuario puesto)
-ISTK    EQU     0FF80h          ; pila de las interrupciones (FF00-FF7F)
+BOUNCE  EQU     0FF00h          ; 64 bytes de paso entre BUF y el DMA del programa
+ISTK    EQU     0FF80h          ; pila de las interrupciones (FF40-FF7F)
 TXA     EQU     0FF80h          ; buferes de salida (6 + 32 bytes cada uno), FF80-FFCB
 TXB     EQU     TXA+6+TXMSK+1
 ; Impresora a un archivo (A:MPM.CFG con LST=archivo): bloque fijo que lee H:LSTFILE
@@ -2218,6 +2219,113 @@ SIOP1:  IN      A,(SIOAC)
         RET
 
 
+; ------------------------------------------------------------- discos (en la parte con bancos:
+; el BDOS los llama con el banco 0 puesto)
+HOME:   LD      BC,0
+SETTRK: LD      (TRK),BC
+        RET
+SETSEC: LD      (SEC),BC
+        RET
+SETDMA: LD      (DMA),BC
+        RET
+SECTRAN: LD     H,B
+        LD      L,C
+        RET
+SELDSK: LD      HL,0
+        LD      A,E
+        LD      (SELE),A        ; bit 0 = 0: primera seleccion (la unidad se registra)
+        LD      A,C
+        CP      NDRV
+        RET     NC
+        LD      E,A
+        LD      D,0
+        LD      HL,DCARD
+        ADD     HL,DE
+        LD      A,(HL)
+        LD      HL,0
+        CP      4
+        RET     NC              ; sin unidad
+        CP      2
+        JR      NZ,SELD0
+        LD      A,(NRPG)        ; disco en RAM: solo si hay paginas
+        OR      A
+        RET     Z
+        JR      SELD1
+SELD0:  JR      NC,SELD1
+        LD      (DSKC),A        ; SD: al registrar la unidad (DSKRESET despues de
+        LD      A,(SELE)        ; cambiar la tarjeta) se olvida su cache
+        RRA
+        PUSH    BC
+        CALL    NC,CPURGE
+        POP     BC
+SELD1:
+        LD      A,C
+        LD      (DRV),A
+        LD      L,C             ; DPH = DPBASE + 16*unidad
+        LD      H,0
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        LD      DE,DPBASE
+        ADD     HL,DE
+        RET
+
+; READ / WRITE: 0 = bien, 1 = error
+READ:   CALL    TODCHK          ; cambiaron la hora? -> al DS1307
+        CALL    DSKADR
+        XOR     A               ; basta el registro de 128 bytes
+        LD      (GMODE),A
+        CALL    GETBLK
+        RET     NZ
+        CALL    BUFPTR          ; BUF (aqui) -> DMA del programa, en dos mitades
+        LD      (XSRC),HL       ; por BOUNCE (memoria alta)
+        LD      HL,(DMA)
+        LD      (XDST),HL
+        CALL    XRD64
+        CALL    XRD64
+        XOR     A
+        RET
+
+WRITE:  CALL    TODCHK
+        CALL    DSKADR
+        LD      A,(DSKC)
+        CP      3
+        JR      NC,ERR1         ; flash: solo lectura
+        LD      A,1             ; hace falta el bloque entero (se reescribe)
+        LD      (GMODE),A
+        CALL    GETBLK
+        RET     NZ
+        CALL    BUFPTR          ; DMA del programa -> BUF, en dos mitades
+        LD      (XDST),HL
+        LD      HL,(DMA)
+        LD      (XSRC),HL
+        CALL    XWR64
+        CALL    XWR64
+        LD      A,(DSKC)
+        CP      2
+        JP      Z,RAMWR         ; disco en RAM
+        CALL    SDWRX
+        JP      Z,CWRREC        ; escrito: el registro tambien a la cache
+        CALL    CWRERR          ; fallo: olvidar el bloque (BUF ya no es la tarjeta)
+ERR1:   LD      A,1
+        OR      A
+        RET
+
+BUFPTR: LD      HL,BUF          ; HL = BUF + OFS*128
+        LD      A,(OFS)
+        RRCA
+        LD      E,A
+        AND     1
+        LD      D,A
+        LD      A,E
+        AND     80h
+        LD      E,A
+        ADD     HL,DE
+        RET
+
+
+BUF:    DEFS    512             ; bloque de 512 de la SD (en el banco 0)
         DEFS    XPAD            ; relleno que pone mkspr.py (ver alli)
 ; =============================================================== memoria comun
 COMMONBASE:
@@ -2721,110 +2829,35 @@ SB1:    LD      A,(HL)
         LD      (CURPG2),A
         RET
 
-; ------------------------------------------------------------- discos
-HOME:   LD      BC,0
-SETTRK: LD      (TRK),BC
-        RET
-SETSEC: LD      (SEC),BC
-        RET
-SETDMA: LD      (DMA),BC
-        RET
-SECTRAN: LD     H,B
-        LD      L,C
-        RET
-SELDSK: LD      HL,0
-        LD      A,E
-        LD      (SELE),A        ; bit 0 = 0: primera seleccion (la unidad se registra)
-        LD      A,C
-        CP      NDRV
-        RET     NC
-        LD      E,A
-        LD      D,0
-        LD      HL,DCARD
-        ADD     HL,DE
-        LD      A,(HL)
-        LD      HL,0
-        CP      4
-        RET     NC              ; sin unidad
-        CP      2
-        JR      NZ,SELD0
-        LD      A,(NRPG)        ; disco en RAM: solo si hay paginas
-        OR      A
-        RET     Z
-        JR      SELD1
-SELD0:  JR      NC,SELD1
-        LD      (DSKC),A        ; SD: al registrar la unidad (DSKRESET despues de
-        LD      A,(SELE)        ; cambiar la tarjeta) se olvida su cache
-        RRA
-        PUSH    BC
-        CALL    NC,CPURGE
-        POP     BC
-SELD1:
-        LD      A,C
-        LD      (DRV),A
-        LD      L,C             ; DPH = DPBASE + 16*unidad
-        LD      H,0
-        ADD     HL,HL
-        ADD     HL,HL
-        ADD     HL,HL
-        ADD     HL,HL
-        LD      DE,DPBASE
-        ADD     HL,DE
-        RET
-
-; READ / WRITE: 0 = bien, 1 = error
-READ:   CALL    TODCHK          ; cambiaron la hora? -> al DS1307
-        CALL    DSKADR
-        XOR     A               ; basta el registro de 128 bytes
-        LD      (GMODE),A
-        CALL    GETBLK
-        RET     NZ
-        CALL    SWTUSER
-        CALL    BUFPTR
-        LD      DE,(DMA)
-        LD      BC,128
+; XRD64 / XWR64: 64 bytes entre BUF (banco 0) y el DMA del programa (su banco),
+; pasando por BOUNCE en la memoria alta. XSRC y XDST avanzan.
+XRD64:  LD      HL,(XSRC)
+        LD      DE,BOUNCE
+        LD      BC,64
         LDIR
-        CALL    SWTSYS
-        XOR     A
-        RET
-
-WRITE:  CALL    TODCHK
-        CALL    DSKADR
-        LD      A,(DSKC)
-        CP      3
-        JR      NC,ERR1         ; flash: solo lectura
-        LD      A,1             ; hace falta el bloque entero (se reescribe)
-        LD      (GMODE),A
-        CALL    GETBLK
-        RET     NZ
+        LD      (XSRC),HL
         CALL    SWTUSER
-        CALL    BUFPTR
-        EX      DE,HL
-        LD      HL,(DMA)
-        LD      BC,128
+        LD      HL,BOUNCE
+        LD      DE,(XDST)
+        LD      BC,64
         LDIR
+        LD      (XDST),DE
+        JP      SWTSYS
+XWR64:  CALL    SWTUSER
+        LD      HL,(XSRC)
+        LD      DE,BOUNCE
+        LD      BC,64
+        LDIR
+        LD      (XSRC),HL
         CALL    SWTSYS
-        LD      A,(DSKC)
-        CP      2
-        JP      Z,RAMWR         ; disco en RAM
-        CALL    SDWRX
-        JP      Z,CWRREC        ; escrito: el registro tambien a la cache
-        CALL    CWRERR          ; fallo: olvidar el bloque (BUF ya no es la tarjeta)
-ERR1:   LD      A,1
-        OR      A
+        LD      HL,BOUNCE
+        LD      DE,(XDST)
+        LD      BC,64
+        LDIR
+        LD      (XDST),DE
         RET
-
-BUFPTR: LD      HL,BUF          ; HL = BUF + OFS*128
-        LD      A,(OFS)
-        RRCA
-        LD      E,A
-        AND     1
-        LD      D,A
-        LD      A,E
-        AND     80h
-        LD      E,A
-        ADD     HL,DE
-        RET
+XSRC:   DEFW    0
+XDST:   DEFW    0
 
 ; PGQRY: paginas del banco 0 preguntandole a ZIOS (servicio 1). Va en la memoria
 ; comun porque la ventana que se pregunta cambia un momento.
@@ -3391,6 +3424,5 @@ DBGR:   DEFB    0
 FIRMA:  DEFB    0
 ZMAP    EQU     BUF             ; SYSINIT usa BUF para el mapa de ZIOS y su pila
 LSTK    EQU     BUF+512
-BUF:    DEFS    512
-        DEFB    0               ; para que el SPR incluya el bufer
+        DEFB    0               ; (el SPR termina con datos)
         END
