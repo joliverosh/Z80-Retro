@@ -28,5 +28,6 @@ echo "OK: zloader/zloader_sst39sf040.bin"
 # Imagen con el disco en flash (unidad H: de CP/M) con las aplicaciones basicas
 python3 ../tools/mkflashdisk.py zloader_sst39sf040.bin zloader_sst39sf040_fd.bin \
     ../cpmtools/download.hex ../images/cpm22apps.pkg ../cpmtools/format.hex \
+    ../apps/pi/PI1K.COM ../apps/pi/PI10K.COM \
     -u3 ../apps/cpm3/cpm3.pkg > mkflashdisk.log && \
     echo "OK: zloader/zloader_sst39sf040_fd.bin (con disco en flash)"
