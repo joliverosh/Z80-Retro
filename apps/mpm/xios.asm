@@ -46,6 +46,12 @@ DIRBF   EQU     0FE80h          ; bufer de directorio (en la comun: READ copia c
 ISTK    EQU     0FF80h          ; pila de las interrupciones (FF00-FF7F)
 TXA     EQU     0FF80h          ; buferes de salida (6 + 32 bytes cada uno), FF80-FFCB
 TXB     EQU     TXA+6+TXMSK+1
+; Impresora a un archivo (A:MPM.CFG con LST=archivo): bloque fijo que lee H:LSTFILE
+LSTMD   EQU     0FFCCh          ; 0 = LST: a la SIO B, 1 = al anillo de LSTPG
+LSTPG   EQU     0FFCDh          ; pagina de 16 KB del anillo
+LSTH    EQU     0FFCEh          ; cabeza (la saca LSTFILE), 0-3FFF
+LSTT    EQU     0FFD0h          ; cola (la pone LIST)
+CURPG2  EQU     0FFD2h          ; pagina de la ventana 2 del banco puesto (para LSTFILE)
 VSIO    EQU     0FFE0h          ; vectores de la SIO (WR2 = E0h, lo puso ZIOS)
 VCTC    EQU     0FFF0h          ; vectores del CTC (vector F0h, lo puso ZIOS)
 
@@ -246,7 +252,9 @@ SI8:    LD      A,C
         OUT     (PGPORT),A
         CALL    PGPOOL          ; paginas libres -> bancos 1-7 segun cuantas haya
         CALL    CINIT           ; las paginas que sobran: cache de disco
+        CALL    LSTINI          ; una para la impresora si va a un archivo
         CALL    RINIT           ; y las que quedan, el disco en RAM (G:)
+        CALL    STARMA          ; ordenes que se teclean solas en la consola 0
         ; pagina cero de cada banco: JP a la tabla de saltos, el RST del
         ; depurador y un RET en 30h (los programas de la Z80-Retro llaman a ZIOS)
         LD      A,(NBNKS)
@@ -353,9 +361,13 @@ SI15:   LD      A,(NBNKS)       ; "n bancos, unidades A-P"
         LD      A,(NRPG)
         LD      HL,MSGK
         CALL    PRKB
-SI15C:  LD      A,(STOK)        ; "A:STARTUP.SUB"
+SI15C:  LD      A,(STSUB)       ; "A:STARTUP.SUB"
         OR      A
         LD      HL,MSGS
+        CALL    NZ,PRSTR
+        LD      A,(LSTMD)       ; "LST: a un archivo"
+        OR      A
+        LD      HL,MSGL
         CALL    NZ,PRSTR
 SI15E:  LD      SP,(SVSP)
         EI
@@ -1562,7 +1574,12 @@ HCON:   LD      IX,HST0
 ;  7.. linea actual (HLEN)      7+HLEN.. HNUM lineas de (1 largo + HLEN)
 HSZ     EQU     7+HLEN+HNUM*(HLEN+1)
 
-TCONST: PUSH    IX               ; (SUBMIT STARTUP no se anuncia: el TMP vacia lo tecleado antes)
+; Mientras quedan ordenes del arranque por entregar, CONST dice "nada": el TMP
+; vacia lo tecleado (con CONST y CONIN) antes de leer, y se llevaria esas ordenes.
+TCONST: CALL    STPEND
+        LD      A,0
+        RET     NZ
+        PUSH    IX
         CALL    HCON
         LD      A,(IX+1)
         POP     IX
@@ -1753,7 +1770,12 @@ HST1:   DEFS    HSZ
 ; la consola 0, como si se hubiera tecleado: se ejecuta al aparecer 0A>.
 STFIND: XOR     A
         LD      (STOK),A
+        LD      (STSUB),A
         LD      (STREC),A
+        LD      (LSTMD),A
+        LD      H,A
+        LD      L,A
+        LD      (CFBLK),HL
         LD      HL,STBUF        ; DMA de ZIOS
         LD      C,12
         CALL    ZIOS
@@ -1772,23 +1794,25 @@ STF2:   PUSH    BC
         LD      A,(HL)          ; usuario 0
         OR      A
         JR      NZ,STF4
-        INC     HL
         LD      DE,STNAME
-        LD      B,11
-STF3:   LD      A,(HL)
-        AND     7Fh
-        EX      DE,HL
-        CP      (HL)
-        EX      DE,HL
-        JR      NZ,STF4
-        INC     HL
-        INC     DE
-        DJNZ    STF3
-        POP     HL
-        POP     BC
+        CALL    STCMP
+        JR      NZ,STF2B
         LD      A,1
-        LD      (STOK),A
-        RET
+        LD      (STSUB),A
+STF2B:  POP     HL
+        PUSH    HL
+        LD      DE,CFNAME       ; A:MPM.CFG, su primera extension
+        CALL    STCMP
+        JR      NZ,STF4
+        LD      A,(HL)          ; HL -> extension (byte 12)
+        OR      A
+        JR      NZ,STF4
+        LD      DE,4            ; byte 16: primer bloque
+        ADD     HL,DE
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        LD      (CFBLK),DE
 STF4:   POP     HL
         LD      DE,32
         ADD     HL,DE
@@ -1799,10 +1823,128 @@ STF4:   POP     HL
         LD      (STREC),A
         CP      128
         JR      NZ,STF1
+; A:MPM.CFG: su primer registro (2 KB por bloque, despues de la pista 1)
+        LD      HL,(CFBLK)
+        LD      A,H
+        OR      L
+        RET     Z
+        ADD     HL,HL           ; registro = 512 + bloque * 16
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        LD      DE,512
+        ADD     HL,DE
+        EX      DE,HL
+        LD      HL,0
+        LD      C,17
+        CALL    ZIOS
+        OR      A
+        RET     NZ
+; LST=B (o nada): la SIO B. LST=otra cosa: un archivo (lo dice H:LSTFILE).
+        LD      HL,STBUF
+        LD      B,128
+CF1:    LD      A,(HL)
+        CP      1Ah
+        RET     Z
+        AND     5Fh             ; "LST="
+        CP      'L'
+        JR      NZ,CF8
+        INC     HL
+        LD      A,(HL)
+        AND     5Fh
+        CP      'S'
+        JR      NZ,CF9
+        INC     HL
+        LD      A,(HL)
+        AND     5Fh
+        CP      'T'
+        JR      NZ,CF9
+        INC     HL
+        LD      A,(HL)
+        CP      '='
+        JR      NZ,CF9
+        INC     HL
+        LD      A,(HL)
+        AND     5Fh
+        CP      'B'
+        JR      NZ,CF2
+        INC     HL
+        LD      A,(HL)
+        CP      '!'
+        RET     C               ; LST=B
+CF2:    LD      A,1
+        LD      (LSTMD),A
         RET
+CF8:    INC     HL
+CF9:    DJNZ    CF1
+        RET
+; STCMP: Z si el nombre de la entrada HL (usuario en HL) es el de DE (11
+; letras). Deja HL en el byte 12 de la entrada.
+STCMP:  INC     HL
+        LD      B,11
+STC1:   LD      A,(HL)
+        AND     7Fh
+        EX      DE,HL
+        CP      (HL)
+        EX      DE,HL
+        INC     HL
+        INC     DE
+        RET     NZ
+        DJNZ    STC1
+        RET
+
+; LSTINI: si LST va a un archivo, una pagina de la reserva para el anillo
+LSTINI: LD      HL,0
+        LD      (LSTH),HL
+        LD      (LSTT),HL
+        LD      A,(LSTMD)
+        OR      A
+        RET     Z
+        LD      A,(POOLN)
+        OR      A
+        JR      Z,LSI9          ; no hay: a la SIO B
+        LD      A,1
+        LD      DE,LSTPG
+        JP      POOLTK
+LSI9:   LD      (LSTMD),A
+        RET
+
+; STARMA: las ordenes del arranque: H:LSTFILE si LST va a un archivo y
+; H:SUBMIT A:STARTUP si existe A:STARTUP.SUB
+STARMA: LD      DE,STCMD
+        LD      A,(LSTMD)
+        OR      A
+        JR      Z,SA1
+        LD      HL,STLF
+        CALL    STCPY
+SA1:    LD      A,(STSUB)
+        OR      A
+        JR      Z,SA2
+        LD      HL,STSB
+        CALL    STCPY
+SA2:    XOR     A
+        LD      (DE),A
+        LD      HL,STCMD
+        LD      (STPTR),HL
+        LD      A,(HL)
+        LD      (STOK),A        ; algo que teclear?
+        RET
+STCPY:  LD      A,(HL)
+        OR      A
+        RET     Z
+        LD      (DE),A
+        INC     HL
+        INC     DE
+        JR      STCPY
+
 STNAME: DEFB    'STARTUP SUB'
+CFNAME: DEFB    'MPM     CFG'
+STLF:   DEFB    'H:LSTFILE',13,0
+STSB:   DEFB    'H:SUBMIT A:STARTUP',13,0
 STREC:  DEFB    0
-STCMD:  DEFB    'H:SUBMIT A:STARTUP',13,0
+CFBLK:  DEFW    0
+STSUB:  DEFB    0
+STCMD:  DEFS    32
 STOK:   DEFB    0
 STPTR:  DEFW    STCMD
 
@@ -2054,6 +2196,7 @@ MSG:    DEFB    13,10,'ZEPHYRUS XIOS 1.3 (OLIVEROS 2026): 2 consolas, ',0
 MSGB:   DEFB    ' bancos, unidades A-P',13,10,0
 MSGC:   DEFB    ' KB de cache de disco',13,10,0
 MSGS:   DEFB    'A:STARTUP.SUB',13,10,0
+MSGL:   DEFB    'LST: a un archivo (A:MPM.CFG, H:LSTFILE)',13,10,0
 MSGG:   DEFB    'G: disco en RAM de ',0
 MSGK:   DEFB    ' KB',13,10,0
 
@@ -2249,7 +2392,44 @@ TXPF1:  PUSH    HL
 
 ; LIST: la impresora (LST:) sale por la SIO B, la misma linea de la consola 1
 ; (un terminal, el NUNTIUS o un cable a oli que la capture).
-LIST:   JR      COUT1
+LIST:   LD      A,(LSTMD)
+        OR      A
+        JR      Z,COUT1         ; a la SIO B
+; al anillo de 16 KB de la pagina LSTPG (lo vacia H:LSTFILE en el archivo)
+LST0:   LD      A,I
+        DI
+        PUSH    AF
+        LD      HL,(LSTT)
+        INC     HL
+        LD      A,H
+        AND     3Fh
+        LD      H,A
+        LD      DE,(LSTH)
+        OR      A
+        SBC     HL,DE
+        JR      Z,LSTF          ; lleno: esperar un tic
+        ADD     HL,DE
+        LD      DE,(LSTT)
+        LD      (LSTT),HL
+        LD      A,(LSTPG)
+        OUT     (PGPORT),A
+        EX      DE,HL
+        LD      (HL),C
+        LD      A,(CURPG0)
+        OUT     (PGPORT),A
+        POP     AF
+        RET     PO
+        EI
+        RET
+LSTF:   POP     AF
+        JP      PO,LSTF1
+        EI
+LSTF1:  PUSH    BC
+        LD      C,141
+        LD      DE,1
+        CALL    XDOS
+        POP     BC
+        JR      LST0
 
 POLLDEV: LD     A,C
         CP      4
@@ -2529,6 +2709,7 @@ SB1:    LD      A,(HL)
         INC     HL
         LD      A,(HL)
         OUT     (PGPORT+2),A
+        LD      (CURPG2),A
         RET
 
 ; ------------------------------------------------------------- discos
@@ -2827,8 +3008,6 @@ ZEMU:   LD      (ZHL),HL
         JP      Z,ZDRV
         CP      34
         JP      Z,ZI2C
-        CP      32
-        JP      Z,ZSER
 ZERR:   LD      A,0FFh
 ZRET:   POP     BC
         POP     DE
@@ -3015,53 +3194,6 @@ ZIOK:   CALL    ISTOP
 ZINAK:  CALL    ISTOP
         LD      A,1
         OR      A
-        JP      ZRET
-
-; 32: reloj de un canal de la SIO. B = canal (0 = A), D = modo 1/2/3 (x16, x32,
-; x64; 0 = no cambia), E = constante del canal 0 del CTC (0 = no cambia).
-ZSER:   LD      A,B
-        CP      2
-        JP      NC,ZERR
-        LD      A,D
-        CP      4
-        JP      NC,ZERR
-        DI
-        LD      A,E
-        OR      A
-        JR      Z,ZS1
-        LD      A,07h           ; temporizador, /16, sin interrupcion
-        OUT     (CTC0),A
-        LD      A,E
-        OUT     (CTC0),A
-ZS1:    LD      A,D
-        OR      A
-        JR      Z,ZS9
-        RRCA                    ; 1, 2, 3 -> bits 7-6
-        RRCA
-        OR      04h             ; 1 bit de parada, sin paridad
-        LD      H,A
-        LD      C,SIOAC
-        LD      DE,0E11Ah       ; WR3 y WR1 del canal A
-        LD      A,B
-        OR      A
-        JR      Z,ZS2
-        LD      C,SIOBC
-        LD      DE,0C11Eh
-ZS2:    LD      A,4             ; WR4 primero, despues WR1, WR3 y WR5
-        OUT     (C),A
-        OUT     (C),H
-        LD      A,1
-        OUT     (C),A
-        OUT     (C),E
-        LD      A,3
-        OUT     (C),A
-        OUT     (C),D
-        LD      A,5
-        OUT     (C),A
-        LD      A,0EAh
-        OUT     (C),A
-ZS9:    EI
-        XOR     A
         JP      ZRET
 
 ; I2C por software en 64h/65h (de rtc.asm, rutinas de zlib/libi2c.asm de Peter

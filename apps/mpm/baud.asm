@@ -2,7 +2,8 @@
 ; desde CP/M 2.2 (ZIOS) o MP/M II ZEPHYRUS (el XIOS imita los servicios).
 ;   BAUD            muestra la velocidad guardada de cada canal
 ;   BAUD A 9600     la cambia ahora y la guarda en la NVRAM del DS1307
-; Usa los servicios 34 (I2C, para la NVRAM) y 32 (reloj de un canal) de ZIOS.
+; Usa el servicio 34 de ZIOS (I2C, para la NVRAM). El cambio inmediato: en CP/M
+; con el servicio 32; en MP/M programando la SIO directamente.
 ; (C) OLIVEROS 2026
 BDOS    EQU     5
 TAIL    EQU     80h
@@ -149,7 +150,12 @@ ESP:    EX      (SP),HL
         LD      A,B
         OR      C
         JR      NZ,ESP
-        LD      A,(WR4)         ; WR4 -> modo 1/2/3 del servicio
+        LD      C,12            ; MP/M (H = 1): la SIO se programa aqui mismo
+        CALL    BDOS
+        LD      A,H
+        DEC     A
+        JR      Z,AHORA
+        LD      A,(WR4)         ; CP/M: servicio 32 de ZIOS (WR4 -> modo 1/2/3)
         RLCA
         RLCA
         AND     3
@@ -160,6 +166,39 @@ ESP:    EX      (SP),HL
         LD      B,A
         LD      C,32
         RST     30h
+        RET
+; Bajo MP/M: CTC 0 si hace falta y el canal con los valores del XIOS (WR4
+; primero, despues WR1 con interrupciones de RX y TX, WR3 y WR5)
+AHORA:  DI
+        LD      A,(TC)
+        OR      A
+        JR      Z,AH1
+        LD      A,07h
+        OUT     (40h),A
+        LD      A,(TC)
+        OUT     (40h),A
+AH1:    LD      C,83h           ; control del canal A
+        LD      DE,0E11Ah       ; WR3, WR1
+        LD      A,(CANAL)
+        OR      A
+        JR      Z,AH2
+        LD      C,82h
+        LD      DE,0C11Eh
+AH2:    LD      A,4
+        OUT     (C),A
+        LD      A,(WR4)
+        OUT     (C),A
+        LD      A,1
+        OUT     (C),A
+        OUT     (C),E
+        LD      A,3
+        OUT     (C),A
+        OUT     (C),D
+        LD      A,5
+        OUT     (C),A
+        LD      A,0EAh
+        OUT     (C),A
+        EI
         RET
 
 ; ---- mostrar los dos canales
