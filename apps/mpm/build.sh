@@ -16,6 +16,13 @@ $ZMAC -c --od zout --oo cim,lst rtc.asm >/dev/null && cp zout/rtc.cim RTC.COM
 python3 - <<'P'
 m=open('dri/MPMLDR.COM','rb').read(); l=open('zout/ldrbios.cim','rb').read()
 img=bytearray(m[:0x1600])+l; img+=b'\0'*(0x1800-len(img)); open('MPMLDR.COM','wb').write(img)
+# MPMLDR.HEX: el mismo cargador para arrancar MP/M directo desde ZLoader (L + WI + WB)
+out=[]
+for i in range(0,len(img),32):
+    ch=bytes(img[i:i+32]); ad=0x100+i
+    rec=bytes([len(ch),ad>>8,ad&255,0])+ch
+    out.append(':'+rec.hex().upper()+'%02X'%(-sum(rec)&255))
+open('MPMLDR.HEX','w').write('\n'.join(out)+'\n:00000001FF\n')
 P
 Z=../..
 P=prl

@@ -22,6 +22,7 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 | Discos | A-F en la SD, con el mismo mapa de ZIOS (`SM`) y el mismo formato que CP/M 2.2. H: es el disco en flash, de solo lectura |
 | Reloj | El tic de ZIOS: canal 1 del CTC, 120 Hz. MP/M recibe 60 tics por segundo |
 | Hora | Se toma del DS1307 al arrancar. `H:RTC` la vuelve a leer |
+| Caché de disco | Las páginas de RAM que sobran (64 KB): el directorio y los programas no se vuelven a leer de la SD. Escritura inmediata: la SD siempre está al día |
 
 G: no existe en MP/M: el disco en RAM de ZIOS se pierde porque sus páginas pasan a ser los bancos de usuario.
 
@@ -31,10 +32,26 @@ G: no existe en MP/M: el disco en RAM de ZIOS se pierde porque sus páginas pasa
 2. Arranca CP/M 2.2 con `BOS 1`.
 3. Escribe `H:MPMLDR`.
 
+**Arranque directo desde ZLoader** (sin pasar por CP/M). Una sola vez, en ZLoader:
+
+```
+L
+```
+
+manda `MPMLDR.HEX` (con `envia.py`) y después:
+
+```
+WI 70:A 0100 18FF
+WB 5 70:A 0100 1800 0100 01 MP/M
+```
+
+Desde entonces `BOS 5` arranca MP/M. El cargador queda en los sectores 70h-7Bh de A:, en la zona de sistema que no usa nadie (CP/M 2.2 usa 0-10h, CP/M 3 40h-48h y OASIS 60h-61h).
+
 ```
 a>H:MPMLDR
 ...
-Z80-Retro XIOS 1.1 (OLIVEROS 2026): 2 consolas, 7 bancos, SD y flash
+Z80-Retro XIOS 1.2 (OLIVEROS 2026): 2 consolas, 7 bancos, SD y flash
+64 KB de cache de disco
 MP/M II V2.0
 0A>TOD
 Thu 10/15/26 10:30:02
@@ -70,6 +87,7 @@ Thu 10/15/26 10:30:02
   - averigua con CMD58 si cada tarjeta es SDHC.
 - **Parche a `XDOS.SPR`** (lo hace `gensys.py` antes de llamar a GENSYS): Digital Research pone a cada consola en el usuario igual a su número (`tmp$pd.disk$slct = i` en `mpm.asm`), así que la B arrancaba en `1A>`. Se cambian 3 bytes para que todas arranquen en el usuario 0.
 - **`mkspr.py`** agrega un byte si el código mide un múltiplo exacto de 128: GENSYS reubica mal esos módulos (ver `gensys.txt` en cpm.z80.de).
+- **La caché de disco** usa las páginas de RAM que no son de ningún banco ni la común (4 páginas con 512 KB de RAM). Guarda bloques de 512 bytes de la SD, asociativa de 2 vías, en la parte del XIOS con bancos. La página de la caché se pone un momento en la ventana 0, con las interrupciones apagadas de 64 en 64 bytes para no perder caracteres. Las escrituras van a la SD en el acto y también a la caché.
 - **La SD** usa un driver SPI propio, con los métodos de `zlib/libspi.asm` y un búfer de 512 bytes en la memoria común.
 - **El disco en flash** se lee mapeando la página de flash en la ventana 0 por un momento.
 - **El directorio y los DPB** van en la memoria común: `READ` copia con el banco del usuario puesto, y los programas leen el DPB con la función 31.

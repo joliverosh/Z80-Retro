@@ -228,6 +228,7 @@ SI10:   DEC     C
         INC     B               ; (no cambia Z)
         DEC     B
         JR      NZ,SI9
+        CALL    CINIT           ; las paginas que sobran: cache de disco
         ; pagina cero de cada banco: JP a la tabla de saltos, el RST del
         ; depurador y un RET en 30h (los programas de la Z80-Retro llaman a ZIOS)
         LD      B,7
@@ -306,7 +307,31 @@ SI14B:  IN      A,(SIOAC)
         OUT     (SIOAD),A
         INC     HL
         JR      SI14
-SI15:   LD      SP,(SVSP)
+SI15:   LD      A,(NCPG)        ; "cache de nn KB"
+        OR      A
+        JR      Z,SI15C
+        ADD     A,A             ; KB = paginas * 16
+        ADD     A,A
+        ADD     A,A
+        ADD     A,A
+        LD      B,'0'-1
+SI15A:  INC     B
+        SUB     10
+        JR      NC,SI15A
+        ADD     A,'0'+10
+        LD      C,A
+        LD      A,B
+        CALL    SIOPUT
+        LD      A,C
+        CALL    SIOPUT
+        LD      HL,MSGC
+SI15B:  LD      A,(HL)
+        OR      A
+        JR      Z,SI15C
+        CALL    SIOPUT
+        INC     HL
+        JR      SI15B
+SI15C:  LD      SP,(SVSP)
         EI
         RET
 
@@ -420,6 +445,339 @@ TBUF:   DEFS    6
 TMAX:   DEFB    60h,60h,24h,32h,13h,9Ah ; limites (exclusivos) en BCD
 MESES:  DEFB    31,28,31,30,31,30,31,31,30,31,30,31
 
+; GETBLK: deja el bloque en BUF (Z = bien). Flash: lee el registro de 128 bytes.
+GETBLK: LD      A,(DSKC)
+        CP      3
+        JP      Z,FLREC
+        LD      HL,CCARD        ; ya esta en el bufer?
+        CP      (HL)
+        JR      NZ,GB0
+        LD      HL,(BLK)
+        LD      DE,(CBLK)
+        OR      A
+        SBC     HL,DE
+        JR      NZ,GB0
+        LD      HL,(BLK+2)
+        LD      DE,(CBLK+2)
+        SBC     HL,DE
+        RET     Z
+GB0:    LD      A,(NCPG)        ; con cache: buscarlo alli
+        OR      A
+        JP      NZ,CGET
+GB1:    LD      A,0FFh
+        LD      (CCARD),A       ; invalido mientras se lee
+        LD      (BUFSL),A
+        CALL    SDRD
+        RET     NZ
+        LD      A,(DSKC)
+        LD      (CCARD),A
+        LD      HL,(BLK)
+        LD      (CBLK),HL
+        LD      HL,(BLK+2)
+        LD      (CBLK+2),HL
+        XOR     A
+        RET
+
+
+; ------------------------------------------------------------- cache de disco
+; Bloques de 512 bytes de la SD en las paginas de RAM que sobran (hasta 4, o sea
+; 128 bloques = 64 KB). Asociativa de 2 vias: conjunto = (bloque bajo + bloque
+; medio + tarjeta) AND (NCONJ-1). Escritura inmediata (write-through): la tarjeta
+; siempre tiene los datos al dia, la cache solo evita relecturas (el directorio,
+; los programas que se cargan una y otra vez).
+; Todo esto corre con el banco 0 puesto: la pagina de la cache se pone un momento
+; en la ventana 0 con las interrupciones apagadas, de 64 en 64 bytes para no
+; perder caracteres de las consolas.
+
+; CGET: el bloque BLK de la tarjeta DSKC. GMODE = 0: basta el registro OFS en
+; BUF; GMODE = 1: el bloque entero en BUF. Z = bien.
+CGET:   CALL    CLOOK
+        LD      (CSLOT),A
+        JR      NZ,CGMISS
+        CALL    SLADR           ; acierto: HL = bloque en la ventana 0
+        LD      A,(GMODE)
+        OR      A
+        JR      NZ,CGFULL
+        CALL    RECOFF          ; solo el registro
+        ADD     HL,DE
+        PUSH    HL
+        CALL    BUFPTR
+        EX      DE,HL
+        POP     HL
+        LD      A,0FFh          ; BUF queda con un solo registro: no es un bloque
+        LD      (CCARD),A
+        LD      (BUFSL),A
+        LD      BC,128
+        CALL    CPYC
+        XOR     A
+        RET
+CGFULL: LD      DE,BUF
+        LD      BC,512
+        CALL    CPYC
+        CALL    BUFTAG
+        XOR     A
+        RET
+CGMISS: CALL    TAGADR          ; el hueco elegido queda invalido mientras se lee
+        LD      (HL),0FFh
+        CALL    GB1             ; leer de la tarjeta a BUF
+        RET     NZ
+        LD      A,(CSLOT)
+        CALL    SLADR
+        EX      DE,HL
+        LD      HL,BUF
+        LD      BC,512
+        CALL    CPYC
+        LD      A,(CSLOT)       ; etiqueta = tarjeta y bloque
+        CALL    TAGADR
+        LD      A,(DSKC)
+        LD      (HL),A
+        INC     HL
+        EX      DE,HL
+        LD      HL,BLK
+        LD      BC,4
+        LDIR
+        LD      A,(CSLOT)       ; la via recien llenada es la mas reciente
+        CALL    SETLRU
+        CALL    BUFTAG
+        XOR     A
+        RET
+
+; BUFTAG: BUF tiene el bloque BLK entero y su copia esta en el hueco CSLOT
+BUFTAG: LD      A,(DSKC)
+        LD      (CCARD),A
+        LD      HL,(BLK)
+        LD      (CBLK),HL
+        LD      HL,(BLK+2)
+        LD      (CBLK+2),HL
+        LD      A,(CSLOT)
+        LD      (BUFSL),A
+        RET
+
+; CWRREC: el registro que WRITE acaba de escribir en la tarjeta, tambien en la
+; cache (si el bloque de BUF esta en ella). Devuelve A = 0 (bien).
+CWRREC: LD      A,(BUFSL)
+        CP      0FFh
+        JR      Z,CWR9
+        CALL    SLADR
+        CALL    RECOFF
+        ADD     HL,DE
+        PUSH    HL              ; registro en la cache
+        CALL    BUFPTR          ; HL = registro en BUF (BUFPTR usa DE)
+        POP     DE
+        LD      BC,128
+        CALL    CPYC
+CWR9:   XOR     A
+        RET
+
+; CWRERR: la escritura fallo. BUF tiene datos que la tarjeta no tiene: se
+; olvidan BUF y su copia en la cache, y la proxima lectura va a la tarjeta.
+CWRERR: LD      A,(BUFSL)
+        CP      0FFh
+        JR      Z,CWE9
+        CALL    TAGADR
+        LD      (HL),0FFh
+CWE9:   LD      A,0FFh
+        LD      (CCARD),A
+        LD      (BUFSL),A
+        RET
+
+; CLOOK: busca DSKC/BLK. Z: esta, A = hueco. NZ: no esta, A = hueco a usar.
+CLOOK:  LD      A,(BLK)
+        LD      HL,BLK+1
+        ADD     A,(HL)
+        LD      HL,DSKC
+        ADD     A,(HL)
+        LD      HL,NCONJ
+        AND     (HL)            ; NCONJ = conjuntos - 1
+        LD      (CSET),A
+        ADD     A,A
+        LD      B,A             ; via 0
+        CALL    TAGCMP
+        JR      Z,CLHIT
+        INC     B               ; via 1
+        CALL    TAGCMP
+        JR      Z,CLHIT
+        DEC     B               ; no esta: una via vacia, o la menos reciente
+        LD      A,B
+        CALL    TAGADR
+        LD      A,(HL)
+        INC     A
+        JR      Z,CLMISS        ; via 0 vacia
+        INC     B
+        LD      A,B
+        CALL    TAGADR
+        LD      A,(HL)
+        INC     A
+        JR      Z,CLMISS        ; via 1 vacia
+        DEC     B
+        LD      HL,CLRU
+        LD      A,(CSET)
+        ADD     A,L
+        LD      L,A
+        JR      NC,CLM1
+        INC     H
+CLM1:   LD      A,(HL)          ; via usada mas recientemente
+        XOR     1
+        ADD     A,B
+        LD      B,A
+CLMISS: OR      0FFh            ; NZ sin perder el hueco
+        LD      A,B
+        RET
+CLHIT:  LD      A,B
+        PUSH    AF
+        CALL    SETLRU
+        POP     AF
+        CP      A               ; Z
+        RET
+
+; SETLRU: el hueco A es la via mas reciente de su conjunto
+SETLRU: LD      B,A
+        SRL     A               ; conjunto
+        LD      HL,CLRU
+        ADD     A,L
+        LD      L,A
+        JR      NC,SL1
+        INC     H
+SL1:    LD      A,B
+        AND     1
+        LD      (HL),A
+        RET
+
+; TAGCMP: Z si la etiqueta del hueco B es DSKC/BLK. Conserva B.
+TAGCMP: LD      A,B
+        CALL    TAGADR
+        LD      A,(DSKC)
+        CP      (HL)
+        RET     NZ
+        INC     HL
+        LD      DE,BLK
+        LD      C,4
+TC1:    LD      A,(DE)
+        CP      (HL)
+        RET     NZ
+        INC     HL
+        INC     DE
+        DEC     C
+        JR      NZ,TC1
+        RET
+
+; TAGADR: HL = etiqueta del hueco A (5 bytes: tarjeta, bloque de 32 bits)
+TAGADR: LD      L,A
+        LD      H,0
+        LD      D,H
+        LD      E,L
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,DE
+        LD      DE,CTAG
+        ADD     HL,DE
+        RET
+
+; SLADR: hueco A -> CPAGE = su pagina, HL = su direccion en la ventana 0
+SLADR:  LD      B,A
+        RLCA                    ; pagina = CPG[hueco / 32]
+        RLCA
+        RLCA
+        AND     7
+        LD      E,A
+        LD      D,0
+        LD      HL,CPG
+        ADD     HL,DE
+        LD      A,(HL)
+        LD      (CPAGE),A
+        LD      A,B             ; direccion = (hueco AND 31) * 512
+        AND     1Fh
+        ADD     A,A
+        LD      H,A
+        LD      L,0
+        RET
+
+; RECOFF: DE = OFS * 128 (desplazamiento del registro dentro del bloque)
+RECOFF: LD      A,(OFS)
+        RRCA
+        LD      E,A
+        AND     1
+        LD      D,A
+        LD      A,E
+        AND     80h
+        LD      E,A
+        RET
+
+; CPYC: copia BC bytes (multiplo de 64) de HL a DE con la pagina CPAGE puesta en
+; la ventana 0. Las interrupciones se apagan solo durante cada trozo de 64 bytes.
+CPYC:   PUSH    BC
+        LD      A,I             ; P/V = IFF2
+        DI
+        PUSH    AF
+        LD      A,(CPAGE)
+        OUT     (PGPORT),A
+        LD      BC,64
+        LDIR
+        LD      A,(CURPG0)
+        OUT     (PGPORT),A
+        POP     AF
+        JP      PO,CPY1
+        EI
+CPY1:   POP     BC
+        LD      A,C
+        SUB     64
+        LD      C,A
+        JR      NC,CPY2
+        DEC     B
+CPY2:   LD      A,B
+        OR      C
+        JR      NZ,CPYC
+        RET
+
+; CINIT: paginas libres para la cache (las que no son de ningun banco ni la
+; comun), de arriba hacia abajo: 4, 2, 1 o ninguna. Etiquetas vacias.
+CINIT:  LD      HL,CPG
+        LD      B,0             ; paginas encontradas
+        LD      C,3Fh
+CI1:    LD      A,C
+        CALL    USADA
+        JR      Z,CI2
+        LD      (HL),C
+        INC     HL
+        INC     B
+        LD      A,B
+        CP      4
+        JR      Z,CI3
+CI2:    DEC     C
+        LD      A,C
+        CP      1Fh
+        JR      NZ,CI1
+CI3:    LD      A,B             ; 3 -> 2 (los conjuntos van en potencia de 2)
+        CP      3
+        JR      NZ,CI4
+        DEC     A
+CI4:    LD      (NCPG),A
+        ADD     A,A             ; conjuntos = paginas * 16
+        ADD     A,A
+        ADD     A,A
+        ADD     A,A
+        DEC     A
+        LD      (NCONJ),A
+        LD      HL,CTAG         ; todas las etiquetas vacias (tarjeta FF)
+        LD      DE,CTAG+1
+        LD      (HL),0FFh
+        LD      BC,5*128-1
+        LDIR
+        LD      A,0FFh
+        LD      (BUFSL),A
+        RET
+
+GMODE:  DEFB    0               ; 0 = basta el registro, 1 = bloque entero
+CSLOT:  DEFB    0
+CSET:   DEFB    0
+BUFSL:  DEFB    0FFh            ; hueco que tiene el bloque de BUF (FF = ninguno)
+NCPG:   DEFB    0               ; paginas de cache (0 = sin cache)
+NCONJ:  DEFB    0
+CPAGE:  DEFB    0
+CPG:    DEFS    4
+CLRU:   DEFS    64              ; via mas reciente de cada conjunto
+CTAG:   DEFS    5*128           ; etiquetas: tarjeta (FF = vacio) y bloque
+
 ; USADA: Z si la pagina A es del banco 0, la comun o ya esta asignada
 USADA:  PUSH    HL
         PUSH    BC
@@ -472,7 +830,16 @@ SIOINN  EQU     ($-SIOINI)/2
 VECS:   DEFW    ITXB,IEXB,IRXB,ISPB,ITXA,IEXA,IRXA,ISPA    ; FFE0-FFEE
         DEFW    INULL,ITICK,INULL,INULL                    ; FFF0-FFF6 (CTC 0-3)
 
-MSG:    DEFB    13,10,'Z80-Retro XIOS 1.1 (OLIVEROS 2026): 2 consolas, 7 bancos, SD y flash',13,10,0
+MSG:    DEFB    13,10,'Z80-Retro XIOS 1.2 (OLIVEROS 2026): 2 consolas, 7 bancos, SD y flash',13,10,0
+MSGC:   DEFB    ' KB de cache de disco',13,10,0
+
+SIOPUT: PUSH    AF
+SIOP1:  IN      A,(SIOAC)
+        AND     4
+        JR      Z,SIOP1
+        POP     AF
+        OUT     (SIOAD),A
+        RET
 
 
 ; =============================================================== memoria comun
@@ -841,6 +1208,8 @@ DSKADR: LD      A,(DRV)
 
 ; READ / WRITE: 0 = bien, 1 = error
 READ:   CALL    DSKADR
+        XOR     A               ; basta el registro de 128 bytes
+        LD      (GMODE),A
         CALL    GETBLK
         RET     NZ
         CALL    SWTUSER
@@ -856,6 +1225,8 @@ WRITE:  CALL    DSKADR
         LD      A,(DSKC)
         CP      2
         JR      NC,ERR1         ; flash: solo lectura
+        LD      A,1             ; hace falta el bloque entero (se reescribe)
+        LD      (GMODE),A
         CALL    GETBLK
         RET     NZ
         CALL    SWTUSER
@@ -866,7 +1237,8 @@ WRITE:  CALL    DSKADR
         LDIR
         CALL    SWTSYS
         CALL    SDWR
-        RET     Z
+        JP      Z,CWRREC        ; escrito: el registro tambien a la cache
+        CALL    CWRERR          ; fallo: olvidar el bloque (BUF ya no es la tarjeta)
 ERR1:   LD      A,1
         OR      A
         RET
@@ -881,35 +1253,6 @@ BUFPTR: LD      HL,BUF          ; HL = BUF + OFS*128
         AND     80h
         LD      E,A
         ADD     HL,DE
-        RET
-
-; GETBLK: deja el bloque en BUF (Z = bien). Flash: lee el registro de 128 bytes.
-GETBLK: LD      A,(DSKC)
-        CP      3
-        JR      Z,FLREC
-        LD      HL,CCARD        ; ya esta en el bufer?
-        CP      (HL)
-        JR      NZ,GB1
-        LD      HL,(BLK)
-        LD      DE,(CBLK)
-        OR      A
-        SBC     HL,DE
-        JR      NZ,GB1
-        LD      HL,(BLK+2)
-        LD      DE,(CBLK+2)
-        SBC     HL,DE
-        RET     Z
-GB1:    LD      A,0FFh
-        LD      (CCARD),A       ; invalido mientras se lee
-        CALL    SDRD
-        RET     NZ
-        LD      A,(DSKC)
-        LD      (CCARD),A
-        LD      HL,(BLK)
-        LD      (CBLK),HL
-        LD      HL,(BLK+2)
-        LD      (CBLK+2),HL
-        XOR     A
         RET
 
 ; FLREC: registro del disco en flash -> BUF+desplazamiento. Pagina 3 + reg/128.
