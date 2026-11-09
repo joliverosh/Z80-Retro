@@ -175,6 +175,7 @@ SI2:    LD      A,(HL)          ; tarjeta
         INC     IX
         INC     IX
         DJNZ    SI2
+        CALL    CFGPRS          ; A:MPM.CFG: impresora, linea de estado, velocidades, unidades
         LD      HL,DCARD        ; unidad del disco en flash -> su DSM
         LD      B,0
 SI3:    LD      A,(HL)
@@ -328,6 +329,7 @@ SI13:   LD      C,(HL)
         INC     HL
         OUT     (C),A
         DJNZ    SI13
+        CALL    CFBAUD          ; velocidades de A:MPM.CFG
         ; SD: SDHC o SDSC (CMD58, bit CCS del OCR)
         LD      A,0FFh
         LD      (CCARD),A
@@ -1905,6 +1907,10 @@ HST1:   DEFS    HSZ
 ; ZIOS (todavia esta debajo). Si esta, SYSINIT deja "SUBMIT STARTUP" escrito en
 ; la consola 0, como si se hubiera tecleado: se ejecuta al aparecer 0A>.
 STFIND: XOR     A
+        LD      (CFOK),A
+        LD      (STATON),A
+        LD      (CFBW4),A
+        LD      (CFBW4+2),A
         LD      (STOK),A
         LD      (STSUB),A
         LD      (STREC),A
@@ -1959,61 +1965,353 @@ STF4:   POP     HL
         LD      (STREC),A
         CP      128
         JR      NZ,STF1
-; A:MPM.CFG: su primer registro (2 KB por bloque, despues de la pista 1)
+; A:MPM.CFG: sus primeros 4 registros (512 bytes) a CFGBUF. El bloque es de
+; 2 KB y empieza despues de la pista 1: registro = 512 + bloque * 16.
         LD      HL,(CFBLK)
         LD      A,H
         OR      L
         RET     Z
-        ADD     HL,HL           ; registro = 512 + bloque * 16
+        ADD     HL,HL
         ADD     HL,HL
         ADD     HL,HL
         ADD     HL,HL
         LD      DE,512
         ADD     HL,DE
-        EX      DE,HL
+        LD      (CFREC),HL
+        LD      HL,CFGBUF
+        LD      B,4
+CFR1:   PUSH    BC
+        PUSH    HL
+        LD      C,12            ; DMA de ZIOS
+        CALL    ZIOS
+        LD      DE,(CFREC)
         LD      HL,0
         LD      C,17
         CALL    ZIOS
+        POP     HL
+        POP     BC
         OR      A
-        RET     NZ
-; LST=B (o nada): la SIO B. LST=otra cosa: un archivo (lo dice H:LSTFILE).
-        LD      HL,STBUF
-        LD      B,128
-CF1:    LD      A,(HL)
+        JR      NZ,CFR2         ; no hay mas: lo leido alcanza
+        LD      DE,128
+        ADD     HL,DE
+        LD      DE,(CFREC)
+        INC     DE
+        LD      (CFREC),DE
+        DJNZ    CFR1
+CFR2:   LD      (HL),1Ah        ; fin
+        LD      A,1
+        LD      (CFOK),A
+        RET
+
+; CFGPRS: lee la configuracion de CFGBUF (despues del mapa de ZIOS). Lineas:
+;   LST=B | LST=archivo        STATUS=ON | STATUS=OFF
+;   BAUD A=9600                DRIVE C=SD0:12 | RAM | FLASH | OFF
+; Lo que empieza con ; o no se entiende se salta.
+CFGPRS: LD      A,(CFOK)
+        OR      A
+        RET     Z
+        LD      HL,CFGBUF
+CP0:    CALL    SKIPSP
+        LD      A,(HL)
         CP      1Ah
         RET     Z
-        AND     5Fh             ; "LST="
-        CP      'L'
-        JR      NZ,CF8
+        OR      A
+        RET     Z
+        CP      ' '
+        JR      C,CPNX          ; CR, LF
+        LD      DE,KLST
+        CALL    KWMAT
+        JR      Z,DOLST
+        LD      DE,KSTAT
+        CALL    KWMAT
+        JR      Z,DOSTAT
+        LD      DE,KBAUD
+        CALL    KWMAT
+        JP      Z,DOBAUD
+        LD      DE,KDRV
+        CALL    KWMAT
+        JP      Z,DODRV
+CPNL:   LD      A,(HL)          ; al final de la linea
+        CP      1Ah
+        RET     Z
+        OR      A
+        RET     Z
         INC     HL
-        LD      A,(HL)
-        AND     5Fh
-        CP      'S'
-        JR      NZ,CF9
-        INC     HL
-        LD      A,(HL)
-        AND     5Fh
-        CP      'T'
-        JR      NZ,CF9
-        INC     HL
-        LD      A,(HL)
-        CP      '='
-        JR      NZ,CF9
-        INC     HL
-        LD      A,(HL)
+        CP      10
+        JR      NZ,CPNL
+        JR      CP0
+CPNX:   INC     HL
+        JR      CP0
+DOLST:  LD      A,(HL)          ; LST=B: SIO B; otra cosa: un archivo
         AND     5Fh
         CP      'B'
-        JR      NZ,CF2
+        JR      NZ,DOL1
         INC     HL
         LD      A,(HL)
+        DEC     HL
         CP      '!'
-        RET     C               ; LST=B
-CF2:    LD      A,1
-        LD      (LSTMD),A
+        LD      A,0
+        JR      C,DOL2
+DOL1:   LD      A,1
+DOL2:   LD      (LSTMD),A
+        JR      CPNL
+DOSTAT: LD      DE,KON
+        CALL    KWMAT
+        LD      A,0
+        JR      NZ,DOS1
+        INC     A
+DOS1:   LD      (STATON),A
+        JR      CPNL
+; BAUD A=9600
+DOBAUD: CALL    SKIPSP
+        LD      A,(HL)
+        AND     5Fh
+        SUB     'A'
+        CP      2
+        JR      NC,CPNL
+        LD      (CFDRV),A       ; (el canal)
+        INC     HL
+        CALL    SKIPSP
+        LD      A,(HL)
+        CP      '='
+        JR      NZ,CPNL
+        INC     HL
+        CALL    SKIPSP
+        PUSH    HL
+        LD      DE,TASAS
+DB1:    LD      A,(DE)
+        OR      A
+        JR      Z,DB9           ; no esta
+        POP     HL
+        PUSH    HL
+        CALL    KWMAT0          ; DE -> nombre (termina en 0)
+        JR      Z,DB2
+DB1B:   LD      A,(DE)          ; a la entrada siguiente
+        INC     DE
+        OR      A
+        JR      NZ,DB1B
+        INC     DE
+        INC     DE
+        JR      DB1
+DB2:    LD      A,(HL)          ; la palabra termino?
+        CP      '!'
+        JR      NC,DB1B
+        INC     DE              ; DE -> WR4, TC
+        POP     AF              ; (HL guardado)
+        PUSH    HL
+        LD      HL,CFBW4
+        LD      A,(CFDRV)
+        ADD     A,A             ; 2 bytes por canal
+        LD      C,A
+        LD      B,0
+        ADD     HL,BC
+        LD      A,(DE)
+        LD      (HL),A
+        INC     HL
+        INC     DE
+        LD      A,(DE)
+        LD      (HL),A
+DB9:    POP     HL
+        JP      CPNL
+; DRIVE C=SD0:12
+DODRV:  CALL    SKIPSP
+        LD      A,(HL)
+        AND     5Fh
+        SUB     'A'
+        CP      NDRV
+        JP      NC,CPNL
+        LD      (CFDRV),A
+        INC     HL
+        CALL    SKIPSP
+        LD      A,(HL)
+        CP      ':'
+        JR      NZ,DD0
+        INC     HL
+DD0:    CALL    SKIPSP
+        LD      A,(HL)
+        CP      '='
+        JP      NZ,CPNL
+        INC     HL
+        CALL    SKIPSP
+        LD      DE,KOFF
+        CALL    KWMAT
+        LD      B,0FFh
+        JR      Z,DD5
+        LD      DE,KRAM
+        CALL    KWMAT
+        LD      B,2
+        JR      Z,DD5
+        LD      DE,KFLASH
+        CALL    KWMAT
+        LD      B,3
+        JR      Z,DD5
+        LD      DE,KSD
+        CALL    KWMAT
+        JP      NZ,CPNL
+        LD      A,(HL)          ; SD0: o SD1:
+        SUB     '0'
+        CP      2
+        JP      NC,CPNL
+        LD      B,A
+        INC     HL
+        LD      A,(HL)
+        CP      ':'
+        JP      NZ,CPNL
+        INC     HL
+        PUSH    BC
+        CALL    DECNUM          ; DE = disco virtual
+        POP     BC
+        JP      NZ,CPNL
+        PUSH    HL
+        EX      DE,HL           ; DMW = disco * 32
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        EX      DE,HL
+        LD      A,(CFDRV)
+        LD      L,A
+        LD      H,0
+        ADD     HL,HL
+        PUSH    BC
+        LD      BC,DMW
+        ADD     HL,BC
+        POP     BC
+        LD      (HL),E
+        INC     HL
+        LD      (HL),D
+        POP     HL
+DD5:    PUSH    HL
+        LD      A,(CFDRV)
+        LD      E,A
+        LD      D,0
+        LD      HL,DCARD
+        ADD     HL,DE
+        LD      (HL),B
+        POP     HL
+        JP      CPNL
+; DECNUM: numero decimal en HL -> DE (hasta 65535). NZ si no hay digitos.
+DECNUM: LD      DE,0
+        LD      A,(HL)
+        SUB     '0'
+        CP      10
+        JR      NC,DN9
+DN1:    LD      A,(HL)
+        SUB     '0'
+        CP      10
+        JR      NC,DN8
+        PUSH    HL
+        LD      H,D             ; DE = DE * 10 + A
+        LD      L,E
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,DE
+        ADD     HL,HL
+        LD      E,A
+        LD      D,0
+        ADD     HL,DE
+        EX      DE,HL
+        POP     HL
+        INC     HL
+        JR      DN1
+DN8:    XOR     A
         RET
-CF8:    INC     HL
-CF9:    DJNZ    CF1
+DN9:    OR      1
         RET
+SKIPSP: LD      A,(HL)
+        CP      ' '
+        JR      Z,SK1
+        CP      9
+        RET     NZ
+SK1:    INC     HL
+        JR      SKIPSP
+; KWMAT: Z si en HL esta la palabra DE (mayusculas, termina en 0); HL queda
+; despues de ella. NZ: HL no cambia. KWMAT0 no compara mayusculas en DE.
+KWMAT:
+KWMAT0: PUSH    HL
+KW1:    LD      A,(DE)
+        OR      A
+        JR      Z,KWOK
+        LD      C,A
+        LD      A,(HL)
+        CP      'a'
+        JR      C,KW2
+        AND     5Fh
+KW2:    CP      C
+        JR      NZ,KWNO
+        INC     HL
+        INC     DE
+        JR      KW1
+KWOK:   POP     AF
+        XOR     A
+        RET
+KWNO:   POP     HL
+        OR      1
+        RET
+; CFBAUD: aplica las velocidades de A:MPM.CFG (con las interrupciones apagadas)
+CFBAUD: LD      HL,CFBW4
+        LD      C,SIOAC
+        LD      DE,0E11Ah       ; WR3 y WR1 del canal A
+        CALL    CFB1
+        LD      HL,CFBW4+2
+        LD      C,SIOBC
+        LD      DE,0C11Eh
+CFB1:   LD      A,(HL)
+        OR      A
+        RET     Z               ; no se pidio
+        INC     HL
+        LD      A,(HL)          ; constante del CTC
+        DEC     HL
+        OR      A
+        JR      Z,CFB2
+        LD      A,07h
+        OUT     (CTC0),A
+        INC     HL
+        LD      A,(HL)
+        DEC     HL
+        OUT     (CTC0),A
+CFB2:   LD      A,4
+        OUT     (C),A
+        LD      A,(HL)
+        OUT     (C),A
+        LD      A,1
+        OUT     (C),A
+        OUT     (C),E
+        LD      A,3
+        OUT     (C),A
+        OUT     (C),D
+        LD      A,5
+        OUT     (C),A
+        LD      A,0EAh
+        OUT     (C),A
+        RET
+KLST:   DEFB    'LST=',0
+KSTAT:  DEFB    'STATUS=',0
+KBAUD:  DEFB    'BAUD ',0
+KDRV:   DEFB    'DRIVE ',0
+KON:    DEFB    'ON',0
+KOFF:   DEFB    'OFF',0
+KRAM:   DEFB    'RAM',0
+KFLASH: DEFB    'FLASH',0
+KSD:    DEFB    'SD',0
+; velocidades con la CPU a 7,3728 MHz: nombre, WR4, constante del CTC (como BAUD.COM)
+TASAS:  DEFB    '230400',0,84h,0
+        DEFB    '115200',0,0C4h,0
+        DEFB    '9600',0,44h,3
+        DEFB    '4800',0,44h,6
+        DEFB    '2400',0,44h,12
+        DEFB    '1200',0,44h,24
+        DEFB    '600',0,44h,48
+        DEFB    '300',0,44h,96
+        DEFB    0
+CFREC:  DEFW    0
+CFOK:   DEFB    0
+CFDRV:  DEFB    0
+STATON: DEFB    0
+CFBW4:  DEFB    0,0,0,0         ; WR4 y constante del CTC de los canales A y B
+CFGBUF: DEFS    4*128+1
+
 ; STCMP: Z si el nombre de la entrada HL (usuario en HL) es el de DE (11
 ; letras). Deja HL en el byte 12 de la entrada.
 STCMP:  INC     HL
