@@ -11,7 +11,7 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 - tarjetas SDSC y SDHC;
 - lo que MP/M escribe en la SD se lee después desde CP/M 2.2.
 
-**En la placa real todavía no se ha probado.**
+**Probado también en la placa real** (Z80 CPU Rev 2.2, flash MX29F040, 8/11/2026): arranca, toma la hora del DS1307 y `TOD` la muestra.
 
 ## Qué ofrece
 
@@ -96,7 +96,6 @@ apps/mpm/build.sh
 
 ## Pendiente
 
-- Probar en la placa real.
 - G: (el disco en RAM) no está en MP/M.
 - Impresora: `LIST` descarta lo que recibe.
 - La memoria común (C000-FFFF) no se puede achicar con provecho: las ventanas de la placa son de 16 KB, así que los bancos de usuario ya tienen los 48 KB máximos.
