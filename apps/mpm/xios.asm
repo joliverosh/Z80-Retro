@@ -98,6 +98,9 @@ VQC0    EQU     3CE5h
 GCOL    EQU     3CE6h           ; redibujo: columna de la fila que va saliendo,
 GATTR   EQU     3CE7h           ; atributo que ya tiene el terminal
 GRLEN   EQU     3CE8h           ; y largo de la fila
+RAWH    EQU     3CE9h           ; modo crudo: cabeza y cola del anillo RAWQ
+RAWT    EQU     3CEAh
+RAWQ    EQU     7D00h           ; (256 bytes en la pagina de atributos, ventana 1)
 ; Los atributos de cada caracter van en otra pagina (VTAPG), en la ventana 1
 ; durante BKCALL: el de (HL) esta en (HL+4000h). Bits: 0 negrita, 1 subrayado,
 ; 2 parpadeo, 3 inverso, 4-6 color del texto, 7 hay color.
@@ -2795,7 +2798,10 @@ VSG9:   LD      (IX+15),D
 ;   ESC [ 6 ; m ~      Shift-AvPag: 12 hacia adelante
 ;   Ctrl-\ 1..4, Ctrl-\ U, Ctrl-\ D: lo mismo; Ctrl-\ Ctrl-\ manda un Ctrl-\.
 ; Lo demas va al bufer de la consola que se ve.
-KEYIN:  LD      A,(KN)
+KEYIN:  LD      A,(RAWA)        ; modo crudo (H:XFER): todo tal cual al anillo
+        DEC     A
+        JP      Z,RAWPUT
+        LD      A,(KN)
         CP      10
         JR      Z,KI10
         OR      A
@@ -3016,6 +3022,34 @@ VRXGET: LD      A,D
         LD      A,C
         RET
 
+; RAWPUT / RAWGET: el anillo del modo crudo (256 bytes). RAWGET: A = el byte,
+; carry si no hay.
+RAWCLR: XOR     A
+        LD      (RAWH),A
+        LD      (RAWT),A
+        RET
+RAWPUT: LD      HL,(RAWH)       ; L = cabeza, H = cola
+        LD      A,H
+        INC     A
+        CP      L
+        RET     Z               ; lleno: se pierde
+        LD      (RAWT),A
+        LD      L,H
+        LD      H,RAWQ SHR 8
+        LD      (HL),C
+        RET
+RAWGET: LD      HL,(RAWH)       ; L = cabeza, H = cola
+        LD      A,L
+        CP      H
+        SCF
+        RET     Z
+        INC     A
+        LD      (RAWH),A
+        LD      H,RAWQ SHR 8
+        LD      A,(HL)
+        OR      A               ; NC
+        RET
+
 ; VSUP / VSDN: mirar 12 filas mas atras / mas adelante en la consola que se ve
 VSUP:   LD      A,(ACTVC)
         LD      D,A
@@ -3079,7 +3113,9 @@ GENFILL: CALL   VQFL
         LD      A,(GENACT)
         OR      A
         JR      NZ,GF1
-        CALL    STSTART
+        LD      A,(RAWA)        ; (en modo crudo, sin linea de estado)
+        OR      A
+        CALL    Z,STSTART
         LD      A,(GENACT)
         OR      A
         RET     Z
@@ -4789,6 +4825,14 @@ IRXB:   LD      (SVSP),SP
         PUSH    DE
         PUSH    BC
         IN      A,(SIOBD)
+        LD      C,A
+        LD      A,(RAWA)        ; modo crudo en la SIO B: al anillo RAWQ
+        CP      2
+        JR      NZ,IRXB1
+        LD      HL,RAWPUT
+        CALL    BKCALL
+        JR      IRX9
+IRXB1:  LD      A,C
         LD      HL,TLB
         LD      DE,RXB
         CALL    RXQ
@@ -5274,6 +5318,8 @@ ZEMU:   LD      (ZHL),HL
         JP      Z,ZI2C
         CP      40
         JP      Z,ZVC
+        CP      41
+        JP      Z,ZRAW
 ZERR:   LD      A,0FFh
 ZRET:   POP     BC
         POP     DE
@@ -5467,6 +5513,90 @@ ZVC:    LD      HL,VSWE
         EI
         XOR     A
         JP      ZRET
+; 41 (propio): modo crudo de la consola del programa, para H:XFER. B = 0
+; prender (la consola tiene que ser la que se ve), 1 apagar, 2 recibir un
+; byte (DE = tics de espera; A = byte, carry si no llego), 3 mandar E.
+ZRAW:   PUSH    DE
+        LD      HL,(RLRA)       ; la consola del proceso
+        LD      A,(HL)
+        INC     HL
+        LD      H,(HL)
+        LD      L,A
+        LD      DE,0Eh
+        ADD     HL,DE
+        LD      C,(HL)          ; C = consola
+        POP     DE
+        LD      A,B
+        OR      A
+        JR      NZ,ZRW1
+        LD      A,C             ; 0: prender
+        CP      4
+        JR      C,ZRW0
+        LD      A,(SIOBM)
+        OR      A
+        LD      A,2             ; la SIO B
+        JR      Z,ZRW0B
+        DEC     A
+        DEC     A
+        JP      Z,ZERR          ; CONSOLE4=OFF
+        LD      A,4
+ZRW0:   LD      HL,ACTVC        ; virtual: tiene que ser la que se ve
+        CP      (HL)
+        JP      NZ,ZERR
+        LD      A,1
+ZRW0B:  DI                      ; anillo vacio
+        LD      (RAWA),A
+        LD      HL,RAWCLR
+        CALL    BKCALL
+        EI
+        XOR     A
+        JP      ZRET
+ZRW1:   DEC     A
+        JR      NZ,ZRW2
+        DI                      ; 1: apagar y redibujar la pantalla
+        LD      A,(RAWA)
+        DEC     A
+        LD      A,0
+        LD      (RAWA),A
+        JR      NZ,ZRW1B
+        LD      HL,VSNAP
+        CALL    BKCALL
+        CALL    TXSTA
+ZRW1B:  EI
+        XOR     A
+        JP      ZRET
+ZRW2:   DEC     A
+        JR      NZ,ZRW3
+ZRW2A:  DI                      ; 2: recibir
+        LD      HL,RAWGET
+        CALL    BKCALL
+        EI
+        JR      NC,ZRW2B
+        LD      A,D
+        OR      E
+        SCF
+        JP      Z,ZRET          ; no llego
+        DEC     DE
+        PUSH    DE
+        LD      C,141
+        LD      DE,1
+        CALL    5
+        POP     DE
+        JR      ZRW2A
+ZRW2B:  OR      A
+        JP      ZRET
+ZRW3:   LD      A,(RAWA)        ; 3: mandar
+        DEC     A
+        LD      HL,TXA
+        LD      D,FLTXA
+        JR      Z,ZRW3B
+        LD      HL,TXB
+        LD      D,FLTXB
+ZRW3B:  LD      C,E
+        LD      E,D
+        CALL    TXPUT
+        XOR     A
+        JP      ZRET
 ; ZBK: BKCALL con las interrupciones apagadas; A y Z de la rutina
 ZBK:    DI
         CALL    BKCALL
@@ -5543,6 +5673,7 @@ VTPG:   DEFB    0               ; pagina de las pantallas de las consolas virtua
 VTAPG:  DEFB    0               ; y la de sus atributos
 ACTVC:  DEFB    0               ; consola que se ve en la SIO A
 VIEWING: DEFB   0               ; se esta mirando hacia atras (Shift-RePag)
+RAWA:   DEFB    0               ; modo crudo (H:XFER): 1 en la SIO A, 2 en la B
 GENACT: DEFB    0               ; la SIO A manda: 1 el redibujo, 2 la linea de estado
 STATDUE: DEFB   0               ; toca la linea de estado
 STATON: DEFB    0               ; linea de estado (A:MPM.CFG STATUS=ON)
