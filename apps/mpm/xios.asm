@@ -7,8 +7,11 @@
 ;    - Ventanas 0-2 (0000-BFFF): un banco = 3 paginas de 16 KB. El banco 0 es
 ;      el del sistema (las paginas que dejo ZIOS); los bancos 1-7 son de los
 ;      usuarios y salen de las paginas de RAM libres (20h-3Fh).
-;  Consolas: 0 = SIO A, 1 = SIO B, con recepcion por interrupcion (IM 2, los
-;    mismos vectores que ZIOS: SIO en FFE0-FFEE, CTC en FFF0-FFF6).
+;  Consolas: 0-3 virtuales en la SIO A (Ctrl-F1..F4 o Ctrl-\ 1..4 eligen la que
+;    se ve; cada una tiene su pantalla de 80 x 24 en una pagina de RAM y se
+;    redibuja al cambiar), 4 = SIO B. Recepcion y transmision por interrupcion
+;    (IM 2, los mismos vectores que ZIOS: SIO en FFE0-FFEE, CTC en FFF0-FFF6).
+;    Con STATUS=ON en A:MPM.CFG la fila 24 es una linea de estado.
 ;  Reloj: canal 1 del CTC tal como lo deja ZIOS (120 Hz a 7,3728 MHz); la
 ;    bandera 1 de MP/M se pone a 60 Hz.
 ;  Discos: A-H como en CP/M 2.2 de la placa. Unidades en la SD (tarjeta 0 o 1)
@@ -21,7 +24,7 @@
 ;
 ;  Se ensambla dos veces (ORG 0 y ORG 100h) para sacar el BNKXIOS.SPR.
 ; =============================================================================
-NMBCNS  EQU     2               ; consolas
+NMBCNS  EQU     5               ; consolas: 0-3 virtuales en la SIO A, 4 en la SIO B
 NDRV    EQU     16              ; unidades A-P
 MAXBNK  EQU     7               ; bancos de usuario (GENSYS: user memory segments)
 MAXRPG  EQU     128             ; paginas del disco en RAM como maximo (2 MB)
@@ -45,8 +48,9 @@ SPICS   EQU     64h             ; seleccion de la tarjeta
 CSOFF   EQU     01h
 ZIOS    EQU     0FE00h          ; entrada al API de ZIOS desde la aplicacion
 
-RXA     EQU     0FE00h          ; bufer circular de la consola 0 (64 bytes)
-RXB     EQU     0FE40h          ; bufer circular de la consola 1
+VQ      EQU     0FE00h          ; caracteres de la consola que se ve que faltan pasar a
+                                ; su pantalla (32)
+RXB     EQU     0FE40h          ; bufer circular de la SIO B (consola 4)
 DIRBF   EQU     0FE80h          ; bufer de directorio (en la comun: READ copia con el banco del usuario puesto)
 BOUNCE  EQU     0FF00h          ; 64 bytes de paso entre BUF y el DMA del programa
 ISTK    EQU     0FF80h          ; pila de las interrupciones (FF40-FF7F)
@@ -58,6 +62,7 @@ LSTPG   EQU     0FFCDh          ; pagina de 16 KB del anillo
 LSTH    EQU     0FFCEh          ; cabeza (la saca LSTFILE), 0-3FFF
 LSTT    EQU     0FFD0h          ; cola (la pone LIST)
 CURPG2  EQU     0FFD2h          ; pagina de la ventana 2 del banco puesto (para LSTFILE)
+VQN     EQU     0FFD3h          ; cuantos hay en VQ
 VSIO    EQU     0FFE0h          ; vectores de la SIO (WR2 = E0h, lo puso ZIOS)
 VCTC    EQU     0FFF0h          ; vectores del CTC (vector F0h, lo puso ZIOS)
 
@@ -68,6 +73,23 @@ FLTXA   EQU     12              ; banderas: hay lugar en el bufer de salida de l
 FLTXB   EQU     13
 TXMSK   EQU     31              ; bufer de salida de 32 caracteres por canal
 CTC0    EQU     40h             ; canal 0 del CTC (reloj de la SIO por P3/P6)
+; Pagina VTPG (en la ventana 0 durante BKCALL): las pantallas de las consolas
+; virtuales (0-3, 2 KB cada una, 80 x 24), datos y la pila de BKCALL al final
+GBUF    EQU     2000h           ; trozo que se esta mandando (redibujo, linea de estado)
+VST     EQU     2080h           ; estado por consola, 16 bytes: fila, columna, fila de
+                                ; arriba (anillo), estado ESC, param 1, param 2,
+                                ; param actual, salida sin ver, direccion de la fila
+                                ; del cursor (2), si vale (1), pantalla (byte alto)
+VNR     EQU     20C0h           ; filas (24, o 23 con la linea de estado)
+KN      EQU     20C1h           ; teclado: bytes de una secuencia en KBUF (10: Ctrl-\)
+KBUF    EQU     20C2h           ; (8)
+GSTG    EQU     20CAh           ; redibujo: etapa (0 prefijo, 1..VNR filas, VNR+1 cursor)
+GCNT    EQU     20CBh
+GPTR    EQU     20CCh
+STDAY   EQU     20CEh           ; dia de MP/M de la fecha ya calculada
+VRXB    EQU     2100h           ; lo tecleado en cada consola virtual: 64 bytes cada una
+VRXP    EQU     2200h           ; y su cabeza y cola
+BKSTK   EQU     4000h           ; tope de la pila de BKCALL
 
         ORG     ORIGEN
 
@@ -260,7 +282,10 @@ SI7:    INC     C
         JR      NZ,SI6
 SI8:    LD      A,C
         LD      (CMNPG),A
+        LD      A,(BNKPG+2)     ; (BKCALL las repone)
+        LD      (CURPG2),A
         LD      A,(BNKPG)
+        LD      (CURPG0),A
         OUT     (PGPORT),A
         CALL    RDPRB           ; y las del disco en RAM de ZIOS, que no las entrego
         CALL    PGPOOL          ; paginas libres -> bancos 1-7 segun cuantas haya
@@ -318,8 +343,7 @@ SI12:   DEC     B
         LD      I,A
         IM      2
         XOR     A               ; buferes vacios
-        LD      (HDA),A
-        LD      (TLA),A
+        LD      (VQN),A
         LD      (HDB),A
         LD      (TLB),A
 
@@ -349,17 +373,8 @@ SI13:   LD      C,(HL)
         CALL    SDTIPO
         ; mensaje
         LD      HL,MSG
-SI14:   LD      A,(HL)
-        OR      A
-        JR      Z,SI15
-SI14B:  IN      A,(SIOAC)
-        AND     4
-        JR      Z,SI14B
-        LD      A,(HL)
-        OUT     (SIOAD),A
-        INC     HL
-        JR      SI14
-SI15:   LD      A,(NBNKS)       ; "n bancos, unidades A-P"
+        CALL    PRSTR
+        LD      A,(NBNKS)       ; "n bancos, unidades A-P"
         ADD     A,'0'
         CALL    SIOPUT
         LD      HL,MSGB
@@ -383,7 +398,12 @@ SI15C:  LD      A,(STSUB)       ; "A:STARTUP.SUB"
         OR      A
         LD      HL,MSGL
         CALL    NZ,PRSTR
-SI15E:  LD      SP,(SVSP)
+SI15E:  LD      A,(STATON)      ; con linea de estado: redibujar (fija las filas
+        OR      A               ; que se desplazan)
+        JR      Z,SI15F
+        LD      (GENACT),A
+        CALL    TXSTA
+SI15F:  LD      SP,(SVSP)
         EI
         RET
 
@@ -1525,6 +1545,13 @@ PP3:    LD      A,B
         LD      (POOLN),A
         LD      HL,POOL
         LD      (POOLP),HL
+        LD      A,1             ; una pagina para las pantallas de las consolas
+                                ; virtuales (y lo que se teclea en ellas)
+        LD      DE,VTPG
+        CALL    POOLTK
+        LD      HL,VTINI
+        CALL    BKCALL
+        LD      A,(POOLN)
 PP4:    LD      C,A             ; bancos = paginas / 3, hasta MAXBNK: la RAM es
                                 ; primero para MP/M; la cache y G: se llevan lo que sobre
         LD      B,0
@@ -1916,6 +1943,830 @@ HL1:    ADD     HL,DE
         POP     DE
         RET
 
+
+; ------------------------------------------------------------- consolas virtuales
+; Todo esto corre con BKCALL: la pagina VTPG en la ventana 0 (pantallas y datos)
+; y las interrupciones apagadas.
+
+; VTINI: pantallas en blanco, estado en cero
+VTINI:  LD      HL,0
+        LD      DE,1
+        LD      BC,2000h-1
+        LD      (HL),' '
+        LDIR
+        LD      HL,VST
+        LD      DE,VST+1
+        LD      BC,VRXP+8-VST-1
+        LD      (HL),0
+        LDIR
+        LD      HL,VST+11       ; pantalla de cada consola: c * 800h
+        LD      DE,16
+        XOR     A
+VTI1:   LD      (HL),A
+        ADD     HL,DE
+        ADD     A,8
+        CP      32
+        JR      NZ,VTI1
+        LD      A,(STATON)
+        LD      B,A
+        LD      A,24
+        SUB     B
+        LD      (VNR),A
+        RET
+
+; VSTIX: IX = estado de la consola D
+VSTIX:  LD      A,D
+        ADD     A,A
+        ADD     A,A
+        ADD     A,A
+        ADD     A,A
+        ADD     A,VST AND 0FFh
+        LD      IXL,A
+        LD      IXH,VST SHR 8
+        RET
+
+; VROWA: HL = direccion de la fila A (de la pantalla, 0 = la de arriba)
+VROWA:  ADD     A,(IX+2)
+        LD      HL,VNR
+        CP      (HL)
+        JR      C,VR1
+        SUB     (HL)
+VR1:    LD      L,A
+        LD      H,0
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        PUSH    DE
+        LD      D,H
+        LD      E,L
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,DE           ; * 80
+        POP     DE
+        LD      A,(IX+11)
+        ADD     A,H
+        LD      H,A
+        RET
+
+; VCLR: borra la fila A desde la columna E
+VCLR:   CALL    VROWA
+        LD      A,E
+        CP      80
+        RET     NC
+        ADD     A,L
+        LD      L,A
+        JR      NC,VCL1
+        INC     H
+VCL1:   LD      A,79
+        SUB     E
+        LD      C,A
+        LD      B,0
+        LD      (HL),' '
+        RET     Z
+        LD      D,H
+        LD      E,L
+        INC     DE
+        LDIR
+        RET
+
+; VQFL: pasa a la pantalla de la consola que se ve lo que espera en VQ
+VQFL:   LD      A,(VQN)
+        OR      A
+        RET     Z
+        LD      B,A
+        XOR     A
+        LD      (VQN),A
+        LD      A,(ACTVC)
+        LD      D,A
+        CALL    VSTIX
+        LD      HL,VQ
+VQF1:   LD      C,(HL)
+        LD      A,C             ; lo comun: un caracter que se ve, fuera de una
+        SUB     20h             ; secuencia ESC, en la fila que ya se conoce
+        CP      5Fh
+        JR      NC,VQF2
+        LD      A,(IX+3)
+        OR      A
+        JR      NZ,VQF2
+        OR      (IX+10)
+        JR      Z,VQF2
+        LD      A,(IX+1)
+        CP      80
+        JR      NC,VQF2
+        PUSH    HL
+        LD      L,(IX+8)
+        LD      H,(IX+9)
+        ADD     A,L
+        LD      L,A
+        JR      NC,VQF1B
+        INC     H
+VQF1B:  LD      (HL),C
+        INC     (IX+1)
+        POP     HL
+        JR      VQF3
+VQF2:   PUSH    HL
+        PUSH    BC
+        CALL    VT0
+        POP     BC
+        POP     HL
+VQF3:   INC     HL
+        DJNZ    VQF1
+        RET
+
+; VTPUT: caracter C de la consola D a su pantalla. Entiende lo que mandan los
+; programas para un terminal ANSI: CR, LF, BS, TAB y ESC [ ... H f J K A B C D
+; (lo demas, como los colores, no cambia el texto y se ignora).
+VTPUT:  LD      A,D
+        CP      4
+        RET     NC
+        CALL    VSTIX
+        LD      A,(ACTVC)
+        CP      D
+        JR      Z,VT0
+        LD      (IX+7),1        ; salida que no se vio (linea de estado)
+VT0:    LD      A,C
+        AND     7Fh
+        LD      C,A
+        LD      A,(IX+3)
+        OR      A
+        JP      NZ,VTESC
+        LD      A,C
+        CP      20h
+        JR      NC,VTPR
+        CP      1Bh
+        JR      Z,VTE1
+        CP      0Dh
+        JR      Z,VTCR
+        CP      0Ah
+        JR      Z,VTLF
+        CP      08h
+        JR      Z,VTBS
+        CP      09h
+        RET     NZ
+        LD      A,(IX+1)        ; TAB
+        CP      80
+        RET     NC
+        ADD     A,8
+        AND     0F8h
+        CP      80
+        JR      C,VTB1
+        LD      A,79
+        JR      VTB1
+VTBS:   LD      A,(IX+1)
+        OR      A
+        RET     Z
+        DEC     A
+        CP      79              ; 80 es "al final, falta saltar": va a 78
+        JR      NZ,VTB1
+        DEC     A
+VTB1:   LD      (IX+1),A
+        RET
+VTE1:   LD      (IX+3),1
+        RET
+VTCR:   LD      (IX+1),0
+        RET
+VTPR:   CP      7Fh
+        RET     Z
+        LD      A,(IX+1)
+        CP      80
+        JR      C,VTP1
+        LD      (IX+1),0        ; salto de linea pendiente
+        CALL    VTLF
+VTP1:   LD      A,(IX+10)       ; la direccion de la fila, si vale
+        OR      A
+        JR      Z,VTP3
+        LD      L,(IX+8)
+        LD      H,(IX+9)
+        JR      VTP4
+VTP3:   LD      A,(IX+0)
+        CALL    VROWA
+        LD      (IX+8),L
+        LD      (IX+9),H
+        LD      (IX+10),1
+VTP4:   LD      A,(IX+1)
+        ADD     A,L
+        LD      L,A
+        JR      NC,VTP2
+        INC     H
+VTP2:   LD      (HL),C
+        INC     (IX+1)
+        RET
+VTLF:   LD      A,(IX+0)
+        INC     A
+        LD      HL,VNR
+        CP      (HL)
+        LD      (IX+10),0
+        JR      NC,VTSCR
+        LD      (IX+0),A
+        RET
+VTSCR:  LD      A,(IX+2)        ; desplazar: la fila de arriba pasa a ser la
+        INC     A               ; ultima, en blanco
+        CP      (HL)
+        JR      C,VTS1
+        XOR     A
+VTS1:   LD      (IX+2),A
+        LD      A,(HL)
+        DEC     A
+        LD      E,0
+        JP      VCLR
+VTESC:  DEC     A
+        JR      NZ,VTCSI
+        LD      A,C             ; despues de ESC
+        CP      '['
+        LD      A,0
+        JR      NZ,VTE0
+        LD      (IX+4),A
+        LD      (IX+5),A
+        LD      (IX+6),A
+        LD      A,2
+VTE0:   LD      (IX+3),A
+        RET
+VTCSI:  LD      A,C             ; ESC [ ...
+        SUB     '0'
+        CP      10
+        JR      NC,VCS1
+        LD      B,A             ; digito
+        LD      A,(IX+6)
+        OR      A
+        LD      A,(IX+4)
+        JR      Z,VCS0
+        LD      A,(IX+5)
+VCS0:   CP      25
+        RET     NC
+        LD      E,A
+        ADD     A,A
+        ADD     A,A
+        ADD     A,E
+        ADD     A,A
+        ADD     A,B
+        LD      E,A
+        LD      A,(IX+6)
+        OR      A
+        JR      NZ,VCS0B
+        LD      (IX+4),E
+        RET
+VCS0B:  LD      (IX+5),E
+        RET
+VCS1:   LD      A,C
+        CP      ';'
+        JR      NZ,VCS2
+        LD      (IX+6),1
+        RET
+VCS2:   CP      40h
+        RET     C               ; (?, espacios: sigue la secuencia)
+        LD      (IX+3),0        ; letra final
+        LD      B,(IX+4)
+        CP      'H'
+        JR      Z,VCUP
+        CP      'f'
+        JR      Z,VCUP
+        CP      'J'
+        JR      Z,VED
+        CP      'K'
+        JP      Z,VEL
+        SUB     'A'
+        CP      4
+        RET     NC
+        LD      E,A             ; A B C D: B = cuantas (al menos 1)
+        LD      A,B
+        OR      A
+        JR      NZ,VCM1
+        INC     A
+VCM1:   LD      B,A
+        LD      A,E
+        OR      A
+        JR      Z,VCUU
+        DEC     A
+        JR      Z,VCUD
+        DEC     A
+        JR      Z,VCUF
+        LD      A,(IX+1)        ; D: izquierda
+        CP      80
+        JR      C,VCB1
+        LD      A,79
+VCB1:   SUB     B
+        JR      NC,VCB2
+        XOR     A
+VCB2:   LD      (IX+1),A
+        RET
+VCUF:   LD      A,(IX+1)
+        ADD     A,B
+        JR      C,VCF1
+        CP      80
+        JR      C,VCB2
+VCF1:   LD      A,79
+        JR      VCB2
+VCUU:   LD      A,(IX+0)
+        SUB     B
+        JR      NC,VCU2
+        XOR     A
+VCU2:   LD      (IX+0),A
+        LD      (IX+10),0
+        RET
+VCUD:   LD      A,(IX+0)
+        ADD     A,B
+        LD      HL,VNR
+        JR      C,VCD1
+        CP      (HL)
+        JR      C,VCU2
+VCD1:   LD      A,(HL)
+        DEC     A
+        JR      VCU2
+VCUP:   LD      A,B             ; ESC [ fila ; columna H
+        OR      A
+        JR      Z,VCP1
+        DEC     A
+VCP1:   LD      HL,VNR
+        CP      (HL)
+        JR      C,VCP2
+        LD      A,(HL)
+        DEC     A
+VCP2:   LD      (IX+0),A
+        LD      (IX+10),0
+        LD      A,(IX+5)
+        OR      A
+        JR      Z,VCP3
+        DEC     A
+VCP3:   CP      80
+        JR      C,VCB2
+        JR      VCF1
+VED:    LD      A,B             ; J: 0 desde el cursor, 2 todo
+        CP      1
+        RET     Z
+        LD      DE,0
+        CP      2
+        JR      Z,VED1
+        LD      D,(IX+0)
+        LD      E,(IX+1)
+VED1:   LD      A,D
+        PUSH    DE
+        CALL    VCLR
+        POP     DE
+        LD      E,0
+        INC     D
+        LD      A,(VNR)
+        CP      D
+        JR      NZ,VED1
+        RET
+VEL:    LD      A,B             ; K: 0 desde el cursor, 2 la linea
+        CP      1
+        RET     Z
+        LD      E,(IX+1)
+        CP      2
+        JR      NZ,VEL1
+        LD      E,0
+VEL1:   LD      A,(IX+0)
+        JP      VCLR
+
+; KEYIN: caracter C de la SIO A. Ctrl-F1..F4 (ESC [ 1 ; m P..S, con cualquier
+; modificador m) o Ctrl-\ 1..4 eligen la consola; lo demas va al bufer de
+; entrada (Ctrl-\ Ctrl-\ manda un Ctrl-\). Carry: se cambio de consola.
+KEYIN:  LD      A,(KN)
+        CP      10
+        JR      Z,KI10
+        OR      A
+        JR      NZ,KI1
+        LD      A,C
+        CP      1Bh
+        JR      Z,KIST
+        CP      1Ch
+        JR      NZ,KIPUT
+        LD      A,10
+        LD      (KN),A
+        OR      A
+        RET
+KIST:   LD      (KBUF),A
+        LD      A,1
+        LD      (KN),A
+KITMO:  LD      A,6             ; 6 tics para que llegue el resto
+        LD      (KTMO),A
+        OR      A
+        RET
+KI10:   XOR     A
+        LD      (KN),A
+        LD      A,C
+        SUB     '1'
+        CP      4
+        JP      C,VSW
+        LD      A,C
+        CP      1Ch
+        JR      Z,KIPUT
+        PUSH    BC
+        LD      C,1Ch
+        CALL    KIPUT
+        POP     BC
+KIPUT:  LD      A,(ACTVC)       ; al bufer de la consola que se ve
+        LD      D,A
+        LD      HL,RXCNT
+        ADD     A,L
+        LD      L,A
+        JR      NC,KIP1
+        INC     H
+KIP1:   LD      A,(HL)
+        CP      63
+        RET     NC              ; lleno: se pierde
+        INC     (HL)
+        LD      A,D
+        ADD     A,A
+        INC     A
+        LD      L,A
+        LD      H,VRXP SHR 8
+        LD      A,(HL)          ; cola
+        LD      E,A
+        INC     A
+        AND     3Fh
+        LD      (HL),A
+        LD      A,D
+        RRCA
+        RRCA
+        ADD     A,E
+        LD      L,A
+        LD      H,VRXB SHR 8
+        LD      (HL),C
+        OR      A
+        RET
+; VRXGET: A = el siguiente caracter tecleado en la consola D (hay)
+VRXGET: LD      A,D
+        ADD     A,A
+        LD      L,A
+        LD      H,VRXP SHR 8
+        LD      A,(HL)          ; cabeza
+        LD      E,A
+        INC     A
+        AND     3Fh
+        LD      (HL),A
+        LD      A,D
+        RRCA
+        RRCA
+        ADD     A,E
+        LD      L,A
+        LD      H,VRXB SHR 8
+        LD      C,(HL)
+        LD      HL,RXCNT
+        LD      E,D
+        LD      D,0
+        ADD     HL,DE
+        DEC     (HL)
+        LD      A,C
+        RET
+KI1:    LD      E,A             ; E = KN (1-5): ESC [ 1 ; m tecla
+        LD      D,0
+        LD      HL,KBUF
+        ADD     HL,DE
+        LD      (HL),C
+        CP      4
+        JR      NC,KI4
+        LD      HL,KTPL-1
+        ADD     HL,DE
+        LD      A,C
+        CP      (HL)
+        JR      NZ,KIBAD
+KINX:   LD      HL,KN
+        INC     (HL)
+        JR      KITMO
+KI4:    JR      NZ,KI5
+        LD      A,C
+        SUB     '2'
+        CP      7
+        JR      NC,KIBAD
+        JR      KINX
+KI5:    LD      A,C
+        SUB     'P'
+        CP      4
+        JR      NC,KIBAD
+        LD      B,A
+        XOR     A
+        LD      (KN),A
+        LD      (KTMO),A
+        LD      A,B
+        JR      VSW
+KIBAD:  LD      A,C             ; no era: lo guardado y este caracter (si es
+        CP      1Bh             ; otro ESC, empieza otra secuencia)
+        LD      A,E
+        JR      NZ,KIB1
+        CALL    KFL1
+        LD      A,1Bh
+        JP      KIST
+KIB1:   INC     A
+        JR      KFL1
+; KFLUSH: se acabo el tiempo: lo guardado va al bufer como se tecleo
+KFLUSH: LD      A,(KN)
+        CP      10
+        RET     Z
+        OR      A
+        RET     Z
+KFL1:   LD      B,A
+        XOR     A
+        LD      (KN),A
+        LD      (KTMO),A
+        LD      HL,KBUF
+KFL2:   LD      C,(HL)
+        PUSH    HL
+        PUSH    BC
+        CALL    KIPUT
+        POP     BC
+        POP     HL
+        INC     HL
+        DJNZ    KFL2
+        OR      A
+        RET
+KTPL:   DEFB    '[1;'
+
+; VSW: se ve la consola A: se vacia lo que faltaba mandar por la SIO A y se
+; redibuja su pantalla (lo tecleado en cada consola queda en la suya)
+VSW:    LD      E,A
+        LD      A,(ACTVC)
+        CP      E
+        RET     Z
+        PUSH    DE
+        CALL    VQFL
+        POP     DE
+        LD      D,E
+        LD      A,D
+        LD      (ACTVC),A
+        CALL    VSTIX
+        LD      (IX+7),0
+        LD      HL,SWCNT
+        INC     (HL)
+        LD      A,(TXA+1)
+        LD      (TXA),A
+VSW1:   LD      A,1
+        LD      (GENACT),A
+        XOR     A
+        LD      (GSTG),A
+        LD      (GCNT),A
+        SCF
+        RET
+
+; GENFILL: llena el bufer de salida de la SIO A con el redibujo o la linea de
+; estado (que empieza aqui si toca)
+GENFILL: CALL   VQFL
+        LD      A,(GENACT)
+        OR      A
+        JR      NZ,GF1
+        CALL    STSTART
+        LD      A,(GENACT)
+        OR      A
+        RET     Z
+GF1:    LD      A,(TXA+1)       ; cola
+        LD      E,A
+        INC     A
+        AND     TXMSK
+        LD      HL,TXA
+        CP      (HL)
+        RET     Z               ; lleno
+        LD      B,A
+        LD      A,(GCNT)
+        OR      A
+        JR      Z,GF2
+        DEC     A
+        LD      (GCNT),A
+        LD      HL,(GPTR)
+        LD      C,(HL)
+        INC     HL
+        LD      (GPTR),HL
+        LD      A,B
+        LD      (TXA+1),A
+        LD      D,0
+        LD      HL,TXA+6
+        ADD     HL,DE
+        LD      (HL),C
+        JR      GF1
+GF2:    CALL    GCHUNK
+        JR      NC,GF1
+        LD      A,(GENACT)      ; termino: despues de redibujar, la linea de estado
+        DEC     A
+        LD      A,(STATON)
+        JR      NZ,GF3
+        LD      (STATDUE),A
+GF3:    XOR     A
+        LD      (GENACT),A
+        RET
+
+; GCHUNK: el siguiente trozo del redibujo en GBUF. Carry: no hay mas.
+GCHUNK: LD      A,(GENACT)
+        CP      2
+        SCF
+        RET     Z               ; la linea de estado es un solo trozo
+        LD      A,(ACTVC)
+        LD      D,A
+        CALL    VSTIX
+        LD      DE,GBUF
+        LD      HL,GSTG
+        LD      A,(HL)
+        INC     (HL)
+        OR      A
+        JR      NZ,GC1
+        LD      HL,GPRE         ; 0: cancelar, borrar la pantalla
+        CALL    GSTR
+        LD      A,(STATON)
+        OR      A
+        LD      HL,GREG
+        CALL    NZ,GSTR
+        LD      HL,GCLS
+        CALL    GSTR
+        JR      GCEND
+GC1:    DEC     A               ; 1..VNR: las filas
+        LD      HL,VNR
+        CP      (HL)
+        JR      NC,GC5
+        LD      B,A
+        CALL    VROWA
+        PUSH    HL
+        LD      DE,79           ; sin los espacios del final
+        ADD     HL,DE
+        LD      C,80
+GC2:    LD      A,(HL)
+        CP      ' '
+        JR      NZ,GC3
+        DEC     HL
+        DEC     C
+        JR      NZ,GC2
+GC3:    POP     HL
+        LD      DE,GBUF
+        LD      A,C
+        OR      A
+        JR      Z,GC4
+        PUSH    BC
+        LD      B,0
+        LDIR
+        POP     BC
+GC4:    LD      A,(VNR)
+        DEC     A
+        CP      B
+        JR      Z,GCEND
+        LD      A,13
+        CALL    GPUT
+        LD      A,10
+        CALL    GPUT
+        JR      GCEND
+GC5:    SCF
+        RET     NZ              ; VNR + 1: el cursor
+        LD      DE,GBUF
+        LD      HL,GCUR
+        CALL    GSTR
+        LD      A,(IX+0)
+        INC     A
+        CALL    GDEC
+        LD      A,';'
+        CALL    GPUT
+        LD      A,(IX+1)
+        CP      80
+        JR      NC,GC6
+        INC     A
+GC6:    CALL    GDEC
+        LD      A,'H'
+        CALL    GPUT
+GCEND:  EX      DE,HL           ; GCNT = lo que se escribio en GBUF
+        LD      DE,GBUF
+        LD      (GPTR),DE
+        OR      A
+        SBC     HL,DE
+        LD      A,L
+        LD      (GCNT),A
+        OR      A
+        RET
+
+GSTR:   LD      A,(HL)          ; copia el texto HL (termina en 0) a DE
+        OR      A
+        RET     Z
+        CALL    GPUT
+        INC     HL
+        JR      GSTR
+GPUT:   LD      (DE),A
+        INC     DE
+        RET
+GDEC:   LD      C,'0'-1         ; A (1-99) en decimal
+GD1:    INC     C
+        SUB     10
+        JR      NC,GD1
+        ADD     A,'0'+10
+        LD      B,A
+        LD      A,C
+        CP      '0'
+        CALL    NZ,GPUT
+        LD      A,B
+        JR      GPUT
+GBCD:   PUSH    AF              ; A en BCD, dos cifras
+        RRCA
+        RRCA
+        RRCA
+        RRCA
+        CALL    GNIB
+        POP     AF
+GNIB:   AND     0Fh
+        ADD     A,'0'
+        JR      GPUT
+
+GPRE:   DEFB    18h,1Bh,'[0m',0         ; CAN: termina una secuencia a medias
+GREG:   DEFB    1Bh,'[1;23r',0          ; las filas 1-23 se desplazan
+GCLS:   DEFB    1Bh,'[H',1Bh,'[2J',0
+GCUR:   DEFB    1Bh,'[',0
+
+; STSTART: arma la linea de estado (fila 24) en GBUF, si la consola que se ve
+; no esta a media secuencia ESC
+STSTART: LD     A,(ACTVC)
+        LD      D,A
+        CALL    VSTIX
+        LD      A,(IX+3)
+        OR      A
+        RET     NZ
+        LD      (STATDUE),A
+        LD      DE,GBUF
+        LD      HL,STPRE
+        CALL    GSTR
+        LD      B,0             ; [1] 2* 3  4 : la que se ve y las que tienen
+STS1:   LD      A,(ACTVC)       ; salida sin ver
+        CP      B
+        LD      A,' '
+        JR      NZ,STS2
+        LD      A,'['
+STS2:   CALL    GPUT
+        LD      A,B
+        ADD     A,'1'
+        CALL    GPUT
+        PUSH    DE
+        LD      D,B
+        CALL    VSTIX
+        POP     DE
+        LD      A,(ACTVC)
+        CP      B
+        LD      A,']'
+        JR      Z,STS3
+        LD      A,(IX+7)
+        OR      A
+        LD      A,'*'
+        JR      NZ,STS3
+        LD      A,' '
+STS3:   CALL    GPUT
+        INC     B
+        LD      A,B
+        CP      4
+        JR      NZ,STS1
+        LD      HL,STSEP
+        CALL    GSTR
+        PUSH    DE              ; la fecha: se calcula cuando cambia el dia
+        CALL    TODADR
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        INC     HL
+        PUSH    HL
+        EX      DE,HL
+        LD      DE,(STDAY)
+        OR      A
+        SBC     HL,DE
+        ADD     HL,DE
+        JR      Z,STS4
+        LD      (STDAY),HL
+        CALL    DAY2YMD
+STS4:   POP     HL
+        POP     DE
+        PUSH    HL
+        LD      A,(DDOW)
+        DEC     A
+        LD      C,A
+        ADD     A,A
+        ADD     A,C
+        LD      C,A
+        LD      B,0
+        LD      HL,STDOW
+        ADD     HL,BC
+        LD      BC,3
+        LDIR
+        LD      HL,ST20
+        CALL    GSTR
+        LD      A,(DYEAR)
+        CALL    GBCD
+        LD      A,'-'
+        CALL    GPUT
+        LD      A,(DMON)
+        CALL    GBCD
+        LD      A,'-'
+        CALL    GPUT
+        LD      A,(DDATE)
+        CALL    GBCD
+        POP     HL              ; hora, minuto, segundo (BCD)
+        LD      B,3
+        LD      C,' '
+STS5:   LD      A,C
+        CALL    GPUT
+        LD      A,(HL)
+        CALL    GBCD
+        INC     HL
+        LD      C,':'
+        DJNZ    STS5
+        LD      HL,STFIN
+        CALL    GSTR
+        LD      A,2
+        LD      (GENACT),A
+        JP      GCEND
+STPRE:  DEFB    1Bh,'7',1Bh,'[24;1H',1Bh,'[7m MP/M II ZEPHYRUS 1.4 | Console ',0
+STSEP:  DEFB    ' | ',0
+ST20:   DEFB    ' 20',0
+STFIN:  DEFB    ' ',1Bh,'[0m',1Bh,'[K',1Bh,'8',0
+STDOW:  DEFB    'SunMonTueWedThuFriSat'
 
 ; ------------------------------------------------------------- STARTUP.SUB
 ; STFIND: busca STARTUP.SUB en el usuario 0 de A: leyendo el directorio con
@@ -2323,7 +3174,6 @@ TASAS:  DEFB    '230400',0,84h,0
 CFREC:  DEFW    0
 CFOK:   DEFB    0
 CFDRV:  DEFB    0
-STATON: DEFB    0
 CFBW4:  DEFB    0,0,0,0         ; WR4 y constante del CTC de los canales A y B
 CFGBUF  EQU     B0MEM+1000h
 
@@ -2542,8 +3392,10 @@ SDMSG:  PUSH    HL
         LD      E,0Eh
         ADD     HL,DE
         LD      A,(HL)
-        AND     1
-        LD      (MCON),A
+        CP      NMBCNS
+        JR      C,SDM1
+        XOR     A
+SDM1:   LD      (MCON),A
         POP     HL
         CALL    MPSTR
         LD      A,(DRV)
@@ -2642,7 +3494,7 @@ TXINI:  DEFB    0,0,0,0,SIOAD,SIOAC
 VECS:   DEFW    ITXB,IEXB,IRXB,ISPB,ITXA,IEXA,IRXA,ISPA    ; FFE0-FFEE
         DEFW    INULL,ITICK,INULL,INULL                    ; FFF0-FFF6 (CTC 0-3)
 
-MSG:    DEFB    13,10,'ZEPHYRUS XIOS 1.3 (OLIVEROS 2026): 2 consoles, ',0
+MSG:    DEFB    13,10,'ZEPHYRUS XIOS 1.4 (OLIVEROS 2026): 5 consoles, ',0
 MSGB:   DEFB    ' banks, drives A-P',13,10,0
 MSGC:   DEFB    ' KB disk cache',13,10,0
 MSGS:   DEFB    'A:STARTUP.SUB',13,10,0
@@ -2650,7 +3502,20 @@ MSGL:   DEFB    'LST: to a file (A:MPM.CFG, H:LSTFILE)',13,10,0
 MSGG:   DEFB    'G: RAM disk, ',0
 MSGK:   DEFB    ' KB',13,10,0
 
-SIOPUT: PUSH    AF
+SIOPUT: PUSH    AF              ; (y a la pantalla de la consola 0)
+        PUSH    BC
+        PUSH    DE
+        PUSH    HL
+        LD      C,A
+        LD      A,(VTPG)
+        OR      A
+        JR      Z,SIOP0
+        LD      D,0
+        LD      HL,VTPUT
+        CALL    BKCALL
+SIOP0:  POP     HL
+        POP     DE
+        POP     BC
 SIOP1:  IN      A,(SIOAC)
         AND     4
         JR      Z,SIOP1
@@ -2808,16 +3673,24 @@ DPBFL:  DEFW    512             ; disco en flash (ZIOS, paginas 03-1F)
         DEFW    0
 
 ; ------------------------------------------------------------- consolas
-; D = consola
+; Consolas 0-3: virtuales, en la SIO A (Ctrl-F1..F4 elige la que se ve, como en
+; Linux); consola 4: la SIO B. El bufer de entrada de la SIO A es de la consola
+; que se ve (al cambiar se vacia). D = consola
 CONST:  CALL    ISTMP           ; el TMP (indicador de ordenes): historial
         JP      Z,TCONST
 CONSTR: LD      A,D
+        CP      4
+        JR      Z,CST1
+        LD      HL,RXCNT        ; consolas virtuales: cada una tiene lo suyo
+        ADD     A,L
+        LD      L,A
+        JR      NC,CST0
+        INC     H
+CST0:   LD      A,(HL)
         OR      A
-        JR      NZ,CST1
-CST0:   LD      A,(HDA)
-        LD      HL,TLA
-        CP      (HL)
-        JR      CSTR
+        RET     Z
+        LD      A,0FFh
+        RET
 CST1:   LD      A,(HDB)
         LD      HL,TLB
         CP      (HL)
@@ -2828,36 +3701,47 @@ CSTR:   LD      A,0
 
 CONIN:  CALL    ISTMP
         JP      Z,TCONIN
-CONINR: LD      A,D
-        OR      A
-        JR      NZ,CIN1
-        CALL    CST0
-        OR      A
-        JR      NZ,CIN0B
-        LD      C,POLL
-        LD      E,1             ; consola 0, entrada
-        CALL    XDOS
-CIN0B:  LD      HL,HDA
-        LD      DE,RXA
-        JR      CINGET
-CIN1:   CALL    CST1
-        OR      A
-        JR      NZ,CIN1B
-        LD      C,POLL
-        LD      E,3
-        CALL    XDOS
-CIN1B:  LD      HL,HDB
-        LD      DE,RXB
-CINGET: LD      A,(HL)          ; HL = cabeza (lectura)
+CONINR: LD      A,I
+        DI
         PUSH    AF
+        CALL    CONSTR
+        OR      A
+        JR      NZ,CIN2
+        POP     AF
+        JP      PO,CIN1
+        EI
+CIN1:   PUSH    DE
+        LD      C,POLL
+        LD      A,D
+        ADD     A,A
+        INC     A
+        LD      E,A             ; dispositivo 2D+1: entrada de la consola D
+        CALL    XDOS
+        POP     DE
+        JR      CONINR
+CIN2:   LD      A,D
+        CP      4
+        JR      Z,CIN4
+        LD      HL,VRXGET
+        CALL    BKCALL
+        JR      CIN5
+CIN4:   LD      HL,HDB          ; consola 4: el bufer de la SIO B
+        LD      A,(HL)
+        LD      C,A
         INC     A
         AND     3Fh
         LD      (HL),A
+        LD      A,C
+        ADD     A,RXB AND 0FFh
+        LD      L,A
+        LD      H,RXB SHR 8
+        LD      A,(HL)
+CIN5:   AND     7Fh
+        LD      C,A
         POP     AF
-        ADD     A,E
-        LD      E,A
-        LD      A,(DE)
-        AND     7Fh
+        LD      A,C
+        RET     PO
+        EI
         RET
 
 ; Salida por interrupcion: cada canal tiene un bufer circular. Si el transmisor
@@ -2866,10 +3750,8 @@ CINGET: LD      A,(HL)          ; HL = cabeza (lectura)
 ; bandera (FLTXA/FLTXB), que pone la interrupcion al liberar un lugar.
 ; Estructura: +0 cabeza, +1 cola, +2 transmitiendo, +3 alguien espera,
 ;             +4 puerto de datos, +5 puerto de control, +6 bufer
-COST0:  LD      HL,TXA          ; hay lugar: A = FF
-        JR      COSTR
-COST1:  LD      HL,TXB
-COSTR:  LD      A,(HL)
+COST1:  LD      HL,TXB          ; LISTST: hay lugar en la SIO B: A = FF
+        LD      A,(HL)
         INC     HL
         LD      L,(HL)          ; (cola + 1) & TXMSK <> cabeza
         INC     L
@@ -2880,39 +3762,69 @@ COSTR:  LD      A,(HL)
         RET
 
 CONOUT: LD      A,D
-        OR      A
-        JR      NZ,COUT1
-COUT0:  LD      HL,TXA
-        LD      E,FLTXA
-        JR      TXPUT
+        CP      4
+        JR      NZ,VCOUT
 COUT1:  LD      HL,TXB
         LD      E,FLTXB
 ; TXPUT: caracter C al canal HL; E = su bandera
 TXPUT:  LD      A,I
         DI
         PUSH    AF
-        PUSH    HL
+TXP1:   PUSH    HL
+        CALL    TXTRY
+        POP     HL
+        JR      NZ,TXP9
+        PUSH    HL              ; lleno: marcar que se espera y esperar
         INC     HL
+        INC     HL
+        INC     HL
+        LD      (HL),1
+        POP     HL
+        POP     AF
+        PUSH    AF
+        JP      PO,TXPW
+        EI
+TXPW:   PUSH    HL
+        PUSH    BC
+        PUSH    DE
+        LD      C,FLAGWT
+        CALL    XDOS
+        POP     DE
+        POP     BC
+        POP     HL
+        DI
+        JR      TXP1
+TXP9:   POP     AF
+        RET     PO
+        EI
+        RET
+; TXTRY: caracter C al canal HL, con las interrupciones apagadas. NZ: listo;
+; Z: el bufer esta lleno. Conserva BC y DE (no HL); usa poca pila (la del
+; BDOS es corta).
+TXTRY:  INC     HL
         INC     HL
         LD      A,(HL)          ; transmitiendo?
         OR      A
-        JR      NZ,TXP2
+        JR      NZ,TT2
         LD      (HL),1          ; no: sale directo
         INC     HL
         INC     HL
         LD      A,C
         LD      C,(HL)
         OUT     (C),A
-        JR      TXP9
-TXP2:   POP     HL
-        PUSH    HL
+        LD      C,A
+        OR      0FFh
+        RET
+TT2:    DEC     HL
+        DEC     HL
+        PUSH    BC
         LD      A,(HL)          ; cabeza
         INC     HL
         LD      B,(HL)          ; cola
         INC     B
         XOR     B
         AND     TXMSK
-        JR      Z,TXPF          ; lleno
+        JR      Z,TT9           ; lleno
         DEC     B
         LD      A,B
         INC     A
@@ -2922,36 +3834,93 @@ TXP2:   POP     HL
         ADD     A,5
         ADD     A,L
         LD      L,A
-        JR      NC,TXP3
+        JR      NC,TT3
         INC     H
-TXP3:   LD      (HL),C
-TXP9:   POP     HL
-        POP     AF
+TT3:    LD      (HL),C
+        OR      0FFh
+TT9:    POP     BC
+        RET
+
+; VCOUT: consola virtual D (0-3), caracter C. Siempre va a su pantalla en
+; memoria (VTPUT); si es la que se ve, tambien a la SIO A. Las de atras nunca
+; esperan. La que se ve espera mientras se redibuja o sale la linea de estado.
+VCOUT:  LD      A,I
+        DI
+        PUSH    AF
+VCO:    LD      A,(ACTVC)
+        CP      D
+        JR      NZ,VCBG
+        LD      A,(GENACT)
+        OR      A
+        JR      NZ,VC0
+        LD      HL,VQN          ; la que se ve: a la cola de su pantalla (se pasan
+        LD      A,(HL)          ; juntos, con una sola llamada al banco 0) y a la SIO
+        CP      32
+        JR      NC,VC0B
+        INC     (HL)
+        ADD     A,VQ AND 0FFh
+        LD      L,A
+        LD      H,VQ SHR 8
+        LD      (HL),C
+        LD      HL,TXA
+        CALL    TXTRY
+        JR      Z,VC1
+VCX:    POP     AF
         RET     PO
         EI
         RET
-TXPF:   INC     HL              ; lleno: marcar que se espera y esperar
-        INC     HL
+VCBG:   LD      HL,VTPUT        ; una de atras: solo a su pantalla
+        CALL    BKCALL
+        JR      VCX
+VC0:    DEC     A               ; 1: redibujando (lee la pantalla: esperar antes)
+        JR      NZ,VC0B
+        CALL    VCWAIT
+        JR      VCO
+VC0B:   LD      HL,VQFL         ; la cola llena o la linea de estado saliendo
+        CALL    BKCALL
+        LD      HL,VQN
         LD      (HL),1
-        POP     HL
-        POP     AF
-        JP      PO,TXPF1
+        LD      A,C
+        LD      (VQ),A
+VC1:    LD      A,(SWCNT)
+        LD      B,A
+VC2:    LD      A,(GENACT)
+        OR      A
+        JR      NZ,VC3
+        LD      HL,TXA
+        CALL    TXTRY
+        JR      NZ,VCX
+VC3:    CALL    VCWAIT          ; (con las interrupciones prendidas puede
+        LD      A,(ACTVC)       ; cambiar la consola)
+        CP      D
+        JR      NZ,VCX
+        LD      A,(SWCNT)
+        CP      B
+        JR      Z,VC2           ; si cambio, el redibujo ya lo muestra
+        JR      VCX
+VCWAIT: LD      A,1
+        LD      (TXA+3),A
         EI
-TXPF1:  PUSH    HL
         PUSH    BC
         PUSH    DE
         LD      C,FLAGWT
+        LD      E,FLTXA
         CALL    XDOS
-        POP     DE
+        INC     A               ; FF: otro proceso ya la esperaba: un tic
+        JR      NZ,VCW1
+        LD      C,141
+        LD      DE,1
+        CALL    XDOS
+VCW1:   POP     DE
         POP     BC
-        POP     HL
-        JR      TXPUT
+        DI
+        RET
 
 ; LIST: la impresora (LST:) sale por la SIO B, la misma linea de la consola 1
 ; (un terminal, el NUNTIUS o un cable a oli que la capture).
 LIST:   LD      A,(LSTMD)
         OR      A
-        JR      Z,COUT1         ; a la SIO B
+        JP      Z,COUT1         ; a la SIO B
 ; al anillo de 16 KB de la pagina LSTPG (lo vacia H:LSTFILE en el archivo)
 LST0:   LD      A,I
         DI
@@ -2989,16 +3958,13 @@ LSTF1:  PUSH    BC
         JR      LST0
 
 POLLDEV: LD     A,C
-        CP      4
-        JP      Z,COST1         ; 4: impresora (SIO B) lista
+        CP      2*NMBCNS
         JP      NC,NADA
-        OR      A
-        JP      Z,COST0
-        DEC     A
-        JP      Z,CST0
-        DEC     A
-        JP      Z,COST1
-        JP      CST1
+        SRL     A
+        LD      D,A
+        JP      C,CONSTR        ; impar: entrada de la consola D
+        LD      A,0FFh          ; par: salida (se espera con banderas)
+        RET
 
 MAXCON: LD      A,NMBCNS
         RET
@@ -3020,14 +3986,39 @@ IDLE:   EI
         RET
 
 ; ------------------------------------------------------------- interrupciones
-; Recepcion de la SIO: al bufer circular (si se llena se pierde el caracter)
-IRXA:   PUSH    AF
+; Recepcion de la SIO: al bufer circular (si se llena se pierde el caracter).
+; La SIO A pasa por KEYIN (Ctrl-F1..F4).
+IRXA:   LD      (SVSP),SP       ; (en la pila de las interrupciones: la del
+        LD      SP,ISTK         ; proceso puede ser la corta del BDOS)
+        PUSH    AF
         PUSH    HL
-        LD      HL,TLA
-        IN      A,(SIOAD)
         PUSH    DE
-        LD      DE,RXA
-IRXPUT: PUSH    AF
+        PUSH    BC
+        IN      A,(SIOAD)
+        LD      C,A
+        LD      HL,KEYIN
+        CALL    BKCALL
+        CALL    C,TXSTA         ; cambio de consola: a redibujar
+IRX9:   POP     BC
+        POP     DE
+        POP     HL
+        POP     AF
+        LD      SP,(SVSP)
+        EI
+        RETI
+IRXB:   LD      (SVSP),SP
+        LD      SP,ISTK
+        PUSH    AF
+        PUSH    HL
+        PUSH    DE
+        PUSH    BC
+        IN      A,(SIOBD)
+        LD      HL,TLB
+        LD      DE,RXB
+        CALL    RXQ
+        JR      IRX9
+; RXQ: caracter A al bufer DE (64 bytes), HL = su cola (la cabeza en HL-1)
+RXQ:    PUSH    AF
         LD      A,(HL)
         ADD     A,E
         LD      E,A
@@ -3036,43 +4027,36 @@ IRXPUT: PUSH    AF
         LD      A,(HL)
         INC     A
         AND     3Fh
-        DEC     HL              ; HL = cabeza
+        DEC     HL
         CP      (HL)
         INC     HL
-        JR      Z,IRX9          ; lleno
+        RET     Z               ; lleno
         LD      (HL),A
-IRX9:   POP     DE
-        POP     HL
-        POP     AF
-        EI
-        RETI
-IRXB:   PUSH    AF
-        PUSH    HL
-        LD      HL,TLB
-        IN      A,(SIOBD)
-        PUSH    DE
-        LD      DE,RXB
-        JR      IRXPUT
+        RET
 ; Recepcion especial (error): descartar y reponer
 ISPA:   PUSH    AF
         IN      A,(SIOAD)
         LD      A,30h
         OUT     (SIOAC),A
-        JR      IRET
+        JP      IRET
 ISPB:   PUSH    AF
         IN      A,(SIOBD)
         LD      A,30h
         OUT     (SIOBC),A
-        JR      IRET
+        JP      IRET
 ; Transmisor vacio: el siguiente caracter del bufer. Si alguien esperaba lugar,
 ; se le pone su bandera (con el marco completo, como el tic).
-ITXA:   PUSH    AF
+ITXA:   LD      (SVSP),SP
+        LD      SP,ISTK
+        PUSH    AF
         PUSH    HL
         LD      HL,TXA
         CALL    TXNEXT
         LD      A,FLTXA
         JR      ITX1
-ITXB:   PUSH    AF
+ITXB:   LD      (SVSP),SP
+        LD      SP,ISTK
+        PUSH    AF
         PUSH    HL
         LD      HL,TXB
         CALL    TXNEXT
@@ -3080,11 +4064,13 @@ ITXB:   PUSH    AF
 ITX1:   POP     HL
         JR      NZ,ITX2
         POP     AF
+        LD      SP,(SVSP)
         EI
         RETI
 ITX2:   LD      (IFLGN),A
         POP     AF
-        JR      IFLG
+        LD      SP,(SVSP)
+        JP      IFLG
 
 ; TXNEXT: HL = canal. NZ si alguien esperaba lugar (y ya no espera).
 TXNEXT: PUSH    BC
@@ -3095,7 +4081,21 @@ TXNEXT: PUSH    BC
         INC     HL
         CP      (HL)
         JR      NZ,TXN1
-        INC     HL              ; vacio: el transmisor se para
+        LD      A,E             ; vacio: en la SIO A, el redibujo o la linea de
+        CP      TXA AND 0FFh    ; estado lo vuelven a llenar
+        JR      NZ,TXN0
+        LD      A,(GENACT)
+        LD      HL,STATDUE
+        OR      (HL)
+        LD      HL,TXA+1
+        JR      Z,TXN0
+        LD      HL,GENFILL
+        CALL    BKCALL
+        LD      HL,TXA+1
+        LD      A,(DE)
+        CP      (HL)
+        JR      NZ,TXN1
+TXN0:   INC     HL              ; vacio: el transmisor se para
         LD      (HL),0
         INC     HL
         INC     HL
@@ -3121,16 +4121,36 @@ TXN2:   LD      A,(HL)
         LD      (DE),A
 TXN8:   LD      HL,3
         ADD     HL,DE
-        LD      A,(HL)
-        LD      (HL),0
+        LD      A,E
+        CP      TXA AND 0FFh
+        JR      NZ,TXN9
+        LD      A,(GENACT)      ; mientras se genera, el que espera sigue esperando
         OR      A
+        LD      A,0
+        JR      NZ,TXN10
+TXN9:   LD      A,(HL)          ; alguien espera: se le avisa cuando queda poco
+        OR      A               ; en el bufer (no a cada caracter)
+        JR      Z,TXN10
+        LD      A,(DE)
+        LD      B,A
+        INC     DE
+        LD      A,(DE)
+        DEC     DE
+        SUB     B
+        AND     TXMSK
+        CP      9
+        LD      A,0
+        JR      NC,TXN10
+        LD      (HL),A
+        DEC     A
+TXN10:  OR      A
         POP     DE
         POP     BC
         RET
 IEXA:   PUSH    AF
         LD      A,10h
         OUT     (SIOAC),A
-        JR      IRET
+        JP      IRET
 IEXB:   PUSH    AF
         LD      A,10h
         OUT     (SIOBC),A
@@ -3161,8 +4181,16 @@ IFLG:   LD      (SVHL),HL
         LD      E,A             ; bandera de la salida de una SIO
         LD      C,FLAGSET
         CALL    XDOS
-        JR      ITDONE
-ITK0:   LD      HL,TXA          ; por si se perdio una interrupcion de transmision
+        JP      ITDONE
+ITK0:   LD      A,(KTMO)        ; teclado: ESC sin el resto de la secuencia
+        OR      A
+        JR      Z,ITK0B
+        DEC     A
+        LD      (KTMO),A
+        JR      NZ,ITK0B
+        LD      HL,KFLUSH
+        CALL    BKCALL
+ITK0B:  LD      HL,TXA          ; por si se perdio una interrupcion de transmision
         LD      E,FLTXA
         CALL    TXKICK
         LD      HL,TXB
@@ -3197,6 +4225,16 @@ IT1:    LD      HL,CNTSEC
         LD      HL,(SECS)       ; segundos desde el arranque (para TODCHK)
         INC     HL
         LD      (SECS),HL
+        LD      A,(STATON)      ; la linea de estado, cada segundo
+        OR      A
+        JR      Z,IT2
+        LD      (STATDUE),A
+        CALL    TXSTA
+        JR      Z,IT2
+        LD      C,FLAGSET
+        LD      E,FLTXA
+        CALL    XDOS
+IT2:
         LD      C,FLAGSET       ; bandera 2: cada segundo
         LD      E,2
         CALL    XDOS
@@ -3220,6 +4258,44 @@ ITDONE: XOR     A
         PUSH    HL
         LD      HL,(SVHL)
         RETI
+
+; TXSTA: si la SIO A esta parada, arrancarla (redibujo o linea de estado).
+; NZ si alguien esperaba lugar.
+TXSTA:  LD      HL,TXA+2
+        LD      A,(HL)
+        OR      A
+        JR      Z,TXS1
+        XOR     A
+        RET
+TXS1:   LD      (HL),1
+        LD      HL,TXA
+        JP      TXNEXT
+
+; BKCALL: llama a la rutina HL de la parte con bancos (ventana 2 del banco 0)
+; con la pagina VTPG en la ventana 0 y la pila en ella. Con las interrupciones
+; apagadas. Pasan BC y DE; vuelven A y las banderas. Conserva BC, DE e IX.
+BKCALL: LD      (BKSV),SP
+        LD      A,(BNKPG+2)
+        OUT     (PGPORT+2),A
+        LD      A,(VTPG)
+        OUT     (PGPORT),A
+        LD      SP,BKSTK
+        PUSH    IX
+        PUSH    BC
+        PUSH    DE
+        CALL    JPHL
+        POP     DE
+        POP     BC
+        POP     IX
+        LD      (BKA),A
+        LD      A,(CURPG2)
+        OUT     (PGPORT+2),A
+        LD      A,(CURPG0)
+        OUT     (PGPORT),A
+        LD      SP,(BKSV)
+        LD      A,(BKA)
+        RET
+JPHL:   JP      (HL)
 
 ; TXKICK: si el canal HL figura transmitiendo pero el transmisor ya esta vacio,
 ; manda el siguiente (y pone la bandera E si alguien esperaba lugar).
@@ -3265,8 +4341,8 @@ SB1:    LD      A,(HL)
         OUT     (PGPORT+1),A
         INC     HL
         LD      A,(HL)
+        LD      (CURPG2),A      ; antes del OUT: BKCALL la repone
         OUT     (PGPORT+2),A
-        LD      (CURPG2),A
         RET
 
 ; XRD64 / XWR64: 64 bytes entre BUF (banco 0) y el DMA del programa (su banco),
@@ -3300,8 +4376,9 @@ XSRC:   DEFW    0
 XDST:   DEFW    0
 
 ; PGQRY: paginas del banco 0 preguntandole a ZIOS (servicio 1). Va en la memoria
-; comun porque la ventana que se pregunta cambia un momento.
-PGQRY:
+; comun, con la pila en ella, porque la ventana que se pregunta cambia un momento.
+PGQRY:  LD      (BKSV),SP
+        LD      SP,PGQSTK+24
         LD      HL,BNKPG
         LD      B,0
 SI1:    PUSH    BC
@@ -3326,7 +4403,9 @@ SI1:    PUSH    BC
         LD      A,B
         CP      3
         JR      NZ,SI1
+        LD      SP,(BKSV)
         RET
+PGQSTK: DEFS    24
 
 ; TODADR: HL = TOD de XDOS (dia de 16 bits, hora, minuto, segundo en BCD)
 TODADR: LD      HL,(SYSDAT)
@@ -3836,11 +4915,19 @@ CNTMIN: DEFB    60
 SVHL:   DEFW    0
 SVRET:  DEFW    0
 SVSP:   DEFW    0
-HDA:    DEFB    0               ; cabeza (lectura) y cola (escritura) de RXA
-TLA:    DEFB    0
+RXCNT:  DEFS    4               ; caracteres tecleados en cada consola virtual
 HDB:    DEFB    0
 TLB:    DEFB    0
 CURPG0: DEFB    0
+VTPG:   DEFB    0               ; pagina de las pantallas de las consolas virtuales
+ACTVC:  DEFB    0               ; consola que se ve en la SIO A
+GENACT: DEFB    0               ; la SIO A manda: 1 el redibujo, 2 la linea de estado
+STATDUE: DEFB   0               ; toca la linea de estado
+STATON: DEFB    0               ; linea de estado (A:MPM.CFG STATUS=ON)
+SWCNT:  DEFB    0               ; cambios de consola
+KTMO:   DEFB    0               ; tics para dar por terminada una secuencia ESC
+BKSV:   DEFW    0
+BKA:    DEFB    0
 CMNPG:  DEFB    0
 BNKPG:  DEFS    24              ; 3 paginas por banco, bancos 0-7
 DRV:    DEFB    0

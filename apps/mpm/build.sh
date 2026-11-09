@@ -18,6 +18,7 @@ base=int(re.findall(r"BNKXIOS SPR  ([0-9A-F]{4})H", open("gensys.log").read())[-
 cb=int(re.search(r"^\s*\d+:\s+([0-9A-F]{4})\s+COMMONBASE:", open("zout/xios.lst").read(), re.M).group(1),16)
 print(f"BNKXIOS en {base:04X}H, parte comun desde {base+cb:04X}H (margen {base+cb-0xC000} bytes)")
 assert base+cb >= 0xC000, "la parte comun del XIOS empieza debajo de C000"
+assert base >= 0x8000, "la parte con bancos tiene que quedar en la ventana 2 (BKCALL)"
 C
 $ZMAC -c --od zout --oo cim,lst ldrbios.asm >/dev/null
 $ZMAC -c --od zout --oo cim,lst rtc.asm >/dev/null && cp zout/rtc.cim RTC.COM

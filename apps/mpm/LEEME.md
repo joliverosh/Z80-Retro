@@ -1,13 +1,13 @@
-# MP/M II 2.0 ZEPHYRUS 1.3
+# MP/M II 2.0 ZEPHYRUS 1.4
 
-MP/M II 2.0 de Digital Research, el CP/M multiusuario de 1981, adaptado a ZEPHYRUS (corre también en la Z80 CPU Rev 2.2) con ZLoader/ZIOS v6. El XIOS es propio (`xios.asm`) y da el número de versión: 1.3. El resto son los archivos originales de Digital Research, con dos parches pequeños a `XDOS.SPR` (usuario 0 y el mensaje de arranque) y el título del cargador.
+MP/M II 2.0 de Digital Research, el CP/M multiusuario de 1981, adaptado a ZEPHYRUS (corre también en la Z80 CPU Rev 2.2) con ZLoader/ZIOS v6. El XIOS es propio (`xios.asm`) y da el número de versión: 1.4. El resto son los archivos originales de Digital Research, con tres parches pequeños a `XDOS.SPR` (usuario 0, el mensaje de arranque y la pila al terminar un programa) y el título del cargador.
 
 Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 - el arranque;
 - `DIR`, `STAT`, `TYPE`, `PIP`, `ERA`, `MPMSTAT` y `TOD`;
 - programas `.COM` y `.PRL`;
 - MBASIC con los juegos;
-- las dos consolas a la vez, en bancos distintos;
+- las cinco consolas a la vez, en bancos distintos: cuatro virtuales en la SIO A (Ctrl-F1..F4) y la SIO B;
 - tarjetas SDSC y SDHC;
 - lo que MP/M escribe en la SD se lee después desde CP/M 2.2.
 
@@ -15,16 +15,26 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 
 **La 1.3 en la placa real** (9/11/2026): arranca con 7 bancos, 64 KB de caché y G: de 48 KB; `DIR H:` y `MPMSTAT` salen completos con la salida por interrupción; `TOD` da la hora del DS1307; PI1K desde G: calcula los 1000 decimales en 27 s; PRIMOS tarda 7 s; `H:ZLOADER` vuelve a ZLoader sin RESET.
 
+**La 1.4** (9/11/2026) está probada en el emulador; falta la placa real. Novedades:
+- **consolas virtuales como en Linux**: la SIO A tiene cuatro consolas (0-3), cada una con su pantalla, y Ctrl-F1..F4 elige la que se ve;
+- **línea de estado** en la fila 24 (`STATUS=ON` en `A:MPM.CFG`);
+- **`A:MPM.CFG` ampliado**: impresora, línea de estado, velocidades y mapa de unidades;
+- **la RAM del disco en RAM de ZIOS** en el bus de expansión vuelve a MP/M;
+- **memoria común liberada**: los discos y su búfer pasaron a la parte con bancos;
+- **arreglo de XDOS**: un programa que terminaba con `RET` podía hacer caer a otro (ver *Parches a XDOS.SPR*).
+
 ## Qué ofrece
 
 | | |
 |---|---|
-| Consolas | 2: **SIO A** (la consola de siempre) y **SIO B** (segundo terminal o NUNTIUS). La salida va por interrupción, con un búfer de 32 caracteres por canal: un programa que escribe mucho ya no frena a los demás |
+| Consolas | 5: **0-3 virtuales en la SIO A** (Ctrl-F1..F4 elige la que se ve, como en Linux; cada una guarda su pantalla de 80 x 24 y lo tecleado) y la **4 en la SIO B** (segundo terminal o NUNTIUS). La salida va por interrupción, con un búfer de 32 caracteres por canal: un programa que escribe mucho ya no frena a los demás, y las consolas de atrás nunca esperan |
+| Línea de estado | Opcional (`STATUS=ON`): la fila 24 muestra la versión, las consolas (la que se ve entre corchetes, `*` en las que escribieron algo que no se vio) y la fecha y hora, cada segundo |
+| Configuración | **`A:MPM.CFG`**: impresora, línea de estado, velocidad de cada SIO y unidades |
 | Velocidad | La que dejó ZIOS. **`H:BAUD`** la muestra y la cambia en el momento, y la guarda en la NVRAM del DS1307 igual que la orden `BAUD` de ZLoader |
-| Memoria | **7 bancos** de usuario de 48 KB (0000-BFFF), el máximo de MP/M II, ya con los 512 KB de la placa. La RAM es primero para los bancos; la caché y G: se llevan lo que sobra. La memoria común va de C000 a FFFF |
+| Memoria | **7 bancos** de usuario de 48 KB (0000-BFFF), el máximo de MP/M II, ya con los 512 KB de la placa. La RAM es primero para MP/M: una página para las pantallas de las consolas virtuales y los bancos; la caché y G: se llevan lo que sobra. La memoria común va de C000 a FFFF. Con RAM de expansión, también se usan las páginas del disco en RAM de ZIOS |
 | Discos | **A-P**: las unidades de la SD con el mismo mapa de ZIOS (`SM`) y el mismo formato que CP/M 2.2; H: es el disco en flash, de solo lectura; **G:** es un disco en RAM |
-| Disco en RAM | **G:**, solo con las páginas que sobran: 48 KB con los 512 KB de la placa (32 KB si la impresora va a un archivo); con RAM de expansión, hasta 2 MB (816 KB con 1 MB más). Se borra en cada arranque |
-| Impresora | **`LST:` sale por SIO B** (la misma línea que la consola 1) **o a un archivo**, según `A:MPM.CFG` |
+| Disco en RAM | **G:**, solo con las páginas que sobran: 32 KB con los 512 KB de la placa (16 KB si la impresora va a un archivo); con RAM de expansión, hasta 2 MB (992 KB con 1 MB más). Se borra en cada arranque |
+| Impresora | **`LST:` sale por SIO B** (la misma línea que la consola 4) **o a un archivo**, según `A:MPM.CFG` |
 | Reloj | El tic de ZIOS: canal 1 del CTC, 120 Hz. MP/M recibe 60 tics por segundo |
 | Hora | Se toma del DS1307 al arrancar. **Si se cambia con `TOD`, se escribe en el DS1307** |
 | Caché de disco | 64 KB con la RAM de la placa, 128 KB con RAM de expansión: el directorio y los programas no se vuelven a leer de la SD. Escritura inmediata: la SD siempre está al día |
@@ -59,17 +69,17 @@ Desde entonces `BOS 5` arranca MP/M. El cargador queda en los sectores 70h-7Bh d
 ```
 a>H:MPMLDR
 ...
-ZEPHYRUS XIOS 1.3 (OLIVEROS 2026): 2 consoles, 7 banks, drives A-P
+ZEPHYRUS XIOS 1.4 (OLIVEROS 2026): 5 consoles, 7 banks, drives A-P
 64 KB disk cache
-G: RAM disk, 48 KB
+G: RAM disk, 32 KB
 A:STARTUP.SUB
-MP/M II 2.0 ZEPHYRUS 1.3
+MP/M II 2.0 ZEPHYRUS 1.4
 (C) 1981 Digital Research
 0A>TOD
 Thu 10/15/26 10:30:02
 ```
 
-- **El indicador** es `usuario` + `unidad` + `>`. Las dos consolas arrancan en `0A>`. Los programas del disco H: llevan el atributo SYS, así que se ven desde cualquier usuario y unidad.
+- **El indicador** es `usuario` + `unidad` + `>`. Todas las consolas arrancan en `0A>`. Los programas del disco H: llevan el atributo SYS, así que se ven desde cualquier usuario y unidad.
 - **PIP de MP/M es `H:PIP`.** Si en A: hay un `PIP.COM` de CP/M 3, ese gana al escribir solo `PIP` y responde `REQUIRES CP/M 3`.
 - **Programas útiles:** `MPMSTAT` muestra procesos, bancos y colas. `ABORT nombre` detiene un programa. `CONSOLE` dice en qué consola estás.
 - **Copiar un programa de H:** como es SYS, `PIP` necesita la opción `[R]`: `PIP A:=H:PRIMOS.COM[R]`.
@@ -77,17 +87,32 @@ Thu 10/15/26 10:30:02
 - **Las unidades I-P** existen si el mapa de ZIOS (`SM`) les asigna un disco de la SD. Un disco nuevo hay que formatearlo una vez desde ZLoader, por ejemplo la I: con `F 0 0 E5` y después `WI 80:I 8000 8000`.
 - **`A:STARTUP.SUB`** es un archivo de SUBMIT normal, una orden por línea. Al arrancar, la consola 0 recibe `H:SUBMIT A:STARTUP`. Presionar una tecla mientras corre lo detiene (así es SUBMIT en MP/M).
 - **El historial** (`^W`) solo actúa en el indicador `0A>`: dentro de un programa `^W` llega tal cual.
-- **La impresora** (`LST:`, `^P`, `PIP LST:=archivo`) se elige en **`A:MPM.CFG`** (usuario 0), un archivo de texto que el XIOS lee al arrancar:
+- **Las consolas virtuales.** El terminal de la SIO A muestra una de las consolas 0-3; al arrancar, la 0. **Ctrl-F1, Ctrl-F2, Ctrl-F3 y Ctrl-F4** pasan a la consola 0, 1, 2 o 3: la pantalla se borra y se vuelve a dibujar con lo que esa consola tenía, con el cursor donde estaba. Cada consola tiene su TMP (`0A>`), su historial y lo que se tecleó en ella. Los programas de las consolas que no se ven siguen corriendo y escribiendo en su pantalla guardada, sin esperar al terminal. `MPMSTAT` y `CONSOLE` dan el número de cada una.
+  - Las teclas: las terminales de Linux (xterm, GNOME, Konsole) mandan `ESC [ 1 ; 5 P` (hasta `S`) con Ctrl-F1..F4, y picocom las pasa tal cual; con Alt o Mayúsculas en lugar de Ctrl también sirven. Si el escritorio se queda con Ctrl-F1..F4 (KDE las usa para los escritorios), está **Ctrl-\\ seguido de 1, 2, 3 o 4**; Ctrl-\\ dos veces manda un Ctrl-\\ al programa.
+  - Un ESC solo llega al programa con 50 ms de demora (el XIOS espera a ver si es Ctrl-F); las flechas y las demás secuencias pasan sin cambio.
+  - La pantalla guardada entiende lo que se usa con un terminal ANSI: CR, LF, BS, TAB, `ESC [ fila ; col H`, `ESC [ J`, `ESC [ K` y el movimiento del cursor. Los colores y atributos salen al terminal pero no se guardan: al volver a una consola, el texto aparece sin ellos.
+- **La línea de estado** (`STATUS=ON`): la fila 24 queda fija y los programas usan las filas 1-23 (el XIOS fija esa zona de desplazamiento en el terminal). Ejemplo:
+
+  ```
+   MP/M II ZEPHYRUS 1.4 | Console [1] 2* 3  4  | Mon 2026-11-09 12:23:45
+  ```
+
+  Se actualiza una vez por segundo, guardando y reponiendo el cursor (`ESC 7` / `ESC 8`), sin cortar una secuencia que un programa esté mandando.
+- **`A:MPM.CFG`** (usuario 0) es un archivo de texto que el XIOS lee al arrancar, de hasta 512 bytes. Una opción por línea; lo que empieza con `;` o no se entiende se salta:
 
   ```
   ; configuracion de MP/M
-  LST=B
+  LST=B                ; impresora: B (SIO B) o un archivo: LST=A:IMPRESOR.TXT
+  STATUS=ON            ; linea de estado en la fila 24 (OFF: sin ella)
+  BAUD A=115200        ; velocidad de la SIO A (o B) para esta sesion
+  DRIVE C=SD0:12       ; C: = disco virtual 12 de la tarjeta 0 (SD1:n, RAM, FLASH u OFF)
   ```
 
-  `LST=B`, o sin el archivo, la manda a SIO B: si ahí hay un terminal, la salida aparece en él. `LST=A:IMPRESOR.TXT` (cualquier nombre, con o sin unidad; sin unidad es A:) la guarda en ese documento. Lo impreso se agrega al final, así que el archivo crece hasta que lo borres. Al arrancar se ejecuta solo `H:LSTFILE`, que queda corriendo suelto (ocupa un banco) y pasa lo impreso al archivo cada medio segundo. Lo cierra tras 2 s sin impresión: mientras se imprime, `TYPE` responde `File Currently Open`; hay que esperar un momento.
+  `BAUD` acepta las mismas velocidades que `H:BAUD` y no toca la NVRAM. `DRIVE` cambia el mapa de unidades que dejó ZIOS solo para MP/M: `RAM` es el disco en RAM, `FLASH` el disco en flash y `OFF` deja la unidad sin disco.
+- **La impresora** (`LST:`, `^P`, `PIP LST:=archivo`) se elige con `LST=` en `A:MPM.CFG`. `LST=B`, o sin el archivo, la manda a SIO B: si ahí hay un terminal, la salida aparece en él. `LST=A:IMPRESOR.TXT` (cualquier nombre, con o sin unidad; sin unidad es A:) la guarda en ese documento. Lo impreso se agrega al final, así que el archivo crece hasta que lo borres. Al arrancar se ejecuta solo `H:LSTFILE`, que queda corriendo suelto (ocupa un banco) y pasa lo impreso al archivo cada medio segundo. Lo cierra tras 2 s sin impresión: mientras se imprime, `TYPE` responde `File Currently Open`; hay que esperar un momento.
 - **`H:BAUD`** sin parámetros muestra la velocidad guardada de cada canal; `H:BAUD B 9600` la cambia y la guarda. Velocidades: 230400, 115200, 9600, 4800, 2400, 1200, 600 y 300 (con la CPU a 14,7456 MHz, el doble). Las de 9600 o menos usan el CTC: el puente del reloj de la SIO tiene que estar en CLK0_OUT (P6 para el canal A, P3 para el B), y los dos canales comparten esa constante. El mismo `BAUD.COM` funciona en CP/M 2.2 (allí cambia la velocidad con el servicio 32 de ZIOS; bajo MP/M programa la SIO directamente).
 - **Para volver a ZLoader**: `H:ZLOADER`. Pide confirmación (`Y`), espera a que nadie esté usando el disco y deja la máquina como después de un RESET. Lo que está corriendo se pierde, pero lo escrito en la SD ya está en la tarjeta.
-- **Con RAM de expansión** en el bus (ZEPHYRUS), MP/M la usa sola: la caché sube a 128 KB y G: crece. El mensaje de arranque dice cuántos bancos y cuánto G: quedaron.
+- **Con RAM de expansión** en el bus (ZEPHYRUS), MP/M la usa sola: la caché sube a 128 KB y G: crece. También recupera las páginas que ZIOS usaba para su disco en RAM (ZIOS no las entrega): las prueba una por una y toma las que guardan lo escrito y no son un espejo de otra. El mensaje de arranque dice cuántos bancos y cuánto G: quedaron.
 
 ## Cómo está hecho
 
@@ -96,7 +121,7 @@ Los mensajes que se ven en pantalla (arranque, errores, programas propios) está
 - **`MPMLDR.COM`** es el cargador de Digital Research con nuestro `LDRBIOS` (`ldrbios.asm`) en 1700h. Corre como programa de CP/M y lee `MPM.SYS` de H: con el servicio 17 de ZIOS.
 - **`MPM.SYS`** lo arma `GENSYS` con estas opciones:
   - tope en la página FD: deja libre FE00-FFFF, donde está el puente de ZIOS;
-  - 2 consolas, RST 7 para el depurador y 60 tics por segundo;
+  - 5 consolas (5 TMP), RST 7 para el depurador y 60 tics por segundo; con 5 consolas XDOS empieza en C900;
   - unidad del sistema H: y memoria común desde C000;
   - 7 segmentos de usuario (el XIOS deja en SYSDAT solo los que caben en la RAM).
 - **`SYSTEMINIT` del XIOS** se aprovecha de que ZIOS todavía está debajo:
@@ -108,23 +133,34 @@ Los mensajes que se ven en pantalla (arranque, errores, programas propios) está
 
   Después desactiva las interrupciones y toma la máquina:
   - encuentra la página común;
-  - junta las páginas libres (las de la placa y las del bus) y decide los bancos: páginas / 3, hasta 7 (con la placa sola ya son 7). Pone ese número de segmentos en SYSDAT+15. Las que sobran van a la caché (8, 4, 2 o 1, potencia de 2), a la impresora si va a un archivo (1) y a G: (el resto, hasta 128);
+  - junta las páginas libres (las de la placa, las del bus y las del disco en RAM de ZIOS), toma una para las pantallas de las consolas virtuales y decide los bancos: páginas / 3, hasta 7 (con la placa sola ya son 7). Pone ese número de segmentos en SYSDAT+15. Las que sobran van a la caché (8, 4, 2 o 1, potencia de 2), a la impresora si va a un archivo (1) y a G: (el resto, hasta 128);
   - escribe la página cero de cada banco;
   - pone sus rutinas en la tabla de vectores IM 2 de ZIOS: SIO en FFE0-FFEE y CTC en FFF0-FFF6;
   - activa la recepción y la transmisión por interrupción en las dos SIO;
   - averigua con CMD58 si cada tarjeta es SDHC.
-- **Parche a `XDOS.SPR`** (lo hace `gensys.py` antes de llamar a GENSYS): Digital Research pone a cada consola en el usuario igual a su número (`tmp$pd.disk$slct = i` en `mpm.asm`), así que la B arrancaba en `1A>`. Se cambian 3 bytes para que todas arranquen en el usuario 0. Otro parche, del mismo largo, cambia el mensaje `MP/M II V2.0` por `MP/M II 2.0 ZEPHYRUS 1.2`; `build.sh` hace lo mismo con el título de `MPMLDR`.
-- **`mkspr.py`** agrega un byte si el código mide un múltiplo exacto de 128: GENSYS reubica mal esos módulos (ver `gensys.txt` en cpm.z80.de). También cuida que la parte común del XIOS quede en C000 o más arriba: GENSYS pone el módulo debajo de XDOS alineado a 256 bytes, así que si el redondeo la empuja más abajo, agrega relleno en la parte con bancos. La parte común no puede pasar de 2560 bytes; `build.sh` avisa si no cabe.
+- **Parches a `XDOS.SPR`** (los hace `gensys.py` antes de llamar a GENSYS):
+  - Digital Research pone a cada consola en el usuario igual a su número (`tmp$pd.disk$slct = i` en `mpm.asm`), así que la B arrancaba en `1A>`. Se cambian 3 bytes para que todas arranquen en el usuario 0.
+  - Otro parche, del mismo largo, cambia el mensaje `MP/M II V2.0` por `MP/M II 2.0 ZEPHYRUS 1.4`; `build.sh` hace lo mismo con el título de `MPMLDR`.
+  - **La pila al terminar.** Cada programa empieza con la pila en una tabla de XDOS: 20 bytes por segmento de memoria, uno pegado al otro, con la dirección de retorno a "terminar" arriba. Un programa que termina con `RET` (DUMP, por ejemplo) vuelve a una rutina que guardaba AF, BC, DE y HL antes de llamar a la función 143; con eso XDOS bajaba 24 bytes y pisaba la dirección de retorno del segmento de abajo. Si el programa de ese segmento seguía corriendo y después también terminaba con `RET`, saltaba a cualquier parte y MP/M se caía. Pasaba con dos programas a la vez; con 5 consolas, en el emulador, con dos `DUMP` en dos consolas. Terminar no vuelve, así que el parche cambia esos 4 `PUSH` y sus 4 `POP` por `NOP`: la pila baja 16 bytes y queda dentro de lo suyo. Este error también estaba en la 1.3.
+- **`mkspr.py`** agrega un byte si el código mide un múltiplo exacto de 128: GENSYS reubica mal esos módulos (ver `gensys.txt` en cpm.z80.de). También cuida que la parte común del XIOS quede en C000 o más arriba: GENSYS pone el módulo debajo de XDOS alineado a 256 bytes, así que si el redondeo la empuja más abajo, agrega relleno en la parte con bancos. Con XDOS en C900 la parte común no puede pasar de 2304 bytes (`XLIM`); `build.sh` avisa si no cabe y también si la parte con bancos queda debajo de 8000 (tiene que estar en la ventana 2 para `BKCALL`).
 - **La caché de disco** usa las páginas de RAM que no son de ningún banco ni la común (hasta 8 páginas, 256 bloques). Guarda bloques de 512 bytes de la SD, asociativa de 2 vías, en la parte del XIOS con bancos. La página de la caché se pone un momento en la ventana 0, con las interrupciones apagadas de 64 en 64 bytes para no perder caracteres. Las escrituras van a la SD en el acto y también a la caché.
 - **El disco en RAM (G:)** usa las páginas que quedan después de la caché (3 con 512 KB). Con menos de 16 páginas tiene bloques de 1 KB y 64 entradas de directorio; con 16 o más, bloques de 2 KB y 128 entradas. `SYSTEMINIT` lo crea vacío.
-- **La salida de las consolas** va a un búfer circular por canal. Si el transmisor está parado, el carácter sale directo; si no, la interrupción de transmisor vacío manda el siguiente. Con el búfer lleno el proceso espera una bandera de MP/M (12 para A, 13 para B), que pone la interrupción al liberar un lugar. Por si se pierde una interrupción, el tic revisa cada canal.
-- **Memoria alta:** de FE00 a FFFF, sobre el tope de MP/M, van los búferes de entrada (64 bytes por consola), el búfer de directorio, la pila de las interrupciones, los búferes de salida y los vectores.
+- **La salida de las consolas** va a un búfer circular por canal. Si el transmisor está parado, el carácter sale directo; si no, la interrupción de transmisor vacío manda el siguiente. Con el búfer lleno el proceso espera una bandera de MP/M (12 para A, 13 para B), que pone la interrupción cuando el búfer baja a 8 caracteres (no a cada uno). Por si se pierde una interrupción, el tic revisa cada canal.
+- **Las consolas virtuales** viven en una página de 16 KB (`VTPG`), en la parte con bancos del XIOS:
+  - la página: 4 pantallas de 2 KB (80 x 24, sin atributos) en 0000-1FFF; el estado de cada consola (cursor, fila de arriba de la pantalla como anillo, estado de la secuencia ESC, consola con salida sin ver); el trozo que se está mandando; lo tecleado en cada consola (64 bytes); la pila de `BKCALL` arriba;
+  - `BKCALL` (en la memoria común) llama a una rutina de la parte con bancos desde cualquier banco y desde las interrupciones: pone en la ventana 2 la página del banco 0 y en la 0 la de las pantallas, cambia la pila, llama y repone todo (`SELBNK` anota la página de la ventana 2 antes del `OUT`);
+  - `CONOUT` de la consola que se ve deja el carácter en una cola de 32 (FE00) y lo manda a la SIO; la cola pasa a la pantalla de una vez, con una sola llamada al banco 0. Una consola de atrás solo escribe en su pantalla. La salida pesada cuesta alrededor de un 20 % más de CPU que en la 1.3;
+  - la interrupción de recepción de la SIO A pasa cada carácter por `KEYIN`, que reconoce Ctrl-F1..F4 y Ctrl-\\ 1..4 y deja lo demás en la consola que se ve. Un ESC espera 6 tics al resto de la secuencia;
+  - al cambiar de consola se vacía lo que faltaba mandar y la SIO A "genera" el redibujo: cuando su búfer se vacía, la interrupción lo vuelve a llenar con el siguiente trozo (CAN para cortar una secuencia a medias, `ESC [ 0 m`, la zona de desplazamiento, borrar, cada fila sin los espacios del final y la posición del cursor). Mientras tanto, la consola que se ve espera para escribir;
+  - la línea de estado sale igual, una vez por segundo, desde el tic. La fecha se calcula solo cuando cambia el día.
+- **Memoria alta:** de FE00 a FFFF, sobre el tope de MP/M: la cola de la pantalla (FE00), la entrada de la SIO B (FE40), el búfer de directorio (FE80), el paso entre BUF y el DMA (FF00), la pila de las interrupciones (FF40-FF7F; las interrupciones de las SIO también la usan, para no gastar la pila corta del proceso), los búferes de salida, el control de la impresora, el contador de la cola (FFD3) y los vectores.
+- **Memoria común:** las rutinas de disco y BUF están en la parte con bancos (el BDOS las llama con el banco 0 puesto) y copian al DMA de 64 en 64 bytes por FF00. El historial, el búfer de `MPM.CFG` y las tablas de páginas usan la RAM baja del banco 0 (4000-54FF).
 - **Impresora a un archivo:** `SYSTEMINIT` busca `A:MPM.CFG` al mismo tiempo que `STARTUP.SUB` y lee su primer registro. Con `LST=` y algo que no sea `B`, toma una página de 16 KB para un anillo: `LIST` deja ahí cada carácter (con la página un momento en la ventana 0) y, si está lleno, espera un tic. El bloque de control está en FFCC-FFD2: modo, página, cabeza, cola y la página de la ventana 2 del banco puesto, que `SELMEM` anota para que `LSTFILE` pueda devolverla. `LSTFILE` pone la página del anillo en su ventana 2, con las interrupciones apagadas, de 64 en 64 bytes. Las órdenes del arranque (`H:LSTFILE` y `H:SUBMIT A:STARTUP`) se entregan por `CONIN`; mientras quedan, `CONST` dice que no hay nada, porque el TMP vacía lo tecleado antes de leer.
 - **Errores de la SD:** cada lectura o escritura que falla se reintenta una vez después de iniciar la tarjeta otra vez (CMD0, CMD8, ACMD41, CMD58) y olvidar su caché.
 - **La hora al DS1307:** una vez por segundo el XIOS compara la hora de XDOS con la del arranque más los segundos contados. Si difieren en más de 3 s (alguien usó `TOD`), escribe la fecha nueva en el DS1307 por I2C.
 - **`RST 30h`** apunta en cada banco a `ZEMU`, en la memoria común, que imita los servicios 0, 4, 5, 6, 10, 11, 28, 31, 34 y 36 de ZIOS. El 10 libera antes la unidad con la función 37 del BDOS.
 - **Historial y STARTUP.SUB:** `CONIN` y `CONST` miran si el proceso que corre se llama `Tmp...`. Si es así, guardan cada línea y reproducen la pedida con `^W` (borra la línea con `^X` y la escribe de nuevo). La orden de `STARTUP.SUB` se entrega por `CONIN` sin anunciarla en `CONST`, porque el TMP descarta lo que ve tecleado antes de leer.
-- **La SD** usa un driver SPI propio, con los métodos de `zlib/libspi.asm` y un búfer de 512 bytes en la memoria común.
+- **La SD** usa un driver SPI propio, con los métodos de `zlib/libspi.asm` y un búfer de 512 bytes en la parte con bancos.
 - **El disco en flash** se lee mapeando la página de flash en la ventana 0 por un momento.
 - **El directorio y los DPB** van en la memoria común: `READ` copia con el banco del usuario puesto, y los programas leen el DPB con la función 31.
 
@@ -150,5 +186,7 @@ apps/mpm/build.sh
 
 ## Pendiente
 
-- CP/NET con el NUNTIUS y oli.
+- Probar la 1.4 en la placa real: Ctrl-F1..F4 con picocom, la línea de estado, la consola 4 en la SIO B, `A:MPM.CFG` con `BAUD` y `DRIVE`.
+- Consolas por WiFi con el NUNTIUS y CP/NET con oli (cuando el NUNTIUS esté instalado).
+- Una consola en la tarjeta de video (cuando esté la tarjeta).
 - La memoria común (C000-FFFF) no se puede achicar con provecho: las ventanas de la placa son de 16 KB, así que los bancos de usuario ya tienen los 48 KB máximos.

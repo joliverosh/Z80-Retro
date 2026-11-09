@@ -15,7 +15,7 @@ import re
 # (desde COMMONBASE) tiene que quedar en C000 o mas arriba, o sea
 # redondeo256(largo) - COMMONBASE <= LIMITE. Si el redondeo estorba, se agrega
 # relleno (XPAD) en la parte con bancos.
-LIMITE = 0xCA00 - 0xC000
+LIMITE = int(os.environ.get("XLIM", "0x900"), 16)   # XDOS en C900 con 5 consolas
 def cbase(lst):
     return int(re.search(r"^\s*\d+:\s+([0-9A-F]{4})\s+COMMONBASE:", open(lst).read(), re.M).group(1), 16)
 a, lst = asm(sys.argv[1], 0)
