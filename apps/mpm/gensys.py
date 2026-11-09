@@ -35,7 +35,7 @@ ANS = [  # (texto de la pregunta, respuesta)
     ('Breakpoint RST', '07'), ('system call user stacks', 'Y'), ('Z80 CPU', 'Y'),
     ('ticks/second', '#60'), ('System Drive', 'H:'), ('Temporary file drive', 'A:'),
     ('locked records/process', ''), ('Total locked records', ''), ('open files/process', ''),
-    ('Total open files', ''), ('Bank switched memory', 'Y'), ('user memory segments', '#7'),
+    ('Total open files', ''), ('Bank switched memory', 'Y'), ('user memory segments', '#5'),
     ('Common memory base page', 'C0'), ('Dayfile logging', 'N'),
     ('Accept new system data', 'Y'), ('Accept new memory segment', 'Y'),
 ]

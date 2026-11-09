@@ -18,13 +18,16 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 | | |
 |---|---|
 | Consolas | 2: **SIO A** (la consola de siempre) y **SIO B** (segundo terminal o NUNTIUS), a la velocidad que dejó ZIOS |
-| Memoria | 7 bancos de usuario de 48 KB (0000-BFFF) más el banco del sistema. La memoria común va de C000 a FFFF |
-| Discos | A-F en la SD, con el mismo mapa de ZIOS (`SM`) y el mismo formato que CP/M 2.2. H: es el disco en flash, de solo lectura |
+| Memoria | 5 bancos de usuario de 48 KB (0000-BFFF) más el banco del sistema. La memoria común va de C000 a FFFF |
+| Discos | **A-P**: las unidades de la SD con el mismo mapa de ZIOS (`SM`) y el mismo formato que CP/M 2.2; H: es el disco en flash, de solo lectura; **G:** es un disco en RAM |
+| Disco en RAM | **G:**, con las páginas que sobran (144 KB con 512 KB de RAM). Se borra en cada arranque |
+| Impresora | **`LST:` sale por SIO B**, la misma línea que la consola 1 |
 | Reloj | El tic de ZIOS: canal 1 del CTC, 120 Hz. MP/M recibe 60 tics por segundo |
-| Hora | Se toma del DS1307 al arrancar. `H:RTC` la vuelve a leer |
-| Caché de disco | Las páginas de RAM que sobran (64 KB): el directorio y los programas no se vuelven a leer de la SD. Escritura inmediata: la SD siempre está al día |
-
-G: no existe en MP/M: el disco en RAM de ZIOS se pierde porque sus páginas pasan a ser los bancos de usuario.
+| Hora | Se toma del DS1307 al arrancar. **Si se cambia con `TOD`, se escribe en el DS1307** |
+| Caché de disco | 64 KB de RAM: el directorio y los programas no se vuelven a leer de la SD. Escritura inmediata: la SD siempre está al día |
+| Historial | **`^W`** en el indicador repite la última orden; otro `^W`, la anterior (8 órdenes por consola) |
+| Arranque | Si existe **`A:STARTUP.SUB`** (usuario 0), se ejecuta solo al arrancar |
+| Servicios de ZIOS | Los programas que llaman a ZIOS con `RST 30h` funcionan: consola (0, 4, 5, 6), hora (28) y tics (31) |
 
 ## Cómo se usa
 
@@ -50,8 +53,10 @@ Desde entonces `BOS 5` arranca MP/M. El cargador queda en los sectores 70h-7Bh d
 ```
 a>H:MPMLDR
 ...
-Z80-Retro XIOS 1.2 (OLIVEROS 2026): 2 consolas, 7 bancos, SD y flash
+Z80-Retro XIOS 1.2 (OLIVEROS 2026): 2 consolas, 5 bancos, unidades A-P
 64 KB de cache de disco
+G: disco en RAM de 144 KB
+A:STARTUP.SUB
 MP/M II V2.0
 0A>TOD
 Thu 10/15/26 10:30:02
@@ -61,7 +66,11 @@ Thu 10/15/26 10:30:02
 - **PIP de MP/M es `H:PIP`.** Si en A: hay un `PIP.COM` de CP/M 3, ese gana al escribir solo `PIP` y responde `REQUIRES CP/M 3`.
 - **Programas útiles:** `MPMSTAT` muestra procesos, bancos y colas. `ABORT nombre` detiene un programa. `CONSOLE` dice en qué consola estás.
 - **Copiar un programa de H:** como es SYS, `PIP` necesita la opción `[R]`: `PIP A:=H:PRIMOS.COM[R]`.
-- **Los programas de la Z80-Retro que llaman a ZIOS** (`RST 30h`, por ejemplo para la hora) no se cuelgan: encuentran un `RET`. Por eso marcan 00:00:00.
+- **Los programas de la Z80-Retro que llaman a ZIOS** (`RST 30h`) reciben los servicios de consola, hora y tics, así que PRIMOS, BOMBE y PI miden bien el tiempo. Los demás servicios devuelven A=FFh.
+- **Las unidades I-P** existen si el mapa de ZIOS (`SM`) les asigna un disco de la SD. Un disco nuevo hay que formatearlo una vez desde ZLoader, por ejemplo la I: con `F 0 0 E5` y después `WI 80:I 8000 8000`.
+- **`A:STARTUP.SUB`** es un archivo de SUBMIT normal, una orden por línea. Al arrancar, la consola 0 recibe `H:SUBMIT A:STARTUP`. Presionar una tecla mientras corre lo detiene (así es SUBMIT en MP/M).
+- **El historial** (`^W`) solo actúa en el indicador `0A>`: dentro de un programa `^W` llega tal cual.
+- **La impresora** (`LST:`, `^P`, `PIP LST:=archivo`) usa SIO B. Si en SIO B hay un terminal, la salida aparece ahí.
 - **Para volver a ZLoader** hay que presionar RESET. MP/M se queda con la máquina.
 
 ## Cómo está hecho
@@ -71,7 +80,7 @@ Thu 10/15/26 10:30:02
   - tope en la página FD: deja libre FE00-FFFF, donde está el puente de ZIOS;
   - 2 consolas, RST 7 para el depurador y 60 tics por segundo;
   - unidad del sistema H: y memoria común desde C000;
-  - 7 segmentos de usuario.
+  - 5 segmentos de usuario.
 - **`SYSTEMINIT` del XIOS** se aprovecha de que ZIOS todavía está debajo:
   - le pregunta qué páginas tiene el banco 0 (servicio 1);
   - le pide el mapa de unidades (servicio 11);
@@ -80,7 +89,7 @@ Thu 10/15/26 10:30:02
 
   Después desactiva las interrupciones y toma la máquina:
   - encuentra la página común;
-  - reparte las páginas libres entre los bancos 1-7;
+  - reparte las páginas libres entre los bancos 1-5;
   - escribe la página cero de cada banco;
   - pone sus rutinas en la tabla de vectores IM 2 de ZIOS: SIO en FFE0-FFEE y CTC en FFF0-FFF6;
   - activa la recepción por interrupción en las dos SIO;
@@ -88,6 +97,10 @@ Thu 10/15/26 10:30:02
 - **Parche a `XDOS.SPR`** (lo hace `gensys.py` antes de llamar a GENSYS): Digital Research pone a cada consola en el usuario igual a su número (`tmp$pd.disk$slct = i` en `mpm.asm`), así que la B arrancaba en `1A>`. Se cambian 3 bytes para que todas arranquen en el usuario 0.
 - **`mkspr.py`** agrega un byte si el código mide un múltiplo exacto de 128: GENSYS reubica mal esos módulos (ver `gensys.txt` en cpm.z80.de).
 - **La caché de disco** usa las páginas de RAM que no son de ningún banco ni la común (4 páginas con 512 KB de RAM). Guarda bloques de 512 bytes de la SD, asociativa de 2 vías, en la parte del XIOS con bancos. La página de la caché se pone un momento en la ventana 0, con las interrupciones apagadas de 64 en 64 bytes para no perder caracteres. Las escrituras van a la SD en el acto y también a la caché.
+- **El disco en RAM (G:)** usa las páginas que quedan después de la caché (9 con 512 KB). Su DPB tiene bloques de 1 KB y 64 entradas de directorio; `SYSTEMINIT` lo crea vacío.
+- **La hora al DS1307:** una vez por segundo el XIOS compara la hora de XDOS con la del arranque más los segundos contados. Si difieren en más de 3 s (alguien usó `TOD`), escribe la fecha nueva en el DS1307 por I2C.
+- **`RST 30h`** apunta en cada banco a `ZEMU`, en la memoria común, que imita los servicios 0, 4, 5, 6, 28 y 31 de ZIOS con funciones de MP/M.
+- **Historial y STARTUP.SUB:** `CONIN` y `CONST` miran si el proceso que corre se llama `Tmp...`. Si es así, guardan cada línea y reproducen la pedida con `^W` (borra la línea con `^X` y la escribe de nuevo). La orden de `STARTUP.SUB` se entrega por `CONIN` sin anunciarla en `CONST`, porque el TMP descarta lo que ve tecleado antes de leer.
 - **La SD** usa un driver SPI propio, con los métodos de `zlib/libspi.asm` y un búfer de 512 bytes en la memoria común.
 - **El disco en flash** se lee mapeando la página de flash en la ventana 0 por un momento.
 - **El directorio y los DPB** van en la memoria común: `READ` copia con el banco del usuario puesto, y los programas leen el DPB con la función 31.
@@ -114,6 +127,5 @@ apps/mpm/build.sh
 
 ## Pendiente
 
-- G: (el disco en RAM) no está en MP/M.
-- Impresora: `LIST` descarta lo que recibe.
+- CP/NET con el NUNTIUS y oli.
 - La memoria común (C000-FFFF) no se puede achicar con provecho: las ventanas de la placa son de 16 KB, así que los bancos de usuario ya tienen los 48 KB máximos.
