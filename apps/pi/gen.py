@@ -1,6 +1,7 @@
 # Genera pi.asm: pi con NDIG decimales, formula de Machin en base 256, CP/M .COM
 import sys
 BARE = len(sys.argv)>2 and sys.argv[2]=='bare'
+GETTSRC = ("; GETT: HL = buffer de 6 bytes (seg, min, hora, dia, mes, ano en BCD)\nGETT:   LD C,28\n        RST 30h\n        DI\n        RET\n" if BARE else '; GETT: HL = buffer de 6 bytes (seg, min, hora, dia, mes, ano en BCD).\n; En CP/M se lee el DS1307 con ZIOS (RST 30h, C=28). En MP/M II ZIOS ya no\n; esta (RST 30h es un RET): se lee la hora de XDOS (dia, hora, min, seg en\n; BCD), cuya direccion esta en SYSDAT+252 (SYSDAT con la funcion 154). La\n; funcion 105 no sirve: en MP/M II no devuelve los segundos. Solo se llenan\n; seg, min y hora, que es lo que usan PTIME y ELAPS.\nGETT:   PUSH HL\n        LD C,12\n        CALL BDOS               ; H = 1 en MP/M\n        DEC H\n        JR Z,GTMPM\n        POP HL\n        LD C,28\n        RST 30h\n        RET\nGTMPM:  LD C,154\n        CALL BDOS               ; HL = SYSDAT\n        LD L,252\n        LD E,(HL)\n        INC HL\n        LD D,(HL)               ; DE = TOD de XDOS\n        POP HL\nGTM1:   LD A,(DE)               ; dia (bajo): para ver si el tic la cambio\n        PUSH DE\n        INC DE\n        INC DE\n        INC DE\n        INC DE\n        LD A,(DE)               ; seg\n        LD B,A\n        LD (HL),A\n        INC HL\n        DEC DE\n        LD A,(DE)               ; min\n        LD (HL),A\n        INC HL\n        DEC DE\n        LD A,(DE)               ; hora\n        LD (HL),A\n        DEC HL\n        DEC HL\n        INC DE\n        INC DE\n        LD A,(DE)               ; seg otra vez: si cambio, leer de nuevo\n        POP DE\n        CP B\n        JR NZ,GTM1\n        RET\n')
 o=[]
 CPM_IO = '''PCH:    PUSH HL
         PUSH DE
@@ -430,11 +431,7 @@ PNG1:   INC A
         RET Z
 PNG2:   LD B,1
         JP PCH
-; GETT: HL = buffer de 6 bytes (seg, min, hora, dia, mes, ano en BCD)
-GETT:   LD C,28
-        RST 30h
-""" + ("        DI\n" if BARE else "") + """        RET
-; PTIME: hh:mm:ss de (HL)
+""" + GETTSRC + """; PTIME: hh:mm:ss de (HL)
 PTIME:  PUSH HL
         INC HL
         INC HL

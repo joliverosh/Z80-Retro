@@ -73,9 +73,53 @@ D32C:   DJNZ D32B
         DJNZ D32A
         RET
 
-; GETT: HL = buffer de 6 bytes (seg, min, hora, dia, mes, ano en BCD)
-GETT:   LD C,28
+; GETT: HL = buffer de 6 bytes (seg, min, hora, dia, mes, ano en BCD).
+; En CP/M se lee el DS1307 con ZIOS (RST 30h, C=28). En MP/M II ZIOS ya no
+; esta (RST 30h es un RET): se lee la hora de XDOS (dia, hora, min, seg en
+; BCD), cuya direccion esta en SYSDAT+252 (SYSDAT con la funcion 154). La
+; funcion 105 no sirve: en MP/M II no devuelve los segundos. Solo se llenan
+; seg, min y hora, que es lo que usan PTIME y ELAPS.
+GETT:   PUSH HL
+        LD C,12
+        CALL BDOS               ; H = 1 en MP/M
+        DEC H
+        JR Z,GTMPM
+        POP HL
+        LD C,28
         RST 30h
+        RET
+GTMPM:  LD C,154
+        CALL BDOS               ; HL = SYSDAT
+        LD L,252
+        LD E,(HL)
+        INC HL
+        LD D,(HL)               ; DE = TOD de XDOS
+        POP HL
+GTM1:   LD A,(DE)               ; dia (bajo): para ver si el tic la cambio
+        PUSH DE
+        INC DE
+        INC DE
+        INC DE
+        INC DE
+        LD A,(DE)               ; seg
+        LD B,A
+        LD (HL),A
+        INC HL
+        DEC DE
+        LD A,(DE)               ; min
+        LD (HL),A
+        INC HL
+        DEC DE
+        LD A,(DE)               ; hora
+        LD (HL),A
+        DEC HL
+        DEC HL
+        INC DE
+        INC DE
+        LD A,(DE)               ; seg otra vez: si cambio, leer de nuevo
+        POP DE
+        CP B
+        JR NZ,GTM1
         RET
 ; PTIME: hh:mm:ss de (HL)
 PTIME:  PUSH HL
