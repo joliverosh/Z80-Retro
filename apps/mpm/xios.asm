@@ -549,6 +549,7 @@ GB0:    LD      A,(NCPG)        ; con cache: buscarlo alli
 GB1:    LD      A,0FFh
         LD      (CCARD),A       ; invalido mientras se lee
         LD      (BUFSL),A
+        LD      (BUFOK),A       ; (FF: BUF no esta en la cache)
         CALL    SDRDX
         RET     NZ
         LD      A,(DSKC)
@@ -589,6 +590,7 @@ CGET:   CALL    CLOOK
         LD      A,0FFh          ; BUF queda con un solo registro: no es un bloque
         LD      (CCARD),A
         LD      (BUFSL),A
+        LD      (BUFOK),A       ; (FF: BUF no esta en la cache)
         LD      BC,128
         CALL    CPYC
         XOR     A
@@ -633,13 +635,16 @@ BUFTAG: LD      A,(DSKC)
         LD      (CBLK+2),HL
         LD      A,(CSLOT)
         LD      (BUFSL),A
+        LD      A,0
+        LD      (BUFOK),A       ; BUF esta en el hueco BUFSL
         RET
 
 ; CWRREC: el registro que WRITE acaba de escribir en la tarjeta, tambien en la
 ; cache (si el bloque de BUF esta en ella). Devuelve A = 0 (bien).
-CWRREC: LD      A,(BUFSL)
-        CP      0FFh
+CWRREC: LD      A,(BUFOK)
+        INC     A
         JR      Z,CWR9
+        LD      A,(BUFSL)
         CALL    SLADR
         CALL    RECOFF
         ADD     HL,DE
@@ -653,14 +658,16 @@ CWR9:   XOR     A
 
 ; CWRERR: la escritura fallo. BUF tiene datos que la tarjeta no tiene: se
 ; olvidan BUF y su copia en la cache, y la proxima lectura va a la tarjeta.
-CWRERR: LD      A,(BUFSL)
-        CP      0FFh
+CWRERR: LD      A,(BUFOK)
+        INC     A
         JR      Z,CWE9
+        LD      A,(BUFSL)
         CALL    TAGADR
         LD      (HL),0FFh
 CWE9:   LD      A,0FFh
         LD      (CCARD),A
         LD      (BUFSL),A
+        LD      (BUFOK),A       ; (FF: BUF no esta en la cache)
         RET
 
 ; CLOOK: busca DSKC/BLK. Z: esta, A = hueco. NZ: no esta, A = hueco a usar.
@@ -811,16 +818,16 @@ CPY2:   LD      A,B
         JR      NZ,CPYC
         RET
 
-; CINIT: paginas libres para la cache (las que no son de ningun banco ni la
-; comun), de arriba hacia abajo: 4, 2, 1 o ninguna. Etiquetas vacias.
-CINIT:  LD      A,(POOLN)       ; hasta 4 de las que quedan en la reserva
-        CP      4
-        JR      C,CI3
-        LD      A,4
-CI3:    CP      3               ; 3 -> 2 (los conjuntos van en potencia de 2)
-        JR      NZ,CI4
-        DEC     A
-CI4:    LD      (NCPG),A
+; CINIT: paginas de la reserva para la cache (despues de los bancos): 8, 4, 2,
+; 1 o ninguna (los conjuntos van en potencia de 2). Etiquetas vacias.
+CINIT:  LD      A,(POOLN)
+        LD      C,8
+CI1:    CP      C
+        JR      NC,CI4
+        SRL     C
+        JR      NZ,CI1
+CI4:    LD      A,C
+        LD      (NCPG),A
         LD      DE,CPG
         CALL    POOLTK
         LD      A,(NCPG)
@@ -833,22 +840,24 @@ CI4:    LD      (NCPG),A
         LD      HL,CTAG         ; todas las etiquetas vacias (tarjeta FF)
         LD      DE,CTAG+1
         LD      (HL),0FFh
-        LD      BC,5*128-1
+        LD      BC,5*256-1
         LDIR
         LD      A,0FFh
         LD      (BUFSL),A
+        LD      (BUFOK),A       ; (FF: BUF no esta en la cache)
         RET
 
 GMODE:  DEFB    0               ; 0 = basta el registro, 1 = bloque entero
 CSLOT:  DEFB    0
 CSET:   DEFB    0
-BUFSL:  DEFB    0FFh            ; hueco que tiene el bloque de BUF (FF = ninguno)
+BUFSL:  DEFB    0               ; hueco que tiene el bloque de BUF (0-255)
+BUFOK:  DEFB    0FFh            ; 0: BUFSL vale; FF: BUF no esta en la cache
 NCPG:   DEFB    0               ; paginas de cache (0 = sin cache)
 NCONJ:  DEFB    0
 CPAGE:  DEFB    0
-CPG:    DEFS    4
-CLRU:   DEFS    64              ; via mas reciente de cada conjunto
-CTAG:   DEFS    5*128           ; etiquetas: tarjeta (FF = vacio) y bloque
+CPG:    DEFS    8
+CLRU:   DEFS    128             ; via mas reciente de cada conjunto
+CTAG:   DEFS    5*256           ; etiquetas: tarjeta (FF = vacio) y bloque
 
 ; ------------------------------------------------------------- SD (en la parte con bancos:
 ; se usa solo con el banco 0 puesto)
@@ -1328,6 +1337,7 @@ RAMRD:  CALL    RAMADR
         LD      A,0FFh          ; BUF ya no tiene un bloque de la SD
         LD      (CCARD),A
         LD      (BUFSL),A
+        LD      (BUFOK),A       ; (FF: BUF no esta en la cache)
         PUSH    HL
         CALL    BUFPTR
         EX      DE,HL
@@ -1501,10 +1511,8 @@ PP3:    LD      A,B
         LD      (POOLN),A
         LD      HL,POOL
         LD      (POOLP),HL
-        SUB     13              ; bancos = (paginas - 13) / 3
-        JR      NC,PP4
-        XOR     A
-PP4:    LD      C,A
+PP4:    LD      C,A             ; bancos = paginas / 3, hasta MAXBNK: la RAM es
+                                ; primero para MP/M; la cache y G: se llevan lo que sobre
         LD      B,0
 PP5:    LD      A,C
         SUB     3
@@ -2069,9 +2077,10 @@ CPURGE: LD      A,(DSKC)
         LD      (HL),0FFh
         LD      A,0FFh
         LD      (BUFSL),A
+        LD      (BUFOK),A       ; (FF: BUF no esta en la cache)
 CPU1:   LD      HL,CTAG
         LD      DE,5
-        LD      B,128
+        LD      B,0             ; 256 huecos
 CPU2:   LD      A,(HL)
         CP      C
         JR      NZ,CPU3
