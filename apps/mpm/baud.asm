@@ -377,17 +377,17 @@ TASAS:  DEFB    '230400',0,W_X32,0
         DEFB    '300',0,W_X16,96
         DEFB    0
 
-MCANAL: DEFB    13,10,'Canal $'
+MCANAL: DEFB    13,10,'Channel $'
 MDOSP:  DEFB    ': $'
-MDOBLE: DEFB    13,10,'(con la CPU a 14,7456 MHz las velocidades son el doble)$'
+MDOBLE: DEFB    13,10,'(with the CPU at 14.7456 MHz all rates are doubled)$'
 MFIN:   DEFB    13,10,'$'
-MUSO:   DEFB    13,10,'Uso: BAUD [A|B velocidad]   230400 115200 9600 4800 2400 1200 600 300',13,10,'$'
-MNVR:   DEFB    13,10,'No se pudo leer o grabar la NVRAM del DS1307',13,10,'$'
-MCTC:   DEFB    13,10,'El otro canal usa el CTC con otra velocidad (el reloj del CTC es uno solo)',13,10,'$'
-MLISTO: DEFB    13,10,'Guardado: canal $'
-MLISTO2: DEFB   ' a $'
-MPUENTE: DEFB   13,10,'Con 9600 o menos el puente del reloj de la SIO va en CLK0_OUT (P6 canal A, P3 canal B).$'
-MCAMBIO: DEFB   13,10,'Cambia ahora; ajusta el terminal.',13,10,'$'
+MUSO:   DEFB    13,10,'Usage: BAUD [A|B rate]   230400 115200 9600 4800 2400 1200 600 300',13,10,'$'
+MNVR:   DEFB    13,10,'Cannot read or write the DS1307 NVRAM',13,10,'$'
+MCTC:   DEFB    13,10,'The other channel uses the CTC at another rate (both share one CTC clock)',13,10,'$'
+MLISTO: DEFB    13,10,'Saved: channel $'
+MLISTO2: DEFB   ' at $'
+MPUENTE: DEFB   13,10,'At 9600 or less the SIO clock jumper must be on CLK0_OUT (P6 channel A, P3 channel B).$'
+MCAMBIO: DEFB   13,10,'Changing now; set your terminal to match.',13,10,'$'
 
 CANAL:  DEFB    0
 WR4:    DEFB    0

@@ -59,9 +59,9 @@ Desde entonces `BOS 5` arranca MP/M. El cargador queda en los sectores 70h-7Bh d
 ```
 a>H:MPMLDR
 ...
-ZEPHYRUS XIOS 1.3 (OLIVEROS 2026): 2 consolas, 7 bancos, unidades A-P
-64 KB de cache de disco
-G: disco en RAM de 48 KB
+ZEPHYRUS XIOS 1.3 (OLIVEROS 2026): 2 consoles, 7 banks, drives A-P
+64 KB disk cache
+G: RAM disk, 48 KB
 A:STARTUP.SUB
 MP/M II 2.0 ZEPHYRUS 1.3
 (C) 1981 Digital Research
@@ -86,10 +86,12 @@ Thu 10/15/26 10:30:02
 
   `LST=B`, o sin el archivo, la manda a SIO B: si ahí hay un terminal, la salida aparece en él. `LST=A:IMPRESOR.TXT` (cualquier nombre, con o sin unidad; sin unidad es A:) la guarda en ese documento. Lo impreso se agrega al final, así que el archivo crece hasta que lo borres. Al arrancar se ejecuta solo `H:LSTFILE`, que queda corriendo suelto (ocupa un banco) y pasa lo impreso al archivo cada medio segundo. Lo cierra tras 2 s sin impresión: mientras se imprime, `TYPE` responde `File Currently Open`; hay que esperar un momento.
 - **`H:BAUD`** sin parámetros muestra la velocidad guardada de cada canal; `H:BAUD B 9600` la cambia y la guarda. Velocidades: 230400, 115200, 9600, 4800, 2400, 1200, 600 y 300 (con la CPU a 14,7456 MHz, el doble). Las de 9600 o menos usan el CTC: el puente del reloj de la SIO tiene que estar en CLK0_OUT (P6 para el canal A, P3 para el B), y los dos canales comparten esa constante. El mismo `BAUD.COM` funciona en CP/M 2.2 (allí cambia la velocidad con el servicio 32 de ZIOS; bajo MP/M programa la SIO directamente).
-- **Para volver a ZLoader**: `H:ZLOADER`. Pide confirmación, espera a que nadie esté usando el disco y deja la máquina como después de un RESET. Lo que está corriendo se pierde, pero lo escrito en la SD ya está en la tarjeta.
+- **Para volver a ZLoader**: `H:ZLOADER`. Pide confirmación (`Y`), espera a que nadie esté usando el disco y deja la máquina como después de un RESET. Lo que está corriendo se pierde, pero lo escrito en la SD ya está en la tarjeta.
 - **Con RAM de expansión** en el bus (ZEPHYRUS), MP/M la usa sola: la caché sube a 128 KB y G: crece. El mensaje de arranque dice cuántos bancos y cuánto G: quedaron.
 
 ## Cómo está hecho
+
+Los mensajes que se ven en pantalla (arranque, errores, programas propios) están en inglés; los comentarios de los fuentes y esta documentación, en español.
 
 - **`MPMLDR.COM`** es el cargador de Digital Research con nuestro `LDRBIOS` (`ldrbios.asm`) en 1700h. Corre como programa de CP/M y lee `MPM.SYS` de H: con el servicio 17 de ZIOS.
 - **`MPM.SYS`** lo arma `GENSYS` con estas opciones:

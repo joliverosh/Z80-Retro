@@ -381,12 +381,12 @@ SALE:   LD      C,9
         LD      C,0
         JP      BDOS
 
-MANUN:  DEFB    13,10,'Impresora en el archivo $'
+MANUN:  DEFB    13,10,'Printer output to file $'
 MFIN:   DEFB    13,10,'$'
-MNOMPM: DEFB    13,10,'LSTFILE es para MP/M II ZEPHYRUS',13,10,'$'
-MNOAR:  DEFB    13,10,'La impresora no va a un archivo (ver A:MPM.CFG)',13,10,'$'
-MNOCFG: DEFB    13,10,'No pude leer LST= en A:MPM.CFG',13,10,'$'
-MMAL:   DEFB    13,10,'El nombre de LST= en A:MPM.CFG no sirve',13,10,'$'
+MNOMPM: DEFB    13,10,'LSTFILE needs MP/M II ZEPHYRUS',13,10,'$'
+MNOAR:  DEFB    13,10,'The printer is not set to a file (see A:MPM.CFG)',13,10,'$'
+MNOCFG: DEFB    13,10,'Cannot read LST= in A:MPM.CFG',13,10,'$'
+MMAL:   DEFB    13,10,'Bad file name in LST= of A:MPM.CFG',13,10,'$'
 CFCB:   DEFB    1,'MPM     CFG'
         DEFS    24
 FCB:    DEFS    36

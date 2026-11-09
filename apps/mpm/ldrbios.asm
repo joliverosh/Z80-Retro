@@ -37,7 +37,7 @@ DSM:    DEFW    231
         DEFW    0
         DEFW    0
 
-MSG:    DEFB    13,10,'LDRBIOS de ZEPHYRUS: MPM.SYS desde la unidad ',LDRV+'A',':',13,10,0
+MSG:    DEFB    13,10,'ZEPHYRUS LDRBIOS: loading MPM.SYS from drive ',LDRV+'A',':',13,10,0
 
 BOOT:   LD      HL,MSG
 BOOT1:  LD      A,(HL)

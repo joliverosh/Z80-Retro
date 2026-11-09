@@ -2151,9 +2151,9 @@ MPCH:   PUSH    HL
         RET
 MCON:   DEFB    0
 SDCRC:  DEFB    0FFh
-MSGRD:  DEFB    13,10,'SD: no se pudo leer ',0
-MSGWR:  DEFB    13,10,'SD: no se pudo escribir ',0
-MSGPT:  DEFB    ': pista ',0
+MSGRD:  DEFB    13,10,'SD: read error on ',0
+MSGWR:  DEFB    13,10,'SD: write error on ',0
+MSGPT:  DEFB    ': track ',0
 MSGSC:  DEFB    'h, sector ',0
 MSGFIN: DEFB    'h',13,10,0
 
@@ -2201,12 +2201,12 @@ TXINI:  DEFB    0,0,0,0,SIOAD,SIOAC
 VECS:   DEFW    ITXB,IEXB,IRXB,ISPB,ITXA,IEXA,IRXA,ISPA    ; FFE0-FFEE
         DEFW    INULL,ITICK,INULL,INULL                    ; FFF0-FFF6 (CTC 0-3)
 
-MSG:    DEFB    13,10,'ZEPHYRUS XIOS 1.3 (OLIVEROS 2026): 2 consolas, ',0
-MSGB:   DEFB    ' bancos, unidades A-P',13,10,0
-MSGC:   DEFB    ' KB de cache de disco',13,10,0
+MSG:    DEFB    13,10,'ZEPHYRUS XIOS 1.3 (OLIVEROS 2026): 2 consoles, ',0
+MSGB:   DEFB    ' banks, drives A-P',13,10,0
+MSGC:   DEFB    ' KB disk cache',13,10,0
 MSGS:   DEFB    'A:STARTUP.SUB',13,10,0
-MSGL:   DEFB    'LST: a un archivo (A:MPM.CFG, H:LSTFILE)',13,10,0
-MSGG:   DEFB    'G: disco en RAM de ',0
+MSGL:   DEFB    'LST: to a file (A:MPM.CFG, H:LSTFILE)',13,10,0
+MSGG:   DEFB    'G: RAM disk, ',0
 MSGK:   DEFB    ' KB',13,10,0
 
 SIOPUT: PUSH    AF

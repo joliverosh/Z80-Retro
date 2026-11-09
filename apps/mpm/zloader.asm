@@ -15,7 +15,7 @@ STUB    EQU     0FC00h          ; TMPD.DAT de MP/M: ya no se usa al salir
         LD      C,1             ; respuesta (con eco)
         CALL    BDOS
         AND     5Fh
-        CP      'S'
+        CP      'Y'
         JR      Z,SI
         LD      DE,MNO
         LD      C,9
@@ -59,7 +59,7 @@ SALTOL  EQU     $-SALTO
 UQCB:   DEFW    0
         DEFW    0
         DEFB    'MXDisk  '
-MPREG:  DEFB    13,10,'Volver a ZLoader? Se pierde lo que este corriendo (S/N) $'
-MNO:    DEFB    13,10,'Sigue MP/M.',13,10,'$'
-MSAL:   DEFB    13,10,'Saliendo de MP/M...',13,10,'$'
+MPREG:  DEFB    13,10,'Return to ZLoader? Running programs will be lost (Y/N) $'
+MNO:    DEFB    13,10,'MP/M continues.',13,10,'$'
+MSAL:   DEFB    13,10,'Leaving MP/M...',13,10,'$'
         END
