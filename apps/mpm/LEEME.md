@@ -21,7 +21,7 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 | Memoria | 7 bancos de usuario de 48 KB (0000-BFFF) más el banco del sistema. La memoria común va de C000 a FFFF |
 | Discos | A-F en la SD, con el mismo mapa de ZIOS (`SM`) y el mismo formato que CP/M 2.2. H: es el disco en flash, de solo lectura |
 | Reloj | El tic de ZIOS: canal 1 del CTC, 120 Hz. MP/M recibe 60 tics por segundo |
-| Hora | `H:RTC` lee el DS1307 y pone en hora MP/M |
+| Hora | Se toma del DS1307 al arrancar. `H:RTC` la vuelve a leer |
 
 G: no existe en MP/M: el disco en RAM de ZIOS se pierde porque sus páginas pasan a ser los bancos de usuario.
 
@@ -34,13 +34,14 @@ G: no existe en MP/M: el disco en RAM de ZIOS se pierde porque sus páginas pasa
 ```
 a>H:MPMLDR
 ...
-Z80-Retro XIOS 1.0 (OLIVEROS 2026): 2 consolas, 7 bancos, SD y flash
+Z80-Retro XIOS 1.1 (OLIVEROS 2026): 2 consolas, 7 bancos, SD y flash
 MP/M II V2.0
-0A>H:RTC
 0A>TOD
+Thu 10/15/26 10:30:02
 ```
 
-- **El indicador** es `usuario` + `unidad` + `>`. La consola B arranca en el usuario 1 (`1A>`): con `USER 0` ve lo mismo que la A. Los programas del disco H: llevan el atributo SYS, así que se ven desde cualquier usuario y unidad.
+- **El indicador** es `usuario` + `unidad` + `>`. Las dos consolas arrancan en `0A>`. Los programas del disco H: llevan el atributo SYS, así que se ven desde cualquier usuario y unidad.
+- **PIP de MP/M es `H:PIP`.** Si en A: hay un `PIP.COM` de CP/M 3, ese gana al escribir solo `PIP` y responde `REQUIRES CP/M 3`.
 - **Programas útiles:** `MPMSTAT` muestra procesos, bancos y colas. `ABORT nombre` detiene un programa. `CONSOLE` dice en qué consola estás.
 - **Copiar un programa de H:** como es SYS, `PIP` necesita la opción `[R]`: `PIP A:=H:PRIMOS.COM[R]`.
 - **Los programas de la Z80-Retro que llaman a ZIOS** (`RST 30h`, por ejemplo para la hora) no se cuelgan: encuentran un `RET`. Por eso marcan 00:00:00.
@@ -57,7 +58,8 @@ MP/M II V2.0
 - **`SYSTEMINIT` del XIOS** se aprovecha de que ZIOS todavía está debajo:
   - le pregunta qué páginas tiene el banco 0 (servicio 1);
   - le pide el mapa de unidades (servicio 11);
-  - le pide el tamaño del disco en flash (servicio 36) y los tics por segundo (servicio 31).
+  - le pide el tamaño del disco en flash (servicio 36) y los tics por segundo (servicio 31);
+  - le pide la fecha del DS1307 (servicio 28) y la escribe en la hora de XDOS, cuya dirección está en SYSDAT+252. Si el reloj no responde o la fecha no es válida, MP/M arranca con su fecha de fábrica (14/09/81).
 
   Después desactiva las interrupciones y toma la máquina:
   - encuentra la página común;
@@ -66,6 +68,8 @@ MP/M II V2.0
   - pone sus rutinas en la tabla de vectores IM 2 de ZIOS: SIO en FFE0-FFEE y CTC en FFF0-FFF6;
   - activa la recepción por interrupción en las dos SIO;
   - averigua con CMD58 si cada tarjeta es SDHC.
+- **Parche a `XDOS.SPR`** (lo hace `gensys.py` antes de llamar a GENSYS): Digital Research pone a cada consola en el usuario igual a su número (`tmp$pd.disk$slct = i` en `mpm.asm`), así que la B arrancaba en `1A>`. Se cambian 3 bytes para que todas arranquen en el usuario 0.
+- **`mkspr.py`** agrega un byte si el código mide un múltiplo exacto de 128: GENSYS reubica mal esos módulos (ver `gensys.txt` en cpm.z80.de).
 - **La SD** usa un driver SPI propio, con los métodos de `zlib/libspi.asm` y un búfer de 512 bytes en la memoria común.
 - **El disco en flash** se lee mapeando la página de flash en la ventana 0 por un momento.
 - **El directorio y los DPB** van en la memoria común: `READ` copia con el banco del usuario puesto, y los programas leen el DPB con la función 31.
@@ -93,6 +97,6 @@ apps/mpm/build.sh
 ## Pendiente
 
 - Probar en la placa real.
-- La hora no se pone sola al arrancar: hay que ejecutar `H:RTC`.
 - G: (el disco en RAM) no está en MP/M.
 - Impresora: `LIST` descarta lo que recibe.
+- La memoria común (C000-FFFF) no se puede achicar con provecho: las ventanas de la placa son de 16 KB, así que los bancos de usuario ya tienen los 48 KB máximos.

@@ -13,6 +13,10 @@ def asm(src, org):
 a, lst = asm(sys.argv[1], 0)
 b, _ = asm(sys.argv[1], 0x100)
 assert len(a) == len(b)
+if len(a) % 128 == 0:
+    # GENSYS (LDRLWR) reubica mal un modulo cuyo codigo mide un multiplo
+    # exacto de 128 bytes (ver gensys.txt del sitio cpm.z80.de): un byte mas.
+    a += b"\0"; b += b"\0"
 bits = bytearray((len(a) + 7) // 8)
 for i, (x, y) in enumerate(zip(a, b)):
     if x != y:

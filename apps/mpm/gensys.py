@@ -10,7 +10,18 @@ D2 = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dri')
 rsps = [r.upper() for r in sys.argv[1:]]
 files = [('GENSYS.COM', open(f'{D2}/GENSYS.COM','rb').read())]
 for f in ['RESBDOS.SPR','XDOS.SPR','BNKBDOS.SPR','BNKXDOS.SPR','TMP.SPR']:
-    files.append((f, open(f'{D2}/{f}','rb').read()))
+    d = open(f'{D2}/{f}','rb').read()
+    if f == 'XDOS.SPR':
+        # Parche: todas las consolas arrancan en el usuario 0 (DRI pone
+        # tmp$pd.disk$slct = numero de consola, asi la B arranca en 1A>).
+        # mpm.asm:  LXI H,0EH / DAD D / MOV M,B / LXI H,16H / DAD D / MOV M,B
+        # pasa a    LXI H,0EH / DAD D / MOV M,B / LXI B,8   / DAD B / MOV M,B
+        # (B = 0, HL = PD+16H). B no se vuelve a usar; nada que relocalizar.
+        old = bytes([0x21,0x0e,0,0x19,0x70, 0x21,0x16,0,0x19,0x70])
+        new = bytes([0x21,0x0e,0,0x19,0x70, 0x01,0x08,0,0x09,0x70])
+        assert d.count(old) == 1, 'XDOS.SPR: no encuentro el TMP disk$slct'
+        d = d.replace(old, new)
+    files.append((f, d))
 files.append(('BNKXIOS.SPR', open('BNKXIOS.SPR','rb').read()))
 for r in rsps:
     for ext in ('RSP','BRS'):

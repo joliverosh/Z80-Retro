@@ -105,6 +105,7 @@ SYSINIT: LD     (SVSP),SP
         LD      A,C
         LD      (DBGR),A
         CALL    PGQRY           ; ---- 1. paginas del banco 0 (en la comun)
+        CALL    RTCTOD          ; ---- 1b. la hora del DS1307 (servicio 28) a la TOD de XDOS
         ; ---- 2. mapa de unidades (servicio 11) y disco en flash (servicio 36)
         LD      HL,ZMAP
         LD      B,0
@@ -309,6 +310,116 @@ SI15:   LD      SP,(SVSP)
         EI
         RET
 
+; RTCTOD: pide la fecha a ZIOS (servicio 28: seg, min, hora, dia, mes, anio en
+; BCD) y la escribe en la TOD de XDOS, cuya direccion esta en SYSDAT+252. Si el
+; reloj no responde o da algo que no es una fecha, deja la TOD como esta.
+RTCTOD: LD      HL,TBUF
+        LD      C,28
+        CALL    ZIOS
+        LD      HL,TBUF         ; validar: digitos BCD y rangos
+        LD      DE,TMAX
+        LD      B,6
+RT1:    LD      A,(HL)
+        AND     0Fh
+        CP      10
+        RET     NC
+        LD      A,(DE)
+        LD      C,A
+        LD      A,(HL)
+        CP      C
+        RET     NC              ; fuera de rango (o FF sin reloj)
+        INC     HL
+        INC     DE
+        DJNZ    RT1
+        LD      A,(TBUF+3)      ; dia y mes empiezan en 1
+        OR      A
+        RET     Z
+        LD      A,(TBUF+4)
+        OR      A
+        RET     Z
+        ; dias desde el 31/12/1977: anios completos desde 1978
+        LD      A,(TBUF+5)
+        CALL    BCDBIN
+        ADD     A,22
+        LD      B,A
+        LD      HL,0
+        LD      C,78
+RT2:    LD      A,B
+        OR      A
+        JR      Z,RT4
+        LD      DE,365
+        LD      A,C
+        AND     3
+        JR      NZ,RT3
+        INC     DE              ; bisiesto (1980..2096)
+RT3:    ADD     HL,DE
+        INC     C
+        DJNZ    RT2
+RT4:    LD      A,(TBUF+4)      ; meses ya pasados
+        CALL    BCDBIN
+        LD      B,A
+        LD      DE,MESES
+RT5:    DEC     B
+        JR      Z,RT6
+        LD      A,(DE)
+        ADD     A,L
+        LD      L,A
+        JR      NC,RT5B
+        INC     H
+RT5B:   INC     DE
+        JR      RT5
+RT6:    LD      A,(TBUF+4)      ; 29 de febrero ya pasado
+        CALL    BCDBIN
+        CP      3
+        JR      C,RT7
+        LD      A,(TBUF+5)
+        CALL    BCDBIN
+        AND     3
+        JR      NZ,RT7
+        INC     HL
+RT7:    LD      A,(TBUF+3)
+        CALL    BCDBIN
+        LD      E,A
+        LD      D,0
+        ADD     HL,DE
+        EX      DE,HL           ; DE = dia
+        LD      HL,(SYSDAT)
+        LD      L,252
+        LD      A,(HL)
+        INC     HL
+        LD      H,(HL)
+        LD      L,A             ; HL = TOD
+        LD      (HL),E
+        INC     HL
+        LD      (HL),D
+        INC     HL
+        LD      A,(TBUF+2)
+        LD      (HL),A
+        INC     HL
+        LD      A,(TBUF+1)
+        LD      (HL),A
+        INC     HL
+        LD      A,(TBUF+0)
+        LD      (HL),A
+        RET
+BCDBIN: PUSH    BC
+        LD      B,A
+        AND     0F0h
+        RRCA
+        LD      C,A
+        RRCA
+        RRCA
+        ADD     A,C
+        LD      C,A
+        LD      A,B
+        AND     0Fh
+        ADD     A,C
+        POP     BC
+        RET
+TBUF:   DEFS    6
+TMAX:   DEFB    60h,60h,24h,32h,13h,9Ah ; limites (exclusivos) en BCD
+MESES:  DEFB    31,28,31,30,31,30,31,31,30,31,30,31
+
 ; USADA: Z si la pagina A es del banco 0, la comun o ya esta asignada
 USADA:  PUSH    HL
         PUSH    BC
@@ -361,7 +472,7 @@ SIOINN  EQU     ($-SIOINI)/2
 VECS:   DEFW    ITXB,IEXB,IRXB,ISPB,ITXA,IEXA,IRXA,ISPA    ; FFE0-FFEE
         DEFW    INULL,ITICK,INULL,INULL                    ; FFF0-FFF6 (CTC 0-3)
 
-MSG:    DEFB    13,10,'Z80-Retro XIOS 1.0 (OLIVEROS 2026): 2 consolas, 7 bancos, SD y flash',13,10,0
+MSG:    DEFB    13,10,'Z80-Retro XIOS 1.1 (OLIVEROS 2026): 2 consolas, 7 bancos, SD y flash',13,10,0
 
 
 ; =============================================================== memoria comun
