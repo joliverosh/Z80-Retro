@@ -13,6 +13,8 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 
 **Probado también en la placa real** (Z80 CPU Rev 2.2, flash MX29F040, 8/11/2026): arranca, toma la hora del DS1307 y `TOD` la muestra.
 
+**La 1.3 en la placa real** (9/11/2026): arranca con 7 bancos, 64 KB de caché y G: de 48 KB; `DIR H:` y `MPMSTAT` salen completos con la salida por interrupción; `TOD` da la hora del DS1307; PI1K desde G: calcula los 1000 decimales en 27 s; PRIMOS tarda 7 s; `H:ZLOADER` vuelve a ZLoader sin RESET.
+
 ## Qué ofrece
 
 | | |
