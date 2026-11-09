@@ -3,3 +3,4 @@ run/cpmrun
 run/*.txt
 *.asm
 !gen.py
+!*.HEX

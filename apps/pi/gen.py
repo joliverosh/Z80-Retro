@@ -1,6 +1,36 @@
 # Genera pi.asm: pi con NDIG decimales, formula de Machin en base 256, CP/M .COM
 import sys
+BARE = len(sys.argv)>2 and sys.argv[2]=='bare'
 o=[]
+CPM_IO = '''PCH:    PUSH HL
+        PUSH DE
+        PUSH BC
+        LD E,A
+        LD C,2
+        CALL BDOS
+        POP BC
+        POP DE
+        POP HL
+        RET
+PSTR:   LD C,9
+        JP BDOS
+'''
+# Sin sistema operativo: el SIO A (datos 81h, control 83h) por sondeo, con las
+# interrupciones apagadas. ZIOS solo se usa para leer el reloj (RST 30h, C=28).
+BARE_IO = '''PCH:    PUSH AF
+PCH1:   IN A,(83h)
+        BIT 2,A         ; RR0 bit 2: transmisor vacio
+        JR Z,PCH1
+        POP AF
+        OUT (81h),A
+        RET
+PSTR:   LD A,(DE)
+        CP '$'
+        RET Z
+        CALL PCH
+        INC DE
+        JR PSTR
+'''
 def e(s): o.append(s)
 e("""; PI.COM / PI10K.COM - pi con NDIG decimales para la Z80-Retro (CP/M 2.2 o 3)
 ; pi = 16 atan(1/5) - 4 atan(1/239), punto fijo en base 256 (byte 0 = parte entera).
@@ -73,8 +103,7 @@ e("""; --- ARS = 0
         LD DE,T2
         CALL ELAPS
         CALL CRLF
-        JP 0
-
+""" + ("        EI\n        LD C,0\n        RST 30h\n" if BARE else "        JP 0\n") + """
 ; ===== ATAN: ARS += signo * A * atan(1/DE), BC = DE^2
 ATAN:   LD (DIVX),DE
         LD (DIVX2),BC
@@ -354,19 +383,7 @@ ZERO:   LD (HL),0
         OR C
         JR NZ,ZERO
         RET
-PCH:    PUSH HL
-        PUSH DE
-        PUSH BC
-        LD E,A
-        LD C,2
-        CALL BDOS
-        POP BC
-        POP DE
-        POP HL
-        RET
-PSTR:   LD C,9
-        JP BDOS
-CRLF:   LD A,13
+""" + (BARE_IO if BARE else CPM_IO) + """CRLF:   LD A,13
         CALL PCH
         LD A,10
         JP PCH
@@ -416,7 +433,7 @@ PNG2:   LD B,1
 ; GETT: HL = buffer de 6 bytes (seg, min, hora, dia, mes, ano en BCD)
 GETT:   LD C,28
         RST 30h
-        RET
+""" + ("        DI\n" if BARE else "") + """        RET
 ; PTIME: hh:mm:ss de (HL)
 PTIME:  PUSH HL
         INC HL
@@ -520,7 +537,7 @@ EL2:    PUSH AF
         LD DE,M_SEC
         JP PSTR
 """)
-e(f"""M_HDR:  DEFB 13,10,'PI, {sys.argv[1]} decimals (Machin, base 256)',13,10,'$'
+e(f"""M_HDR:  DEFB 13,10,'PI, {sys.argv[1]} decimals (Machin, base 256){', no OS' if BARE else ''}',13,10,'$'
 M_START: DEFB 'Start:    $'
 M_COMP: DEFB 'Computed: $'
 M_END:  DEFB 'End:      $'
