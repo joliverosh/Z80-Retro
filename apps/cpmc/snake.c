@@ -48,7 +48,7 @@ void main(void)
         } else if ((k | 32) == 'q' || k == 3) break;
         if ((uint16_t)(ticks() - last) < spd) { delay(1); continue; }
         last = ticks();
-        x = sx[head] + dx[d]; y = sy[head] + dy[d];
+        x = sx[head] + dx[d & 7]; y = sy[head] + dy[d & 7];
         if (x >= FW || y >= FH) break;               /* (uint8_t: -1 = 255) */
         if (grow) grow--;
         else {                                       /* la cola avanza */

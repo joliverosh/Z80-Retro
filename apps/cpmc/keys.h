@@ -1,8 +1,8 @@
 /* keys.h - teclas de flecha (ESC [ A..D) para los juegos */
-#define K_UP    1
-#define K_DOWN  2
-#define K_RIGHT 3
-#define K_LEFT  4
+#define K_UP    0x81             /* (no 1-4: 3 es ^C y los juegos salian) */
+#define K_DOWN  0x82
+#define K_RIGHT 0x83
+#define K_LEFT  0x84
 static int key(void)
 {
     int k = getkey(), n;
@@ -18,6 +18,6 @@ static int key(void)
     for (n = 0; n < 200 && !(k = getkey()); n++) ;
     if (k != '[' && k != 'O') return 27;
     for (n = 0; n < 200 && !(k = getkey()); n++) ;
-    if (k >= 'A' && k <= 'D') return k - 'A' + 1;
+    if (k >= 'A' && k <= 'D') return K_UP + k - 'A';
     return 0;
 }
