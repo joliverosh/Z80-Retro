@@ -17,6 +17,8 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 
 **La 1.4 en la placa real** (9/11/2026): Ctrl-F1..F3 cambian de consola y los programas corren a la vez en varias (PI1K y otro). Lo de la segunda tanda (historial, atributos, línea de estado ampliada, `H:VC`, `CONSOLE4=`, `H:XFER`, SD más rápida) está probado en el emulador.
 
+**Actualizar por la SD en la placa real** (9/11/2026): `H:XFER R A:MPM.SYS` con picocom `--flow h` pasó los 322 bloques con 5 reintentos (844 BPS; sin control de flujo, 2 o 3 reintentos por bloque), y `H:MPMLDR` arrancó ese `MPM.SYS` desde A:. RTS y CTS tienen que ir cruzados entre el adaptador y la placa: con `--flow h` y sin cruzar, el teclado no hace nada.
+
 **La 1.4** (9/11/2026). Novedades:
 - **consolas virtuales como en Linux**: la SIO A tiene cuatro consolas (0-3), cada una con su pantalla, y Ctrl-F1..F4 elige la que se ve;
 - **línea de estado** en la fila 24 (`STATUS=ON` en `A:MPM.CFG`);
