@@ -98,8 +98,8 @@ VQC0    EQU     3CE5h
 GCOL    EQU     3CE6h           ; redibujo: columna de la fila que va saliendo,
 GATTR   EQU     3CE7h           ; atributo que ya tiene el terminal
 GRLEN   EQU     3CE8h           ; y largo de la fila
-RAWH    EQU     3CE9h           ; modo crudo: cabeza y cola del anillo RAWQ
-RAWT    EQU     3CEAh
+RAWH    EQU     7CFEh           ; modo crudo: cabeza y cola del anillo RAWQ, en la
+RAWT    EQU     7CFFh           ; pagina de atributos: IRXA las usa solo con la ventana 1
 RAWQ    EQU     7D00h           ; (256 bytes en la pagina de atributos, ventana 1)
 ; Los atributos de cada caracter van en otra pagina (VTAPG), en la ventana 1
 ; durante BKCALL: el de (HL) esta en (HL+4000h). Bits: 0 negrita, 1 subrayado,
@@ -4808,9 +4808,26 @@ IRXA:   LD      (SVSP),SP       ; (en la pila de las interrupciones: la del
         PUSH    BC
         IN      A,(SIOAD)
         LD      C,A
+        LD      A,(RAWA)        ; modo crudo en la SIO A (H:XFER): derecho al
+        DEC     A               ; anillo, solo con la ventana 1. Por BKCALL y
+        JR      Z,IRXR          ; KEYIN no alcanza a 115200: se pierden bytes
         LD      HL,KEYIN
         CALL    BKCALL
         CALL    TXSTA           ; (si cambio de consola o de vista: a redibujar)
+        JR      IRX9
+IRXR:   LD      A,(VTAPG)
+        OUT     (PGPORT+1),A
+        LD      HL,(RAWH)       ; L = cabeza, H = cola
+        LD      A,H
+        INC     A
+        CP      L
+        JR      Z,IRXR1         ; lleno: se pierde
+        LD      (RAWT),A
+        LD      L,H
+        LD      H,RAWQ SHR 8
+        LD      (HL),C
+IRXR1:  LD      A,(CURPG1)
+        OUT     (PGPORT+1),A
 IRX9:   POP     BC
         POP     DE
         POP     HL
