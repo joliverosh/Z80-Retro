@@ -68,7 +68,8 @@ RECIBE: LD      A,(FCB+1)       ; sin nombre: YMODEM
         LD      (RESTAN),HL
         CALL    DATOS
         JP      NZ,RFALLA
-        CALL    CERRAR
+        CALL    NORMAL          ; (sin esto la consola queda en modo crudo: el
+        CALL    CERRAR          ; teclado no llega a MP/M)
         LD      DE,MOKR
         JP      FINCNT
 
