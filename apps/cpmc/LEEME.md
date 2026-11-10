@@ -6,6 +6,7 @@ Programas escritos en C con SDCC 4.2 y una biblioteca chica propia (`cpm.c`). Ca
 
 | Programa | Qué hace | Uso |
 |---|---|---|
+| `VI` | Un editor como vi (ver abajo) | `VI NOTAS.TXT` |
 | `TOP` | Los procesos de MP/M (consola, segmento, prioridad, estado), el uso de la CPU, la fecha y la hora; se actualiza cada segundo | `TOP` (una tecla sale) |
 | `TALK` | Manda un mensaje a otra consola | `TALK 2 hola, ya termine` |
 | `CLOCK` | Un reloj grande en la pantalla | `CLOCK` |
@@ -25,6 +26,18 @@ Programas escritos en C con SDCC 4.2 y una biblioteca chica propia (`cpm.c`). Ca
 | `UNZIP` | Saca los archivos de un `.ZIP` (guardados o con deflate, también los hechos en la Mac) y comprueba el CRC | `UNZIP COPIA`, `UNZIP -L COPIA`, `UNZIP COPIA B:` |
 
 `TOP` (el uso de la CPU) y `TALK` usan los servicios 44 y 45 del XIOS: necesitan el `MPM.SYS` de noviembre de 2026 o posterior. `TOP`, `TALK` y `CLOCK` solo andan en MP/M; los demás también en CP/M 2.2.
+
+## VI
+
+Un editor como vi para terminal ANSI de 80 columnas. El texto va en memoria: en MP/M caben unos 21 KB (en CP/M 2.2, más). Filas 1 a 22: el texto; la 23: mensajes y órdenes.
+
+- **Moverse:** `h j k l` y flechas, `w b e`, `0 ^ $` (Inicio, Fin), `G`, `gg`, `NG`, `H M L`, `f F t T` con `;` y `,`, `%`, `^F ^B` (RePág, AvPág), `^D ^U ^E ^Y`. Cuentas: `5j`, `3w`.
+- **Cambiar:** `i a I A o O` (con sangría automática), `x X r ~ J`, `dd D C s S cc`, `d c y` con cualquier movimiento (`dw`, `c$`, `y3j`, `dG`, `d%`), `yy Y p P`, `u` (deshacer; otra vez, rehacer), `.` (repetir el último cambio).
+- **Buscar:** `/texto`, `?texto`, `n N` (distingue mayúsculas).
+- **Órdenes:** `:w [archivo]`, `:q`, `:q!`, `:wq`, `:x`, `ZZ`, `:e archivo`, `:e!`, `:r archivo`, `:N` (ir a la línea), `:$`, `:[rango]d`, `:[rango]s/viejo/nuevo/[g]` con rango `N`, `N,M`, `.`, `$` o `%`. `^G` dice dónde se está y cuánto queda libre; `^L` redibuja.
+- Guarda en un `.$$$` y después lo cambia de nombre: si el disco se llena, el archivo de antes queda. Escribe CR LF y rellena con `^Z`.
+- Las líneas largas no se parten: la pantalla se corre a los lados.
+- Lee el teclado con BDOS 6 y escribe con BDOS 6: BDOS 2, 9 y 11 se llevan teclas a un búfer que BDOS 6 no ve (pasaba al pegar texto o con `.`).
 
 ## Detalles
 

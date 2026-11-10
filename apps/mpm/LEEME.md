@@ -246,7 +246,7 @@ apps/mpm/build.sh
 
 ## Programas en C
 
-`apps/cpmc` tiene programas para MP/M (y casi todos para CP/M 2.2) escritos en C con SDCC: `TOP`, `TALK`, `CLOCK`, `BENCH`, `MANDEL`, `LIFE`, `TETRIS`, `SNAKE`, `MORE`, `GREP`, `WC`, `CMP`, `HEXDUMP`, `I2CSCAN`, `SHA256`, `ZIP` y `UNZIP`. Ver su `LEEME.md`. No caben en el disco H: de la flash: se pasan a A: con `XFER`.
+`apps/cpmc` tiene programas para MP/M (y casi todos para CP/M 2.2) escritos en C con SDCC: `VI`, `TOP`, `TALK`, `CLOCK`, `BENCH`, `MANDEL`, `LIFE`, `TETRIS`, `SNAKE`, `MORE`, `GREP`, `WC`, `CMP`, `HEXDUMP`, `I2CSCAN`, `SHA256`, `ZIP` y `UNZIP`. Ver su `LEEME.md`. No caben en el disco H: de la flash: se pasan a A: con `XFER`.
 
 ## Pendiente
 

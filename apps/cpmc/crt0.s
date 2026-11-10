@@ -21,6 +21,7 @@ _exit::
         .area   _BSEG
         .area   _BSS
         .area   _HEAP
+_heap::                         ; lo que queda libre (hasta la pila)
         .area   _GSINIT
 gsinit::
         ld      hl,#s__DATA     ; las variables sin valor inicial, en cero
