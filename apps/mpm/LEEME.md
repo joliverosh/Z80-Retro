@@ -30,7 +30,8 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 - **`H:VC n`** cambia de consola desde un programa o un SUBMIT; **`CONSOLE4=`** en `A:MPM.CFG` deja la SIO B como terminal, sin consola o la vuelve una quinta consola virtual (Ctrl-F5);
 - **`H:XFER`**: archivos por XMODEM desde y hacia el PC, sin sacar la SD;
 - **la SD lee un 31 % más rápido** (bucle de SPI desenrollado);
-- **más memoria común libre**: la fecha y el I2C pasaron a la parte con bancos.
+- **más memoria común libre**: la fecha y el I2C pasaron a la parte con bancos;
+- **MP/M se actualiza desde la SD**: si A: tiene `MPM.SYS`, el cargador usa ese y no el de la flash.
 
 ## Qué ofrece
 
@@ -90,6 +91,13 @@ MP/M II 2.0 ZEPHYRUS 1.4
 0A>TOD
 Thu 10/15/26 10:30:02
 ```
+
+**Actualizar MP/M sin grabar la flash.** El cargador (`MPMLDR`) busca primero `MPM.SYS` en el usuario 0 de A:, la SD; si no está, carga el de la flash (H:). Al arrancar dice cuál: `loading MPM.SYS from drive A:` o `H:`. Para pasar a una versión nueva basta copiar su `MPM.SYS` a A: y volver a arrancar:
+
+- desde MP/M, con `H:XFER R A:MPM.SYS` y picocom (Ctrl-A Ctrl-S); si la transferencia falla o se cancela, `XFER` borra el archivo a medias y el siguiente arranque usa el de la flash;
+- o desde CP/M 2.2 o con la SD en el PC, como cualquier otro archivo.
+
+Para volver al de la flash: `ERA A:MPM.SYS` (o `REN A:MPMOLD.SYS=A:MPM.SYS`). Si un `MPM.SYS` de A: no arranca, se borra desde CP/M 2.2 (`BOS 1`). El `MPM.SYS` tiene que ser de la misma generación de ZLoader (v6), porque usa sus servicios. Los programas de H: (`XFER`, `VC`, `PIP`…) siguen en la flash; una versión nueva de uno de ellos copiada a A: gana, porque A: se busca antes. El cargador que hace esto es el de esta versión: el de `H:MPMLDR` viene con la flash, y el de `BOS 5` se pone otra vez con `L` + `WI` + `WB` como arriba.
 
 - **El indicador** es `usuario` + `unidad` + `>`. Todas las consolas arrancan en `0A>`. Los programas del disco H: llevan el atributo SYS, así que se ven desde cualquier usuario y unidad.
 - **PIP de MP/M es `H:PIP`.** Si en A: hay un `PIP.COM` de CP/M 3, ese gana al escribir solo `PIP` y responde `REQUIRES CP/M 3`.
@@ -192,6 +200,7 @@ Los mensajes que se ven en pantalla (arranque, errores, programas propios) está
 - **Historial y STARTUP.SUB:** `CONIN` y `CONST` miran si el proceso que corre se llama `Tmp...`. Si es así, guardan cada línea y reproducen la pedida con `^W` (borra la línea con `^X` y la escribe de nuevo). La orden de `STARTUP.SUB` se entrega por `CONIN` sin anunciarla en `CONST`, porque el TMP descarta lo que ve tecleado antes de leer.
 - **La SD** usa un driver SPI propio, con los métodos de `zlib/libspi.asm` y un búfer de 512 bytes en la parte con bancos. Los 512 bytes de un bloque se leen y escriben con el bucle desenrollado (`SPIRB`, `SPIWB`): leer pasó de unos 620 a 400 ciclos por byte. No hay lectura anticipada con CMD18: con la SPI por software, pasar el bloque (unos 30 ms) pesa mucho más que la espera de cada orden.
 - **El disco en flash** se lee mapeando la página de flash en la ventana 0 por un momento.
+- **El cargador** (`ldrbios.asm`, dentro de `MPMLDR.COM` en 1700h) recorre una vez las 512 entradas del directorio de A: (los registros 512-639, pista 1) con el servicio 17 de ZIOS. Si encuentra `MPM     SYS` en el usuario 0 (sin mirar los atributos), su unidad 0 pasa a ser A: con el DPB de la SD (DSM 2015, DRM 511); si no, o si A: no se lee, es H: con el DSM que da el servicio 36. El vector de asignación tiene 256 bytes, en 1901h, fuera de la imagen.
 - **El directorio y los DPB** van en la memoria común: `READ` copia con el banco del usuario puesto, y los programas leen el DPB con la función 31.
 
 ## Construir

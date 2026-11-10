@@ -3,10 +3,11 @@
 ;  Va dentro de MPMLDR.COM, en 1700h. MPMLDR corre como programa de CP/M, con
 ;  ZIOS todavia debajo, asi que este BIOS lee el disco con el servicio 17 de
 ;  ZIOS (registro de CP/M) y escribe con el servicio 4.
-;  La unidad 0 del cargador es la unidad LDRV de ZIOS (7 = H:, el disco en
-;  flash, donde va MPM.SYS).
+;  La unidad 0 del cargador es A: (la SD) si su directorio tiene MPM.SYS en el
+;  usuario 0; si no, H: (el disco en flash, que siempre trae uno). Asi MP/M se
+;  actualiza copiando MPM.SYS a A:, sin grabar la flash; para volver al de la
+;  flash basta borrar o renombrar A:MPM.SYS.
 ; =============================================================================
-LDRV    EQU     7
 ZIOS    EQU     0FE00h
 
         ORG     1700h
@@ -36,10 +37,21 @@ DSM:    DEFW    231
         DEFB    0C0h,0
         DEFW    0
         DEFW    0
+DPBSD:  DEFW    512             ; el de las unidades de la SD (como xios.asm)
+        DEFB    4,15,0
+        DEFW    2015
+        DEFW    511
+        DEFB    0FFh,0
+        DEFW    0
+        DEFW    1
 
-MSG:    DEFB    13,10,'ZEPHYRUS LDRBIOS: loading MPM.SYS from drive ',LDRV+'A',':',13,10,0
+LDRV:   DEFB    7
+MSG:    DEFB    13,10,'ZEPHYRUS LDRBIOS: loading MPM.SYS from drive '
+MSGD:   DEFB    'H:',13,10,0
+NAME:   DEFB    0,'MPM     SYS'
 
-BOOT:   LD      HL,MSG
+BOOT:   CALL    FIND
+        LD      HL,MSG
 BOOT1:  LD      A,(HL)
         OR      A
         RET     Z
@@ -76,7 +88,10 @@ SELDSK: LD      HL,0
         OR      A
         RET     NZ
         CALL    BOOT
-        LD      H,LDRV          ; DSM del disco (servicio 36)
+        LD      A,(LDRV)
+        OR      A
+        JR      Z,SEL1          ; A: ya tiene el DPB de la SD
+        LD      H,A             ; DSM del disco en flash (servicio 36)
         LD      C,36
         CALL    ZIOS
         LD      (DSM),DE
@@ -95,7 +110,8 @@ READ:   LD      HL,(SEC)        ; HLDE = unidad, 0, pista*512 + sector
         OR      H
         LD      D,A
         LD      E,L
-        LD      H,LDRV
+        LD      A,(LDRV)
+        LD      H,A
         LD      L,0
         LD      C,17            ; A_CPMRD
         CALL    ZIOS
@@ -104,8 +120,73 @@ READ:   LD      HL,(SEC)        ; HLDE = unidad, 0, pista*512 + sector
         LD      A,1
         RET
 
+; FIND: una sola vez, busca MPM.SYS (usuario 0) en las 512 entradas del
+; directorio de A:, los registros 512-639 (la pista 1). Si esta, la unidad 0
+; pasa a ser A: con el DPB de la SD. Si A: no se lee, queda H:.
+FIND:   LD      A,(HECHO)
+        OR      A
+        RET     NZ
+        INC     A
+        LD      (HECHO),A
+        LD      BC,DIRBF
+        CALL    SETDMA
+        LD      DE,512
+FD1:    PUSH    DE
+        LD      HL,0            ; unidad 0 de ZIOS (A:)
+        LD      C,17
+        CALL    ZIOS
+        POP     DE
+        OR      A
+        RET     NZ
+        LD      HL,DIRBF
+        LD      B,4
+FD2:    PUSH    BC
+        PUSH    HL
+        PUSH    DE
+        LD      DE,NAME
+        LD      A,(DE)          ; el usuario se compara entero
+        CP      (HL)
+        JR      NZ,FD4
+        LD      B,11
+FD3:    INC     HL
+        INC     DE
+        LD      A,(HL)          ; sin los atributos (bit 7)
+        AND     7Fh
+        EX      DE,HL
+        CP      (HL)
+        EX      DE,HL
+        JR      NZ,FD4
+        DJNZ    FD3
+        POP     DE              ; esta
+        POP     HL
+        POP     BC
+        XOR     A
+        LD      (LDRV),A
+        LD      A,'A'
+        LD      (MSGD),A
+        LD      HL,DPBSD
+        LD      DE,DPB
+        LD      BC,15
+        LDIR
+        RET
+FD4:    POP     DE
+        POP     HL
+        POP     BC
+        LD      A,L
+        ADD     A,32
+        LD      L,A
+        JR      NC,FD5
+        INC     H
+FD5:    DJNZ    FD2
+        INC     DE
+        LD      A,E
+        CP      128             ; 512+128 = 0280h
+        JR      NZ,FD1
+        RET
+
+HECHO:  DEFB    0
 TRK:    DEFW    0
 SEC:    DEFW    0
 DIRBF:  DEFS    128
-ALV:    DEFS    64
+ALV:    DEFS    256             ; DSM 2015 de la SD: 252 bytes
         END
