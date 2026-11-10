@@ -568,7 +568,7 @@ static void psgr(void)
 }
 static void pnl(void)                     /* fila nueva */
 {
-    if (pvis()) { sgr("0"); oeol(); }
+    if (pvis()) { sgr("0"); if (pvcol < W) oeol(); }   /* (con 80, ESC[K borraria la ultima) */
     pvrow++;
     pvcol = 0;
     if (pvis()) ogo(pvrow - pvtop + 1, 1);
