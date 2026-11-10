@@ -163,8 +163,8 @@ RFIN:   LD      A,ACK
         JP      FINCNT
 RCANC:  CALL    CANCEL
 RCAN:   CALL    NORMAL
-        LD      DE,FCB          ; lo recibido queda
-        LD      C,16
+        LD      DE,FCB          ; un archivo a medias no queda (un A:MPM.SYS
+        LD      C,19            ; cortado no arrancaria)
         CALL    BDOS
         LD      DE,MCAN
         JP      FIN
@@ -176,6 +176,9 @@ RTMO:   CALL    NORMAL
         JP      FIN
 RDISCO: CALL    CANCEL
         CALL    NORMAL
+        LD      DE,FCB
+        LD      C,19
+        CALL    BDOS
         LD      DE,MDISCO
         JP      FIN
 

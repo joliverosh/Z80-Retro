@@ -3024,6 +3024,12 @@ VRXGET: LD      A,D
 
 ; RAWPUT / RAWGET: el anillo del modo crudo (256 bytes). RAWGET: A = el byte,
 ; carry si no hay.
+; RTSON: RTS de la SIO A prendido (WR5 como lo deja ZIOS)
+RTSON:  LD      A,5
+        OUT     (SIOAC),A
+        LD      A,0EAh
+        OUT     (SIOAC),A
+        RET
 RAWCLR: XOR     A
         LD      (RAWH),A
         LD      (RAWT),A
@@ -3038,7 +3044,8 @@ RAWPUT: LD      HL,(RAWH)       ; L = cabeza, H = cola
         LD      H,RAWQ SHR 8
         LD      (HL),C
         RET
-RAWGET: LD      HL,(RAWH)       ; L = cabeza, H = cola
+RAWGET: CALL    RTSON           ; el programa lee: el PC puede seguir mandando
+        LD      HL,(RAWH)       ; L = cabeza, H = cola
         LD      A,L
         CP      H
         SCF
@@ -3092,7 +3099,8 @@ VSW:    LD      E,A
         LD      (IX+7),0
         LD      HL,0
         LD      (LASTPD),HL
-VSNAP:  XOR     A               ; (de aqui: volver a la pantalla al dia)
+VSNAP:  CALL    RTSON           ; (al salir del modo crudo, RTS prendido)
+        XOR     A               ; (de aqui: volver a la pantalla al dia)
         LD      (VIEWOFS),A
         LD      (VIEWING),A
 VSNAP2: LD      HL,SWCNT        ; redibujar
@@ -4998,7 +5006,14 @@ INULL:  EI
 
 ; Tic del CTC (canal 1). IFLG: el mismo marco para poner la bandera IFLGN.
 ITICK:  PUSH    AF
-        XOR     A
+        LD      A,(RAWA)        ; modo crudo en la SIO A: RTS apagado mientras
+        DEC     A               ; el despachador tiene las interrupciones
+        JR      NZ,ITK00        ; apagadas (con picocom --flow h el PC espera);
+        LD      A,5             ; RAWGET lo vuelve a prender
+        OUT     (SIOAC),A
+        LD      A,0E8h
+        OUT     (SIOAC),A
+ITK00:  XOR     A
         LD      (IFLGN),A
         POP     AF
 IFLG:   LD      (SVHL),HL
@@ -5642,24 +5657,17 @@ ZDT:    CALL    TODADR          ; copia de la hora de XDOS sin que el tic la cam
         LD      HL,ZDTB         ; dia -> fecha, en la parte con bancos
         CALL    BKCALL
         EI
-        LD      HL,(ZHL)        ; buffer: seg, min, hora, dia, mes, anio
-        LD      A,(ZTOD+4)
-        LD      (HL),A
-        INC     HL
-        LD      A,(ZTOD+3)
-        LD      (HL),A
-        INC     HL
-        LD      A,(ZTOD+2)
-        LD      (HL),A
-        INC     HL
-        LD      A,(ZTOD+5)
-        LD      (HL),A
-        INC     HL
-        LD      A,(ZTOD+6)
-        LD      (HL),A
-        INC     HL
-        LD      A,(ZTOD+7)
-        LD      (HL),A
+        LD      DE,(ZHL)        ; buffer: seg, min, hora, dia, mes, anio
+        LD      HL,ZTOD+4
+        LD      B,3
+ZDT1:   LD      A,(HL)          ; seg, min, hora (al reves en el TOD)
+        LD      (DE),A
+        DEC     HL
+        INC     DE
+        DJNZ    ZDT1
+        LD      HL,ZTOD+5       ; dia, mes, anio
+        LD      BC,3
+        LDIR
         XOR     A
         JP      ZRET
 ZTK:    POP     BC              ; DEHL = tics, A = tics por segundo
