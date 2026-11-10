@@ -32,6 +32,8 @@ SI:     LD      DE,MSAL
         LD      DE,UQCB
         LD      C,137
         CALL    BDOS
+        LD      C,42            ; lo que el XIOS tiene sin escribir, a la SD
+        RST     30h
         DI
         LD      HL,SALTO
         LD      DE,STUB

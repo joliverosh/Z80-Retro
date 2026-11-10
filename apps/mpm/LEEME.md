@@ -35,6 +35,15 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 - **más memoria común libre**: la fecha y el I2C pasaron a la parte con bancos;
 - **MP/M se actualiza desde la SD**: si A: tiene `MPM.SYS`, el cargador usa ese y no el de la flash.
 
+**Tercera tanda de la 1.4** (9/11/2026, probada en el emulador):
+- **`H:XFER` más rápido y con YMODEM**: bloques de 1K (`sx -k`), varios archivos de una vez con su nombre (`sb` / `rb`), CRC con tabla y sin dormir un tic por bloque;
+- **escrituras en la SD agrupadas**: el bloque de 512 bytes en curso va a la tarjeta al pasar a otro (el directorio, en el acto), y un bloque recién asignado no se lee antes de escribirlo: copiar un archivo de 40 KB pasa de 328 a 94 escrituras;
+- **`H:SETBOOT`** graba el cargador de `BOS 5` en A: desde MP/M (lo que antes era `L` + `WI` en ZLoader);
+- **la consola 4 en modo crudo** (XFER por la SIO B) va al mismo anillo rápido, y RTS se maneja en las dos SIO;
+- **G: sin páginas**: el arranque dice `G: no RAM disk (all memory in use)`;
+- **más memoria común libre**: los servicios 10, 11 y 36 de ZIOS y el mapa de unidades pasaron a la parte con bancos (quedan unos 80 bytes);
+- **el teclado**: lo que llega por la SIO A va a un anillo de 512 bytes en la interrupción y se procesa después (ver *Cómo está hecho*).
+
 ## Qué ofrece
 
 | | |
@@ -43,7 +52,7 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 | Historial de pantalla | **Shift-RePag / Shift-AvPag** (o Ctrl-\\ U / D) miran 12 filas hacia atrás o adelante en la consola que se ve; se guardan 24 filas además de las que se ven. Cualquier tecla o salida vuelve al día |
 | Atributos | Negrita, subrayado, parpadeo, inverso y color del texto se guardan con cada carácter y se repiten al redibujar |
 | Línea de estado | Opcional (`STATUS=ON`): la fila 24 muestra cada segundo la versión, las consolas (la que se ve entre corchetes, `*` en las que escribieron algo que no se vio), el programa que escribió último en la consola que se ve, cuánto trabajó la CPU en el último segundo y la fecha y hora |
-| Pasar archivos | **`H:XFER R archivo`** recibe y **`H:XFER S archivo`** manda por XMODEM (CRC o suma) por la consola donde corre |
+| Pasar archivos | **`H:XFER R archivo`** recibe y **`H:XFER S archivo`** manda por XMODEM (128 o 1K, CRC o suma); **`H:XFER R`** recibe por YMODEM uno o varios archivos con su nombre y **`H:XFER S A:*.COM`** los manda. Por la consola donde corre |
 | Configuración | **`A:MPM.CFG`**: impresora, línea de estado, velocidad de cada SIO, unidades y qué es la consola 4 |
 | Velocidad | La que dejó ZIOS. **`H:BAUD`** la muestra y la cambia en el momento, y la guarda en la NVRAM del DS1307 igual que la orden `BAUD` de ZLoader |
 | Memoria | **7 bancos** de usuario de 48 KB (0000-BFFF), el máximo de MP/M II, ya con los 512 KB de la placa. La RAM es primero para MP/M: dos páginas para las consolas virtuales (pantallas y atributos) y los bancos; la caché y G: se llevan lo que sobra. La memoria común va de C000 a FFFF. Con RAM de expansión, también se usan las páginas del disco en RAM de ZIOS |
@@ -52,10 +61,10 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 | Impresora | **`LST:` sale por SIO B** (la misma línea que la consola 4) **o a un archivo**, según `A:MPM.CFG` |
 | Reloj | El tic de ZIOS: canal 1 del CTC, 120 Hz. MP/M recibe 60 tics por segundo |
 | Hora | Se toma del DS1307 al arrancar. **Si se cambia con `TOD`, se escribe en el DS1307** |
-| Caché de disco | 64 KB con la RAM de la placa, 128 KB con RAM de expansión: el directorio y los programas no se vuelven a leer de la SD. Escritura inmediata: la SD siempre está al día |
+| Caché de disco | 64 KB con la RAM de la placa, 128 KB con RAM de expansión: el directorio y los programas no se vuelven a leer de la SD. Las escrituras de un mismo bloque de 512 bytes se juntan y van a la tarjeta al pasar a otro bloque o al escribir el directorio (al cerrar un archivo todo queda en la SD) |
 | Historial | **`^W`** en el indicador repite la última orden; otro `^W`, la anterior (8 órdenes por consola) |
 | Arranque | Si existe **`A:STARTUP.SUB`** (usuario 0), se ejecuta solo al arrancar |
-| Servicios de ZIOS | Los programas que llaman a ZIOS con `RST 30h` funcionan: consola (0, 4, 5, 6), mapa de unidades (10, 11), hora (28), tics (31), I2C (34) y datos de una unidad (36). Dos propios: 40 (ver la consola E, para `H:VC`) y 41 (modo crudo de la consola, para `H:XFER`) |
+| Servicios de ZIOS | Los programas que llaman a ZIOS con `RST 30h` funcionan: consola (0, 4, 5, 6), mapa de unidades (10, 11), hora (28), tics (31), I2C (34) y datos de una unidad (36). Propios: 40 (ver la consola E, para `H:VC`), 41 (modo crudo de la consola, para `H:XFER`), 42 (lo que espera escribirse, a la SD: `H:ZLOADER`) y 43 (un registro a cualquier pista de una unidad: `H:SETBOOT`) |
 | Errores de la SD | Si una lectura o escritura falla, el XIOS vuelve a iniciar la tarjeta y reintenta. Si vuelve a fallar, avisa en la consola del programa qué unidad, pista y sector |
 | Cambio de tarjeta | Se puede cambiar la SD con MP/M andando: después de cambiarla, `H:DSKRESET`. Cada unidad que se registra olvida lo que la caché tenía de su tarjeta |
 | Volver a ZLoader | **`H:ZLOADER`**, sin RESET |
@@ -137,20 +146,24 @@ Para volver al de la flash: `ERA A:MPM.SYS` (o `REN A:MPMOLD.SYS=A:MPM.SYS`). Si
   `BAUD` acepta las mismas velocidades que `H:BAUD` y no toca la NVRAM. `DRIVE` cambia el mapa de unidades que dejó ZIOS solo para MP/M: `RAM` es el disco en RAM, `FLASH` el disco en flash y `OFF` deja la unidad sin disco.
 - **La impresora** (`LST:`, `^P`, `PIP LST:=archivo`) se elige con `LST=` en `A:MPM.CFG`. `LST=B`, o sin el archivo, la manda a SIO B: si ahí hay un terminal, la salida aparece en él. `LST=A:IMPRESOR.TXT` (cualquier nombre, con o sin unidad; sin unidad es A:) la guarda en ese documento. Lo impreso se agrega al final, así que el archivo crece hasta que lo borres. Al arrancar se ejecuta solo `H:LSTFILE`, que queda corriendo suelto (ocupa un banco) y pasa lo impreso al archivo cada medio segundo. Lo cierra tras 2 s sin impresión: mientras se imprime, `TYPE` responde `File Currently Open`; hay que esperar un momento.
 - **`H:BAUD`** sin parámetros muestra la velocidad guardada de cada canal; `H:BAUD B 9600` la cambia y la guarda. Velocidades: 230400, 115200, 9600, 4800, 2400, 1200, 600 y 300 (con la CPU a 14,7456 MHz, el doble). Las de 9600 o menos usan el CTC: el puente del reloj de la SIO tiene que estar en CLK0_OUT (P6 para el canal A, P3 para el B), y los dos canales comparten esa constante. El mismo `BAUD.COM` funciona en CP/M 2.2 (allí cambia la velocidad con el servicio 32 de ZIOS; bajo MP/M programa la SIO directamente).
-- **`H:XFER`** pasa archivos por XMODEM por la consola donde corre, que tiene que ser la que se ve en el terminal (o la 4, en la SIO B). Con picocom en oli (hace falta `lrzsz`):
+- **`H:XFER`** pasa archivos por XMODEM o YMODEM por la consola donde corre, que tiene que ser la que se ve en el terminal (o la 4, en la SIO B). Con picocom en oli (hace falta `lrzsz`):
 
   ```
   sudo apt install lrzsz
   picocom -b 115200 --flow h --send-cmd "sx -vv" --receive-cmd "rx -vv" /dev/ttyUSB0
   ```
 
-  - **Del PC a la placa:** en MP/M `H:XFER R A:ARCHIVO.EXT`; en picocom Ctrl-A Ctrl-S y el nombre del archivo.
-  - **De la placa al PC:** en MP/M `H:XFER S A:ARCHIVO.EXT`; en picocom Ctrl-A Ctrl-R y el nombre con que se guarda.
+  - **Del PC a la placa, un archivo:** en MP/M `H:XFER R A:ARCHIVO.EXT`; en picocom Ctrl-A Ctrl-S y el nombre del archivo. Con `-k` delante del nombre (`-k /home/oliveros/MPM.SYS`) sx manda bloques de 1K: va varias veces más rápido, porque cada bloque espera su respuesta y el FTDI la demora.
+  - **Del PC a la placa, varios a la vez (YMODEM):** picocom abierto con `--send-cmd "sb -vv -k"`; en MP/M `H:XFER R` (o `H:XFER R B:` para otra unidad); en picocom Ctrl-A Ctrl-S y los nombres separados por espacios. Cada archivo queda con su nombre en mayúsculas, cortado a 8.3, y del tamaño que tenía (redondeado a 128 bytes).
+  - **De la placa al PC, un archivo:** en MP/M `H:XFER S A:ARCHIVO.EXT`; en picocom Ctrl-A Ctrl-R y el nombre con que se guarda.
+  - **De la placa al PC, varios (YMODEM):** con comodines, `H:XFER S A:*.COM`; en picocom con `--receive-cmd "rb -vv"`, Ctrl-A Ctrl-R (sin nombre: llegan con el suyo, en minúsculas).
+  - **Más rápido todavía** en oli: `echo 1 | sudo tee /sys/bus/usb-serial/devices/ttyUSB0/latency_timer` (el FTDI espera 16 ms antes de pasar al PC lo poco que llega, como cada respuesta de XMODEM).
   - **`--flow h`** (RTS/CTS) hace falta para que no se pierdan bytes: mientras MP/M cambia de proceso, con las interrupciones apagadas, el XIOS baja RTS y el PC espera. Sin él funciona, pero con reintentos (`Retry 0: NAK on sector` en sx). ZLoader también usa RTS, así que el mismo picocom sirve para todo.
   - Si la transferencia se cancela o falla, el archivo a medias se borra.
   - Mientras dura, los bytes pasan tal cual: no hay Ctrl-F ni línea de estado. Al terminar, la pantalla se vuelve a dibujar y dice cuántos bloques pasaron.
-  - XMODEM manda bloques de 128 bytes: el archivo recibido queda con el último registro completado con `^Z` (1Ah), como es costumbre en CP/M.
-- **Para volver a ZLoader**: `H:ZLOADER`. Pide confirmación (`Y`), espera a que nadie esté usando el disco y deja la máquina como después de un RESET. Lo que está corriendo se pierde, pero lo escrito en la SD ya está en la tarjeta.
+  - Con XMODEM el archivo recibido queda con el último registro completado con lo que mande el otro lado (`^Z`, 1Ah, como es costumbre en CP/M); con YMODEM, con el tamaño que dice el bloque 0.
+- **Para volver a ZLoader**: `H:ZLOADER`. Pide confirmación (`Y`), espera a que nadie esté usando el disco, pasa a la SD lo que esperaba escribirse y deja la máquina como después de un RESET. Lo que está corriendo se pierde, pero lo escrito en la SD ya está en la tarjeta.
+- **`H:SETBOOT`** graba el cargador (`H:MPMLDR.COM`, u otro archivo: `H:SETBOOT A:MPMLDR.COM`) en los sectores 70h-7Bh de A:, los que carga `BOS 5`. Pide confirmación y toma el disco mientras escribe. La entrada 5 de la tabla de arranque se pone una sola vez en ZLoader (`WB 5 70:A 0100 1800 0100 01 MP/M`); después, cada cargador nuevo se pone con `SETBOOT`.
 - **Con RAM de expansión** en el bus (ZEPHYRUS), MP/M la usa sola: la caché sube a 128 KB y G: crece. También recupera las páginas que ZIOS usaba para su disco en RAM (ZIOS no las entrega): las prueba una por una y toma las que guardan lo escrito y no son un espejo de otra. El mensaje de arranque dice cuántos bancos y cuánto G: quedaron.
 
 ## Cómo está hecho
@@ -182,7 +195,9 @@ Los mensajes que se ven en pantalla (arranque, errores, programas propios) está
   - Otro parche, del mismo largo, cambia el mensaje `MP/M II V2.0` por `MP/M II 2.0 ZEPHYRUS 1.4`; `build.sh` hace lo mismo con el título de `MPMLDR`.
   - **La pila al terminar.** Cada programa empieza con la pila en una tabla de XDOS: 20 bytes por segmento de memoria, uno pegado al otro, con la dirección de retorno a "terminar" arriba. Un programa que termina con `RET` (DUMP, por ejemplo) vuelve a una rutina que guardaba AF, BC, DE y HL antes de llamar a la función 143; con eso XDOS bajaba 24 bytes y pisaba la dirección de retorno del segmento de abajo. Si el programa de ese segmento seguía corriendo y después también terminaba con `RET`, saltaba a cualquier parte y MP/M se caía. Pasaba con dos programas a la vez; con 5 consolas, en el emulador, con dos `DUMP` en dos consolas. Terminar no vuelve, así que el parche cambia esos 4 `PUSH` y sus 4 `POP` por `NOP`: la pila baja 16 bytes y queda dentro de lo suyo. Este error también estaba en la 1.3.
 - **`mkspr.py`** agrega un byte si el código mide un múltiplo exacto de 128: GENSYS reubica mal esos módulos (ver `gensys.txt` en cpm.z80.de). También cuida que la parte común del XIOS quede en C000 o más arriba: GENSYS pone el módulo debajo de XDOS alineado a 256 bytes, así que si el redondeo la empuja más abajo, agrega relleno en la parte con bancos. Con XDOS en C900 la parte común no puede pasar de 2304 bytes (`XLIM`); `build.sh` avisa si no cabe y también si la parte con bancos queda debajo de 8000 (tiene que estar en la ventana 2 para `BKCALL`).
-- **La caché de disco** usa las páginas de RAM que no son de ningún banco ni la común (hasta 8 páginas, 256 bloques). Guarda bloques de 512 bytes de la SD, asociativa de 2 vías, en la parte del XIOS con bancos. La página de la caché se pone un momento en la ventana 0, con las interrupciones apagadas de 64 en 64 bytes para no perder caracteres. Las escrituras van a la SD en el acto y también a la caché.
+- **La caché de disco** usa las páginas de RAM que no son de ningún banco ni la común (hasta 8 páginas, 256 bloques). Guarda bloques de 512 bytes de la SD, asociativa de 2 vías, en la parte del XIOS con bancos. La página de la caché se pone un momento en la ventana 0, con las interrupciones apagadas de 64 en 64 bytes para no perder caracteres. Las escrituras van a la caché en el acto y a la SD así:
+  - **escritura diferida de BUF**: `WRITE` deja el bloque de 512 en `BUF` con cambios (`BDIRTY`) y `FLCHK`, al principio de `GETBLK`, lo pasa a la tarjeta (`FLUSH`) cuando se pide otro bloque. El directorio (los 128 registros después de la pista de sistema) se escribe en el acto: MP/M manda C = 1 también con los datos, así que el tipo de escritura no sirve para reconocerlo. `CPURGE` (`DSKRESET`) y el servicio 42 (`H:ZLOADER`) también vacían `BUF`;
+  - **bloques nuevos sin leer**: MP/M pone el bit 1 de C en el primer registro de un bloque de asignación nuevo (2 KB, 16 registros). Mientras se escriban sus registros en orden (`UNCHK`), el bloque de 512 no se lee antes (`GBNEW`) y su copia vieja en la caché se olvida.
 - **El disco en RAM (G:)** usa las páginas que quedan después de la caché (3 con 512 KB). Con menos de 16 páginas tiene bloques de 1 KB y 64 entradas de directorio; con 16 o más, bloques de 2 KB y 128 entradas. `SYSTEMINIT` lo crea vacío.
 - **La salida de las consolas** va a un búfer circular por canal. Si el transmisor está parado, el carácter sale directo; si no, la interrupción de transmisor vacío manda el siguiente. Con el búfer lleno el proceso espera una bandera de MP/M (12 para A, 13 para B), que pone la interrupción cuando el búfer baja a 8 caracteres (no a cada uno). Por si se pierde una interrupción, el tic revisa cada canal.
 - **Las consolas virtuales** viven en dos páginas de 16 KB, en la parte con bancos del XIOS:
@@ -204,6 +219,8 @@ Los mensajes que se ven en pantalla (arranque, errores, programas propios) está
 - **Historial y STARTUP.SUB:** `CONIN` y `CONST` miran si el proceso que corre se llama `Tmp...`. Si es así, guardan cada línea y reproducen la pedida con `^W` (borra la línea con `^X` y la escribe de nuevo). La orden de `STARTUP.SUB` se entrega por `CONIN` sin anunciarla en `CONST`, porque el TMP descarta lo que ve tecleado antes de leer.
 - **La SD** usa un driver SPI propio, con los métodos de `zlib/libspi.asm` y un búfer de 512 bytes en la parte con bancos. Los 512 bytes de un bloque se leen y escriben con el bucle desenrollado (`SPIRB`, `SPIWB`): leer pasó de unos 620 a 400 ciclos por byte. No hay lectura anticipada con CMD18: con la SPI por software, pasar el bloque (unos 30 ms) pesa mucho más que la espera de cada orden.
 - **El disco en flash** se lee mapeando la página de flash en la ventana 0 por un momento.
+- **`H:XFER`** lee los bloques directo del anillo de la SIO A (`RAWBLK`): pide la página con el servicio 41 (B = 4) y la pone en su ventana 1 de a 4 bytes, con las interrupciones apagadas, como hace la interrupción (cabeza en 7CFCh, cola en 7CFEh, datos en 7E00h, 512 bytes); después vuelve a poner su página (`CURPG1`, FFD4h). De a uno por el servicio no alcanzaba para un bloque de 1K a 115200. El CRC va con una tabla de 512 bytes que arma al arrancar, y antes de dormir un tic esperando un byte lo busca 40 veces.
+- **El servicio 43** (`H:SETBOOT`) copia el registro del programa a `DIRBF` (con MXDisk tomado nadie más lo usa) y, con `BKCALL`, lee el bloque de 512 a `BUF`, cambia el registro y lo escribe, sin pasar por la caché (`CPYC` prende las interrupciones, y dentro de `BKCALL` no se puede); la copia en la caché, si había, se olvida.
 - **El cargador** (`ldrbios.asm`, dentro de `MPMLDR.COM` en 1700h) recorre una vez las 512 entradas del directorio de A: (los registros 512-639, pista 1) con el servicio 17 de ZIOS. Si encuentra `MPM     SYS` en el usuario 0 y la extensión 0 (sin mirar los atributos), su unidad 0 pasa a ser A: con el DPB de la SD (DSM 2015, DRM 511); si no, o si A: no se lee, es H: con el DSM que da el servicio 36. El vector de asignación tiene 256 bytes, en 1901h, fuera de la imagen.
 - **El directorio y los DPB** van en la memoria común: `READ` copia con el banco del usuario puesto, y los programas leen el DPB con la función 31.
 
@@ -221,7 +238,7 @@ apps/mpm/build.sh
 ```
 
 **Archivos:**
-- **Nuestros:** `xios.asm`, `ldrbios.asm`, `rtc.asm`, `zloader.asm`, `baud.asm`, `lstfile.asm`, `mkspr.py` (arma el SPR ensamblando en 0000h y en 0100h), `gensys.py` (responde a GENSYS dentro de cpmsim) e `ibm3740.py` (lee y escribe discos de 8" para cpmsim).
+- **Nuestros:** `xios.asm`, `ldrbios.asm`, `rtc.asm`, `zloader.asm`, `baud.asm`, `lstfile.asm`, `vc.asm`, `xfer.asm`, `setboot.asm`, `mkspr.py` (arma el SPR ensamblando en 0000h y en 0100h), `gensys.py` (responde a GENSYS dentro de cpmsim) e `ibm3740.py` (lee y escribe discos de 8" para cpmsim).
 - **De Digital Research** (MP/M II 2.0, distribución libre desde 2001):
   - `dri/` (`GENSYS.COM`, `MPMLDR.COM` y los SPR);
   - `prl/` (las utilidades);

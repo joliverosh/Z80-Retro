@@ -100,9 +100,9 @@ VQC0    EQU     3CE5h
 GCOL    EQU     3CE6h           ; redibujo: columna de la fila que va saliendo,
 GATTR   EQU     3CE7h           ; atributo que ya tiene el terminal
 GRLEN   EQU     3CE8h           ; y largo de la fila
-RAWH    EQU     7CFEh           ; modo crudo: cabeza y cola del anillo RAWQ, en la
-RAWT    EQU     7CFFh           ; pagina de atributos: IRXA las usa solo con la ventana 1
-RAWQ    EQU     7D00h           ; (256 bytes en la pagina de atributos, ventana 1)
+RAWH    EQU     7CFCh           ; cabeza y cola (0-1FF) del anillo RAWQ de la SIO A, en
+RAWT    EQU     7CFEh           ; la pagina de atributos: IRXA las usa solo con la ventana 1
+RAWQ    EQU     7E00h           ; (512 bytes: un bloque de 1K de XMODEM entra sin perderse)
 ; Los atributos de cada caracter van en otra pagina (VTAPG), en la ventana 1
 ; durante BKCALL: el de (HL) esta en (HL+4000h). Bits: 0 negrita, 1 subrayado,
 ; 2 parpadeo, 3 inverso, 4-6 color del texto, 7 hay color.
@@ -405,8 +405,11 @@ SI13:   LD      C,(HL)
         CALL    PRKB
         LD      A,(NRPG)        ; "G: disco en RAM de nnn KB"
         OR      A
-        JR      Z,SI15C
-        LD      HL,MSGG
+        LD      HL,MSGG0        ; (o que no hay: toda la RAM esta en uso)
+        JR      NZ,SI15B
+        CALL    PRSTR
+        JR      SI15C
+SI15B:  LD      HL,MSGG
         CALL    PRSTR
         LD      A,(NRPG)
         LD      HL,MSGK
@@ -585,7 +588,9 @@ TBUF:   DEFS    6
 TMAX:   DEFB    60h,60h,24h,32h,13h,9Ah ; limites (exclusivos) en BCD
 
 ; GETBLK: deja el bloque en BUF (Z = bien). Flash: lee el registro de 128 bytes.
-GETBLK: LD      A,(DSKC)
+GETBLK: CALL    FLCHK           ; BUF con cambios y otro bloque: a la tarjeta
+        RET     NZ
+        LD      A,(DSKC)
         CP      3
         JP      Z,FLREC
         CP      2
@@ -602,7 +607,10 @@ GETBLK: LD      A,(DSKC)
         LD      DE,(CBLK+2)
         SBC     HL,DE
         RET     Z
-GB0:    LD      A,(NCPG)        ; con cache: buscarlo alli
+GB0:    LD      A,(GMODE)       ; un bloque sin usar: no hace falta leerlo
+        CP      2
+        JP      Z,GBNEW
+        LD      A,(NCPG)        ; con cache: buscarlo alli
         OR      A
         JP      NZ,CGET
 GB1:    LD      A,0FFh
@@ -3022,13 +3030,37 @@ VRXGET: LD      A,D
         ADD     HL,DE
         DEC     (HL)
         LD      HL,(RAWH)       ; queda algo sin pasar (se paro con el bufer
-        LD      A,L             ; lleno): a KDRAIN otra vez
-        CP      H
+        LD      DE,(RAWT)       ; lleno): a KDRAIN otra vez
+        OR      A
+        SBC     HL,DE
         JR      Z,VRG1
         LD      A,1
         LD      (RXPEND),A
 VRG1:   CALL    RTSON
         LD      A,C
+        RET
+
+; LSTPB: el caracter C al anillo de la impresora (pagina LSTPG, un momento en
+; la ventana 0). Z si esta lleno.
+LSTPB:  LD      HL,(LSTT)
+        INC     HL
+        LD      A,H
+        AND     3Fh
+        LD      H,A
+        LD      DE,(LSTH)
+        OR      A
+        SBC     HL,DE
+        RET     Z
+        ADD     HL,DE
+        LD      DE,(LSTT)
+        LD      (LSTT),HL
+        LD      A,(LSTPG)
+        OUT     (PGPORT),A
+        EX      DE,HL
+        LD      (HL),C
+        LD      A,(VTPG)        ; (BKCALL tiene VTPG en la ventana 0)
+        OUT     (PGPORT),A
+        OR      0FFh
         RET
 
 ; KDONE: un caracter de RAWQ por KEYIN. Carry si no hay o si el bufer de la
@@ -3060,29 +3092,44 @@ KDN9:   XOR     A
 
 ; RAWPUT / RAWGET: el anillo del modo crudo (256 bytes). RAWGET: A = el byte,
 ; carry si no hay.
-RAWCLR: XOR     A
-        LD      (RAWH),A
-        LD      (RAWT),A
+RAWCLR: LD      HL,0
+        LD      (RAWH),HL
+        LD      (RAWT),HL
         RET
-RAWPUT: LD      HL,(RAWH)       ; L = cabeza, H = cola
+RAWPUT: LD      HL,(RAWT)       ; (la SIO B en modo crudo)
+        PUSH    HL
+        INC     HL
         LD      A,H
-        INC     A
-        CP      L
+        AND     1
+        LD      H,A
+        LD      DE,(RAWH)
+        OR      A
+        SBC     HL,DE
+        ADD     HL,DE
+        POP     DE
         RET     Z               ; lleno: se pierde
-        LD      (RAWT),A
-        LD      L,H
-        LD      H,RAWQ SHR 8
+        LD      (RAWT),HL
+        LD      HL,RAWQ
+        ADD     HL,DE
         LD      (HL),C
         RET
 RAWGET: CALL    RTSON           ; el programa lee: el PC puede seguir mandando
-        LD      HL,(RAWH)       ; L = cabeza, H = cola
-        LD      A,L
-        CP      H
+        LD      HL,(RAWH)
+        LD      DE,(RAWT)
+        OR      A
+        SBC     HL,DE
         SCF
         RET     Z
-        INC     A
-        LD      (RAWH),A
-        LD      H,RAWQ SHR 8
+        ADD     HL,DE           ; HL = cabeza
+        PUSH    HL
+        INC     HL
+        LD      A,H
+        AND     1
+        LD      H,A
+        LD      (RAWH),HL
+        POP     DE
+        LD      HL,RAWQ
+        ADD     HL,DE
         LD      A,(HL)
         OR      A               ; NC
         RET
@@ -4181,7 +4228,8 @@ SDCMDE: CALL    SDCMD
         RET
 
 ; CPURGE: olvida lo que hay en la cache (y en BUF) de la tarjeta DSKC
-CPURGE: LD      A,(DSKC)
+CPURGE: CALL    FLUSH           ; (lo de BUF a la tarjeta antes de olvidarlo)
+        LD      A,(DSKC)
         LD      C,A
         LD      HL,CCARD
         CP      (HL)
@@ -4321,6 +4369,7 @@ MSGC:   DEFB    ' KB disk cache',13,10,0
 MSGS:   DEFB    'A:STARTUP.SUB',13,10,0
 MSGL:   DEFB    'LST: to a file (A:MPM.CFG, H:LSTFILE)',13,10,0
 MSGG:   DEFB    'G: RAM disk, ',0
+MSGG0:  DEFB    'G: no RAM disk (all memory in use)',13,10,0
 MSGK:   DEFB    ' KB',13,10,0
 
 SIOPUT: PUSH    AF              ; (y a la pantalla de la consola 0)
@@ -4413,13 +4462,14 @@ READ:   CALL    TODCHK          ; cambiaron la hora? -> al DS1307
         XOR     A
         RET
 
-WRITE:  CALL    TODCHK
+WRITE:  LD      A,C             ; tipo: 0 normal, 1 directorio, 2 bloque nuevo
+        LD      (WTYPE),A
+        CALL    TODCHK
         CALL    DSKADR
         LD      A,(DSKC)
         CP      3
         JR      NC,ERR1         ; flash: solo lectura
-        LD      A,1             ; hace falta el bloque entero (se reescribe)
-        LD      (GMODE),A
+        CALL    UNCHK           ; GMODE: 1 el bloque entero, 2 un bloque sin usar
         CALL    GETBLK
         RET     NZ
         CALL    BUFPTR          ; DMA del programa -> BUF, en dos mitades
@@ -4431,12 +4481,146 @@ WRITE:  CALL    TODCHK
         LD      A,(DSKC)
         CP      2
         JP      Z,RAMWR         ; disco en RAM
-        CALL    SDWRX
+        LD      HL,(RECN)       ; escritura diferida: BUF queda con cambios y va
+        LD      DE,512+128      ; a la tarjeta al pasar a otro bloque (FLCHK).
+        OR      A               ; El directorio (los 128 registros despues de la
+        SBC     HL,DE           ; pista de sistema), en el acto: MP/M manda C = 1
+        JR      C,WR1           ; tambien con los datos, no sirve para saberlo
+        LD      A,1
+        LD      (BDIRTY),A
+        JP      CWRREC          ; el registro tambien a la cache
+WR1:    CALL    SDWRX
         JP      Z,CWRREC        ; escrito: el registro tambien a la cache
         CALL    CWRERR          ; fallo: olvidar el bloque (BUF ya no es la tarjeta)
 ERR1:   LD      A,1
         OR      A
         RET
+
+; UNCHK: GMODE para WRITE. MP/M pone el bit 1 de C en el primer registro de un
+; bloque de asignacion nuevo (2 KB, 16 registros): mientras se escriban sus
+; registros en orden, lo que hay en la tarjeta no importa y no se lee antes.
+UNCHK:  LD      A,1
+        LD      (GMODE),A
+        LD      A,(WTYPE)
+        AND     2
+        JR      Z,UNC1
+        LD      A,(DRV)
+        LD      (UNDRV),A
+        LD      HL,(RECN)
+        LD      (UNREC),HL
+        LD      A,16
+        LD      (UNCNT),A
+UNC1:   LD      A,(UNCNT)
+        OR      A
+        RET     Z
+        LD      A,(DRV)
+        LD      HL,UNDRV
+        CP      (HL)
+        JR      NZ,UNC0
+        LD      HL,(RECN)
+        LD      DE,(UNREC)
+        OR      A
+        SBC     HL,DE
+        JR      NZ,UNC0
+        INC     DE
+        LD      (UNREC),DE
+        LD      HL,UNCNT
+        DEC     (HL)
+        LD      A,2
+        LD      (GMODE),A
+        RET
+UNC0:   XOR     A
+        LD      (UNCNT),A
+        RET
+UNDRV:  DEFB    0
+UNREC:  DEFW    0
+UNCNT:  DEFB    0
+
+; GBNEW: BUF pasa a ser el bloque BLK sin leerlo (sin usar); su copia en la
+; cache, si habia una, ya no vale.
+GBNEW:  LD      A,(NCPG)
+        OR      A
+        JR      Z,GBN1
+        CALL    CLOOK
+        JR      NZ,GBN1
+        CALL    TAGADR
+        LD      (HL),0FFh
+GBN1:   LD      A,0FFh
+        LD      (BUFSL),A
+        LD      (BUFOK),A       ; (FF: BUF no esta en la cache)
+        LD      A,(DSKC)
+        LD      (CCARD),A
+        LD      HL,(BLK)
+        LD      (CBLK),HL
+        LD      HL,(BLK+2)
+        LD      (CBLK+2),HL
+        XOR     A
+        RET
+
+; FLCHK: si BUF tiene cambios y el pedido (DSKC, BLK) es otro bloque, BUF a la
+; tarjeta antes. Z = bien.
+FLCHK:  LD      A,(BDIRTY)
+        OR      A
+        RET     Z
+        LD      A,(DSKC)
+        LD      HL,CCARD
+        CP      (HL)
+        JR      NZ,FLUSH
+        LD      HL,(BLK)
+        LD      DE,(CBLK)
+        OR      A
+        SBC     HL,DE
+        JR      NZ,FLUSH
+        LD      HL,(BLK+2)
+        LD      DE,(CBLK+2)
+        SBC     HL,DE
+        RET     Z
+; FLUSH: BUF (tarjeta CCARD, bloque CBLK) a la tarjeta, si tiene cambios.
+; Conserva DSKC y BLK del pedido. Z = bien.
+FLUSH:  LD      A,(BDIRTY)
+        OR      A
+        RET     Z
+        XOR     A
+        LD      (BDIRTY),A      ; (antes: SDREIN -> CPURGE -> FLUSH no se repite)
+        LD      A,(DSKC)
+        PUSH    AF
+        LD      HL,(BLK)
+        PUSH    HL
+        LD      HL,(BLK+2)
+        PUSH    HL
+        LD      A,(CCARD)
+        LD      (DSKC),A
+        LD      HL,(CBLK)
+        LD      (BLK),HL
+        LD      HL,(CBLK+2)
+        LD      (BLK+2),HL
+        LD      A,(FLQ)
+        OR      A
+        JR      NZ,FLU1
+        CALL    SDWRX
+        JR      FLU2
+FLU1:   CALL    SDWR            ; (desde H:ZLOADER: sin reintento ni mensaje)
+FLU2:   PUSH    AF
+        CALL    NZ,CWRERR
+        POP     AF
+        POP     HL
+        LD      (BLK+2),HL
+        POP     HL
+        LD      (BLK),HL
+        POP     HL              ; (H = DSKC)
+        LD      A,H
+        LD      (DSKC),A
+        RET
+; FLUSHQ: para el servicio 42 (H:ZLOADER, con MXDisk tomado)
+FLUSHQ: LD      A,1
+        LD      (FLQ),A
+        CALL    FLUSH
+        LD      A,0
+        LD      (FLQ),A
+        RET
+WTYPE:  DEFB    0
+BDIRTY: DEFB    0               ; BUF tiene registros que la tarjeta todavia no
+FLQ:    DEFB    0
 
 BUFPTR: LD      HL,BUF          ; HL = BUF + OFS*128
         LD      A,(OFS)
@@ -4451,7 +4635,126 @@ BUFPTR: LD      HL,BUF          ; HL = BUF + OFS*128
         RET
 
 
+; WRSYS: servicio 43 (BKCALL). B = unidad, DE = registro, los datos en DIRBF.
+; Sin GETBLK ni la cache (CPYC prende las interrupciones, y aqui no se puede):
+; el bloque se lee a BUF, se cambia el registro y se escribe; su copia en la
+; cache, si habia, se olvida.
+WRSYS:  LD      A,B
+        CP      NDRV
+        JR      NC,WRS9
+        LD      (DRV),A
+        LD      A,D             ; pista = registro / 512, sector = registro % 512
+        RRA
+        AND     7Fh
+        LD      L,A
+        LD      H,0
+        LD      (TRK),HL
+        LD      A,D
+        AND     1
+        LD      D,A
+        LD      (SEC),DE
+        CALL    DSKADR
+        LD      A,(DSKC)
+        CP      2
+        JR      NC,WRS9         ; solo en una SD
+        LD      A,1             ; BUF a la tarjeta si tenia cambios (sin
+        LD      (FLQ),A         ; mensaje: aqui no se puede escribir en la consola)
+        CALL    FLUSH
+        LD      A,0
+        LD      (FLQ),A
+        LD      A,0FFh          ; BUF ya no es ningun bloque
+        LD      (CCARD),A
+        LD      (BUFSL),A
+        LD      (BUFOK),A
+        CALL    SDRD
+        JR      NZ,WRS9
+        CALL    BUFPTR
+        EX      DE,HL
+        LD      HL,DIRBF
+        LD      BC,128
+        LDIR
+        CALL    SDWR
+        JR      NZ,WRS9
+        LD      A,(NCPG)
+        OR      A
+        JR      Z,WRS1
+        CALL    CLOOK
+        JR      NZ,WRS1
+        CALL    TAGADR
+        LD      (HL),0FFh
+WRS1:   XOR     A
+        RET
+WRS9:   LD      A,1
+        RET
+
+; ZMPB / ZDRB / ZMNB: los servicios 11, 36 y 10 de ZIOS (BKCALL desde ZEMU).
+; ZMPB: unidad C -> A = tarjeta, HL = disco virtual
+ZMPB:   LD      A,C
+        CALL    ZMPADR
+        EX      DE,HL
+        RET
+; ZDRB: unidad C -> A = tarjeta, HL = DSM de su DPB
+ZDRB:   LD      A,C
+        CALL    ZMPADR
+        LD      HL,DPBSD+5
+        CP      2
+        JR      C,ZDB1
+        LD      HL,DPBRM+5
+        JR      Z,ZDB1
+        LD      HL,DPBFL+5
+ZDB1:   LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        EX      DE,HL
+        RET
+; ZMNB: la unidad D pasa a la tarjeta E, disco virtual (ZHL)
+ZMNB:   PUSH    DE
+        LD      A,D
+        CALL    ZMPADR          ; HL -> DMW
+        PUSH    HL
+        LD      HL,(ZHL)        ; disco * 32
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        EX      (SP),HL
+        POP     BC
+        LD      (HL),C
+        INC     HL
+        LD      (HL),B
+        POP     DE
+        LD      HL,DCARD
+        LD      C,D
+        LD      B,0
+        ADD     HL,BC
+        LD      (HL),E
+        RET
+; ZMPADR: unidad A -> A = tarjeta, DE = disco virtual, HL -> su DMW
+ZMPADR: LD      E,A
+        LD      D,0
+        LD      HL,DCARD
+        ADD     HL,DE
+        LD      B,(HL)
+        LD      HL,DMW
+        ADD     HL,DE
+        ADD     HL,DE
+        PUSH    HL
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        LD      A,5             ; DMW = disco * 32
+ZMP1:   SRL     D
+        RR      E
+        DEC     A
+        JR      NZ,ZMP1
+        POP     HL
+        LD      A,B
+        RET
+
 ; variables del disco (solo las usa la parte con bancos)
+DCARD:  DEFS    NDRV
+DMW:    DEFS    2*NDRV
 CMNPG:  DEFB    0
 DRV:    DEFB    0
 TRK:    DEFW    0
@@ -4809,24 +5112,9 @@ LIST:   LD      A,(LSTMD)
 LST0:   LD      A,I
         DI
         PUSH    AF
-        LD      HL,(LSTT)
-        INC     HL
-        LD      A,H
-        AND     3Fh
-        LD      H,A
-        LD      DE,(LSTH)
-        OR      A
-        SBC     HL,DE
+        LD      HL,LSTPB
+        CALL    BKCALL
         JR      Z,LSTF          ; lleno: esperar un tic
-        ADD     HL,DE
-        LD      DE,(LSTT)
-        LD      (LSTT),HL
-        LD      A,(LSTPG)
-        OUT     (PGPORT),A
-        EX      DE,HL
-        LD      (HL),C
-        LD      A,(CURPG0)
-        OUT     (PGPORT),A
         POP     AF
         RET     PO
         EI
@@ -4875,12 +5163,14 @@ RTSON:  IN      A,(SIOAC)       ; (no si la SIO ya tiene otro: RR0 bit 0)
         RRA
         RET     C
         LD      A,0EAh
-RTS1:   PUSH    AF
+RTS1:   PUSH    AF              ; (las dos SIO: la B tambien puede ser una consola)
         LD      A,5
         DI
         OUT     (SIOAC),A
+        OUT     (SIOBC),A
         POP     AF
         OUT     (SIOAC),A
+        OUT     (SIOBC),A
         RET
 EXITRG: LD      A,(PREEMP)
         OR      A
@@ -4890,7 +5180,7 @@ EIRET:  EI
 IDLE:   CALL    RTSON
         EI
         HALT
-        RET
+IDLRT:  RET
 
 ; ------------------------------------------------------------- interrupciones
 ; Recepcion de la SIO: al bufer circular (si se llena se pierde el caracter).
@@ -4912,14 +5202,21 @@ IRXA:   LD      (SVSP),SP       ; (en la pila de las interrupciones: la del
         JR      NZ,IRXQ         ; modo crudo: lo lee XFER, no KEYIN
         LD      (RXPEND),A      ; (no cero)
 IRXQ:   OUT     (PGPORT+1),A
-        LD      HL,(RAWH)       ; L = cabeza, H = cola
+        LD      HL,(RAWT)       ; cola (0-1FF)
+        PUSH    HL
+        INC     HL
         LD      A,H
-        INC     A
-        CP      L
+        AND     1
+        LD      H,A
+        LD      DE,(RAWH)
+        OR      A
+        SBC     HL,DE
+        ADD     HL,DE           ; (Z queda de SBC)
+        POP     DE
         JR      Z,IRXR1         ; lleno: se pierde
-        LD      (RAWT),A
-        LD      L,H
-        LD      H,RAWQ SHR 8
+        LD      (RAWT),HL
+        LD      HL,RAWQ
+        ADD     HL,DE
         LD      (HL),C
 IRXR1:  LD      A,(CURPG1)
         OUT     (PGPORT+1),A
@@ -4938,12 +5235,12 @@ IRXB:   LD      (SVSP),SP
         PUSH    BC
         IN      A,(SIOBD)
         LD      C,A
-        LD      A,(RAWA)        ; modo crudo en la SIO B: al anillo RAWQ
-        CP      2
+        LD      A,(RAWA)        ; modo crudo en la SIO B: al anillo RAWQ, como
+        CP      2               ; la SIO A (sin BKCALL)
         JR      NZ,IRXB1
-        LD      HL,RAWPUT
-        CALL    BKCALL
-        JR      IRX9
+        LD      (RXACT),A
+        LD      A,(VTAPG)
+        JR      IRXQ
 IRXB1:  LD      A,C
         LD      HL,TLB
         LD      DE,RXB
@@ -5151,7 +5448,7 @@ ITK1:   LD      A,(TICKN)
         LD      E,1
         CALL    XDOS
 IT1:    LD      HL,(SVRET)      ; el tic cayo en IDLE (la CPU sin trabajo)?
-        LD      DE,IDLE+2
+        LD      DE,IDLRT
         OR      A
         SBC     HL,DE
         JR      NZ,IT1A
@@ -5381,9 +5678,7 @@ TODADR: LD      HL,(SYSDAT)
 ; en el banco 0, asi que el historial de ordenes vive en la parte con bancos.
 ; Conserva DE.
 ISTMP:  PUSH    DE
-        CALL    TODADR          ; HL = datapg (TOD esta al principio)
-        LD      DE,5            ; datapg+5: rlr, el proceso que corre
-        ADD     HL,DE
+        LD      HL,(RLRA)       ; rlr: el proceso que corre
         LD      A,(HL)
         INC     HL
         LD      H,(HL)
@@ -5442,6 +5737,10 @@ ZEMU:   LD      (ZHL),HL
         JP      Z,ZVC
         CP      41
         JP      Z,ZRAW
+        CP      42
+        JP      Z,ZFL
+        CP      43
+        JP      Z,ZWS
 ZERR:   LD      A,0FFh
 ZRET:   POP     BC
         POP     DE
@@ -5469,61 +5768,32 @@ ZCK:    LD      C,11            ; A = FF si hay caracter
         OR      A
         JR      ZRET
 ; 11: mapa de unidades, 3 bytes por unidad (tarjeta, disco virtual) en (HL)
-ZQMP:   LD      HL,(ZHL)
+ZQMP:   LD      DE,(ZHL)
         LD      C,0
-ZQ1:    LD      A,C
-        PUSH    HL
-        CALL    ZMPADR
-        POP     HL
+ZQ1:    LD      HL,ZMPB         ; (en la parte con bancos: A = tarjeta, HL = disco)
+        CALL    ZBK
+        EX      DE,HL
         LD      (HL),A
         INC     HL
         LD      (HL),E
         INC     HL
         LD      (HL),D
         INC     HL
+        EX      DE,HL
         INC     C
         LD      A,C
         CP      NDRV
         JR      NZ,ZQ1
         XOR     A
         JR      ZRET
-; ZMPADR: unidad A -> A = tarjeta, DE = disco virtual, HL -> su DMW
-ZMPADR: LD      E,A
-        LD      D,0
-        LD      HL,DCARD
-        ADD     HL,DE
-        LD      B,(HL)
-        LD      HL,DMW
-        ADD     HL,DE
-        ADD     HL,DE
-        PUSH    HL
-        LD      E,(HL)
-        INC     HL
-        LD      D,(HL)
-        LD      A,5             ; DMW = disco * 32
-ZMP1:   SRL     D
-        RR      E
-        DEC     A
-        JR      NZ,ZMP1
-        POP     HL
-        LD      A,B
-        RET
 ; 36: H = unidad -> A = tarjeta, DE = DSM, B = 0
 ZDRV:   LD      A,(ZHL+1)
         CP      NDRV
         JR      NC,ZERR
-        PUSH    HL
-        CALL    ZMPADR
-        POP     HL
-        LD      HL,DPBSD+5
-        CP      2
-        JR      C,ZD1
-        LD      HL,DPBRM+5
-        JR      Z,ZD1
-        LD      HL,DPBFL+5
-ZD1:    LD      E,(HL)
-        INC     HL
-        LD      D,(HL)
+        LD      C,A
+        LD      HL,ZDRB         ; A = tarjeta, HL = DSM
+        CALL    ZBK
+        EX      DE,HL
         POP     BC
         POP     HL              ; (DE de quien llama: se devuelve DSM)
         POP     HL
@@ -5541,12 +5811,11 @@ ZMNT:   LD      A,B
         LD      A,D
         CP      NDRV
         JP      NC,ZERR
-        PUSH    DE
-        CALL    ZMPADR          ; HL -> DMW de la unidad, A = su tarjeta
-        POP     DE
+        LD      C,D
+        LD      HL,ZMPB         ; A = su tarjeta
+        CALL    ZBK
         CP      2
         JP      NC,ZERR
-        PUSH    HL
         PUSH    DE
         LD      HL,1            ; vector de la unidad D
         INC     D
@@ -5558,26 +5827,10 @@ ZMN2:   EX      DE,HL
         LD      C,37
         CALL    5
         POP     DE
-        POP     HL
         OR      A
         JP      NZ,ZERR
-        PUSH    HL
-        LD      HL,(ZHL)        ; disco * 32
-        ADD     HL,HL
-        ADD     HL,HL
-        ADD     HL,HL
-        ADD     HL,HL
-        ADD     HL,HL
-        EX      (SP),HL         ; HL -> DMW
-        POP     BC
-        LD      (HL),C
-        INC     HL
-        LD      (HL),B
-        LD      HL,DCARD
-        LD      C,D
-        LD      B,0
-        ADD     HL,BC
-        LD      (HL),E
+        LD      HL,ZMNB         ; la unidad D en la tarjeta E, disco (ZHL)
+        CALL    ZBK
         XOR     A
         JP      ZRET
 
@@ -5626,6 +5879,24 @@ ZINAK:  LD      HL,ISTOP
         CALL    ZBK
         LD      A,1
         OR      A
+        JP      ZRET
+; 43 (propio): el registro de 128 bytes de HL a la unidad B, registro DE contado
+; desde el principio de la unidad (tambien la pista de sistema: H:SETBOOT, que
+; tiene MXDisk, asi nadie usa DIRBF). A = 0 bien.
+ZWS:    LD      HL,(ZHL)
+        LD      DE,DIRBF
+        LD      BC,128
+        LDIR
+        POP     BC
+        POP     DE
+        PUSH    DE
+        PUSH    BC
+        LD      HL,WRSYS
+        CALL    ZBK
+        JP      ZRET
+; 42 (propio): lo que espera en BUF a la tarjeta (H:ZLOADER, con MXDisk)
+ZFL:    LD      HL,FLUSHQ       ; (A = 0)
+        CALL    ZBK
         JP      ZRET
 ; 40 (propio): ver la consola virtual E (0-4; H:VC)
 ZVC:    LD      HL,VSWE
@@ -5707,7 +5978,11 @@ ZRW2A:  DI                      ; 2: recibir
         JR      ZRW2A
 ZRW2B:  OR      A
         JP      ZRET
-ZRW3:   LD      A,(RAWA)        ; 3: mandar
+ZRW3:   DEC     A               ; 4: A = la pagina del anillo (XFER lo lee
+        JR      Z,ZRW3A         ; directo, con las interrupciones apagadas)
+        LD      A,(VTAPG)
+        JP      ZRET
+ZRW3A:  LD      A,(RAWA)        ; 3: mandar
         DEC     A
         LD      HL,TXA
         LD      D,FLTXA
@@ -5801,8 +6076,7 @@ BKSV:   DEFW    0
 BKA:    DEFB    0
 BNKPG:  DEFS    24              ; 3 paginas por banco, bancos 0-7
 DMA:    DEFW    0
-DCARD:  DEFS    NDRV
-DMW:    DEFS    2*NDRV
+
 FIRMA:  DEFB    0
 ZMAP    EQU     BUF             ; SYSINIT usa BUF para el mapa de ZIOS y su pila
 LSTK    EQU     BUF+512

@@ -5,6 +5,8 @@
 #   zloader_sst39sf040_v6_mpm.bin con MP/M en el disco H:.
 # Requiere zmac, z80pack ($Z80PACK) y pexpect. Ver LEEME.md.
 set -e
+# zm: ensambla con zmac y para si hay errores (zmac no siempre devuelve error)
+zm() { local o; o=$($ZMAC -c --od zout --oo cim,lst "$@" 2>&1) || { echo "$o"; exit 1; }; if echo "$o" | grep -qi "error"; then echo "$o"; exit 1; fi; }
 cd "$(dirname "$0")"
 ZMAC=${ZMAC:-zmac}
 export ZMAC
@@ -20,13 +22,14 @@ print(f"BNKXIOS en {base:04X}H, parte comun desde {base+cb:04X}H (margen {base+c
 assert base+cb >= 0xC000, "la parte comun del XIOS empieza debajo de C000"
 assert base >= 0x8000, "la parte con bancos tiene que quedar en la ventana 2 (BKCALL)"
 C
-$ZMAC -c --od zout --oo cim,lst ldrbios.asm >/dev/null
-$ZMAC -c --od zout --oo cim,lst rtc.asm >/dev/null && cp zout/rtc.cim RTC.COM
-$ZMAC -c --od zout --oo cim,lst zloader.asm >/dev/null && cp zout/zloader.cim ZLOADER.COM
-$ZMAC -c --od zout --oo cim,lst baud.asm >/dev/null && cp zout/baud.cim BAUD.COM
-$ZMAC -c --od zout --oo cim,lst vc.asm >/dev/null && cp zout/vc.cim VC.COM
-$ZMAC -c --od zout --oo cim,lst xfer.asm >/dev/null && cp zout/xfer.cim XFER.COM
-$ZMAC -c --od zout --oo cim,lst lstfile.asm >/dev/null && cp zout/lstfile.cim LSTFILE.COM
+zm ldrbios.asm
+zm rtc.asm && cp zout/rtc.cim RTC.COM
+zm zloader.asm && cp zout/zloader.cim ZLOADER.COM
+zm baud.asm && cp zout/baud.cim BAUD.COM
+zm vc.asm && cp zout/vc.cim VC.COM
+zm xfer.asm && cp zout/xfer.cim XFER.COM
+zm setboot.asm && cp zout/setboot.cim SETBOOT.COM
+zm lstfile.asm && cp zout/lstfile.cim LSTFILE.COM
 python3 - <<'P'
 m=open('dri/MPMLDR.COM','rb').read(); l=open('zout/ldrbios.cim','rb').read()
 o=b'MP/M II V2.0 Loader   '; n=b'MP/M II 2.0 ZEPHYRUS  '   # mismo largo
@@ -51,6 +54,6 @@ python3 $Z/tools/mkflashdisk.py $Z/zloader/zloader_sst39sf040.bin zloader_sst39s
      $P/MPMSTAT.PRL $P/PIP.PRL $P/PRLCOM.PRL $P/REN.PRL $P/SDIR.PRL $P/SET.PRL $P/SHOW.PRL $P/STAT.PRL \
      $P/SUBMIT.PRL $P/TOD.PRL $P/TYPE.PRL $P/USER.PRL $P/SCHED.PRL $P/SPOOL.PRL $P/STOPSPLR.PRL \
      $P/PRINTER.PRL $P/RDT.PRL \
-     RTC.COM ZLOADER.COM BAUD.COM VC.COM XFER.COM LSTFILE.COM $Z/apps/mat/PRIMOS.COM $Z/apps/mat/PRIMOS7.COM $Z/apps/pi/PI1K.COM $Z/apps/mat/bombe/BOMBE.COM \
+     RTC.COM ZLOADER.COM BAUD.COM VC.COM XFER.COM SETBOOT.COM LSTFILE.COM $Z/apps/mat/PRIMOS.COM $Z/apps/mat/PRIMOS7.COM $Z/apps/pi/PI1K.COM $Z/apps/mat/bombe/BOMBE.COM \
   -n $Z/apps/basic/bas/*.BAS > flash.log
 grep "Disco en flash" flash.log
