@@ -4791,7 +4791,7 @@ SPCLK:  XOR     A
 EXITRG: LD      A,(PREEMP)
         OR      A
         RET     NZ
-        EI
+EIRET:  EI
         RET
 IDLE:   EI
         HALT
@@ -4816,6 +4816,7 @@ IRXA:   LD      (SVSP),SP       ; (en la pila de las interrupciones: la del
         CALL    TXSTA           ; (si cambio de consola o de vista: a redibujar)
         JR      IRX9
 IRXR:   LD      A,(VTAPG)
+        LD      (RXACT),A       ; (no cero: llego algo en este tic)
         OUT     (PGPORT+1),A
         LD      HL,(RAWH)       ; L = cabeza, H = cola
         LD      A,H
@@ -5036,7 +5037,7 @@ ITK0B:  LD      HL,TXA          ; por si se perdio una interrupcion de transmisi
         CALL    TXKICK
         LD      HL,TDIV         ; 120 Hz -> 60 Hz
         DEC     (HL)
-        JR      NZ,ITDONE
+        JR      NZ,ITNOD        ; los tics de en medio no despachan
         LD      A,(TDIVN)
         LD      (HL),A
         LD      HL,TICKS        ; cuenta de tics (60 por segundo), 32 bits
@@ -5094,7 +5095,17 @@ IT2:
         LD      C,FLAGSET       ; bandera 4: cada minuto
         LD      E,4
         CALL    XDOS
-ITDONE: XOR     A
+; ITDONE: al despachador, salvo si en el ultimo tic llego algo en modo crudo:
+; el despachador de MP/M corre con las interrupciones apagadas y la SIO pierde
+; bytes de un bloque de XMODEM. Entonces vuelve directo al proceso (EIRET).
+ITDONE: LD      HL,(PDISP+1)
+        LD      A,(RXACT)
+        OR      A
+        JR      Z,ITD1
+ITNOD:  LD      HL,EIRET
+ITD1:   LD      (DSPV),HL
+        XOR     A
+        LD      (RXACT),A
         LD      (PREEMP),A
         POP     BC
         POP     DE
@@ -5103,7 +5114,7 @@ ITDONE: XOR     A
         POP     AF
         LD      HL,(SVRET)
         PUSH    HL
-        LD      HL,(PDISP+1)    ; al despachador
+        LD      HL,(DSPV)       ; al despachador (o a EIRET)
         PUSH    HL
         LD      HL,(SVHL)
         RETI
@@ -5670,6 +5681,8 @@ IFLGN:  DEFB    0               ; bandera que pone IFLG (0 = es el tic)
 
 SECS:   DEFW    0               ; segundos desde el arranque
 PREEMP: DEFB    0
+RXACT:  DEFB    0               ; modo crudo: llego algo desde el ultimo tic
+DSPV:   DEFW    0               ; a donde sigue el fin del tic
 TDIV:   DEFB    2
 TDIVN:  DEFB    2
 CNTSEC: DEFB    TPS
