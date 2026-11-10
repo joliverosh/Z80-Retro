@@ -7,6 +7,7 @@ Programas escritos en C con SDCC 4.2 y una biblioteca chica propia (`cpm.c`). Ca
 | Programa | Qué hace | Uso |
 |---|---|---|
 | `VI` | Un editor como vi (ver abajo) | `VI NOTAS.TXT` |
+| `MD` | Editor y visor de Markdown, con las teclas de hoy (ver abajo) | `MD LEEME.MD`, `MD -V LEEME.MD` |
 | `TOP` | Los procesos de MP/M (consola, segmento, prioridad, estado), el uso de la CPU, la fecha y la hora; se actualiza cada segundo | `TOP` (una tecla sale) |
 | `TALK` | Manda un mensaje a otra consola | `TALK 2 hola, ya termine` |
 | `CLOCK` | Un reloj grande en la pantalla | `CLOCK` |
@@ -67,6 +68,16 @@ Cambios a las fuentes de Semilla, todos para SDCC: prototipos al principio de `a
 
 - **`SBASIC`**: SEMILLA BASIC, escrito en Tallo y compilado a Z80 por Semilla (`ejemplos/basic.tl`). Usa solo la consola de CP/M. `SBASIC`, después `LIST`, `RUN`, `NEW` y líneas numeradas.
 - **`extra/ZEXDOC.COM`**: el ejercitador de instrucciones del Z80 (Frank Cringle, GPL; la copia de github.com/agn453/ZEXALL). Prueba 67 grupos de instrucciones contra el CRC de un Z80 real. En MP/M a 7,37 MHz tarda un par de horas: conviene correrlo en otra consola (`^D` para dejarlo atrás, o desde otra terminal).
+
+## MD
+
+Editor de Markdown sin modos, con las teclas de los editores de hoy, y una vista formateada. Terminal ANSI de 80 columnas en UTF-8 (el de la Mac): las tildes y los `ñ` se ven y se guardan tal cual.
+
+- **Teclas:** flechas, Inicio, Fin, RePág, AvPág; `^S` guarda, `^O` guarda como, `^Q` sale (pregunta si hay cambios), `^F` busca (sin distinguir mayúsculas; Enter vacío repite), `^G` va a una línea, `^K` corta la línea (varias seguidas se juntan), `^U` pega, `^Z` deshace (varias veces), `^P` vista formateada, `^L` redibuja, `^A` y `^E` principio y fin de la línea. Tab pone espacios hasta la columna múltiplo de 4.
+- **Edición:** las líneas largas se parten en la pantalla (no en el archivo); arriba y abajo van por filas de pantalla. Se marcan en colores los títulos (`#`, un color por nivel), los bloques de código, las citas, las reglas, las marcas de lista, la **negrita**, la *cursiva* (subrayada), el `código` y los enlaces. Enter sigue una lista (`-`, `*`, `+`, `1.` con el número siguiente, y las citas `>`); Enter en un punto vacío termina la lista.
+- **Vista (`^P`, o `MD -V archivo` para solo mirar):** títulos con raya debajo, párrafos acomodados a 80 columnas, `•` en las listas (con sangría para las anidadas), citas con `│`, bloques de código en verde, tablas con las columnas alineadas, reglas, enlaces con la dirección entre `< >`, negrita, cursiva y código. Se mueve con las flechas, RePág/AvPág, Inicio/Fin; `Q` vuelve.
+- En MP/M caben unos 23 KB de texto. Guarda en un `.$$$` y después le cambia el nombre, con CR LF y `^Z`, igual que VI.
+- Al correr la pantalla una fila usa una región de desplazamiento (`ESC[1;21r`), así no toca la barra, la ayuda ni la línea de estado de MP/M.
 
 ## VI
 

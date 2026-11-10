@@ -154,27 +154,6 @@ static uint8_t need, frow, crow;
 #define N_ALL 3
 static uint8_t msgon;
 static char fname_[16];
-/* hay una tecla esperando? Sin BDOS 11, que (como 2 y 9) se lleva el caracter
-   a un bufer que BDOS 6 no mira: en MP/M, BDOS 6 FE; en CP/M, CONST del BIOS */
-static uint8_t bconst(void) __sdcccall(0) __naked
-{
-    __asm
-        push    ix
-        push    iy
-        ld      hl,(1)
-        inc     hl
-        inc     hl
-        inc     hl
-        ld      de,#00001$
-        push    de
-        jp      (hl)
-00001$: pop     iy
-        pop     ix
-        ld      l,a
-        ret
-    __endasm;
-}
-static uint8_t pending(void) { return ismpm() ? bdos(6, 0xFE) & 0xFF : bconst(); }
 
 static uint16_t drawline(uint8_t r, uint16_t p)
 {
@@ -221,8 +200,7 @@ static void adjust(void)
         if (prevl(top) == ls && need != N_ALL) {
             top = ls;
             if (need == N_FROM) frow++;
-            ogo(1, 1); os("\x1b[L");       /* una fila hacia abajo */
-            ogo(CMDROW, 1); oeol();
+            os("\x1b[1;22r\x1b[1;1H\x1b[L\x1b[r");   /* una fila abajo, solo el texto */
             drawline(1, top);
         } else {
             for (top = ls, r = 0; r < ROWS / 2 && top; r++) top = prevl(top);
@@ -234,9 +212,8 @@ static void adjust(void)
         if (r == ROWS + 1 && need != N_ALL) {
             top = nextl(top);
             if (need == N_FROM && frow > 1) frow--;
-            ogo(1, 1); os("\x1b[M");       /* una fila hacia arriba */
+            os("\x1b[1;22r\x1b[1;1H\x1b[M\x1b[r");   /* una fila arriba, solo el texto */
             drawline(ROWS, ls);
-            ogo(CMDROW, 1); oeol();
             r = ROWS;
         } else {
             for (top = ls, r = 0; r < ROWS / 2 && top; r++) top = prevl(top);
@@ -295,6 +272,15 @@ static uint8_t rawk(void)
     oflush();
     while (!(k = getkey())) delay(1);
     return k;
+}
+/* hay una tecla esperando? Se lee (BDOS 6 FF) y se guarda: BDOS 11, y el
+   6 FE de CP/M 3 (que MP/M II no tiene), no sirven */
+static uint8_t pending(void)
+{
+    uint8_t k;
+    if (npb) return 1;
+    if ((k = getkey())) { pb[npb++] = k; return 1; }
+    return 0;
 }
 static uint8_t soon(void)        /* un caracter que llega enseguida, o 0 */
 {
