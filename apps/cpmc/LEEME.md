@@ -15,6 +15,7 @@ Programas escritos en C con SDCC 4.2 y una biblioteca chica propia (`cpm.c`). Ca
 | `LIFE` | El juego de la vida de Conway, 78 × 22 | `LIFE` |
 | `TETRIS` | Flechas o WASD/IJKL; arriba gira, espacio la deja caer, P pausa, Q sale | `TETRIS` |
 | `SNAKE` | La víbora: come los `*` sin chocar | `SNAKE` |
+| `CAT` | Muestra archivos de texto seguidos, sin pausas | `CAT NOTAS.TXT`, `CAT *.ASM` |
 | `MORE` | Un archivo de texto por pantallas (espacio, RETURN, Q) | `MORE LEEME.TXT` |
 | `GREP` | Busca un patrón (`.` `x*` `^` `$`) sin distinguir mayúsculas; `-N` números de línea, `-V` las que no, `-C` cuántas, `-L` los archivos | `GREP -N ^ORG *.ASM` |
 | `WC` | Líneas, palabras y caracteres | `WC *.TXT` |
