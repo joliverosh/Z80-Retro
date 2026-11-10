@@ -1,39 +1,92 @@
-/* GREP - busca un patron en archivos de texto (sin distinguir mayusculas)
+/* GREP - busca un patron en archivos de texto
    GREP [-N] [-V] [-C] [-L] patron archivo...
-   El patron: . cualquier caracter, x* cero o mas x, ^ al principio, $ al final,
-   \ quita el sentido especial. CP/M pasa la linea en mayusculas y sin comillas,
-   asi que el patron no puede tener espacios (usar . en su lugar). */
+   GREP [-N] [-V] [-C] [-L] ? archivo...       el patron se escribe despues
+   El patron (el motor de grep-milla de Semilla): . cualquier caracter,
+   x* x+ x? (cero o mas, uno o mas, cero o uno), ^ $ (principio y fin),
+   [abc] [a-z] [^...] (clases), \c (c literal). CP/M pasa la linea en
+   mayusculas y sin comillas: un patron escrito ahi no distingue mayusculas y
+   no puede tener espacios (usar .). Con ? se pide por teclado, con espacios,
+   y ahi si distingue mayusculas. */
 #include "cpm.h"
 static NAME12 nm[64];
 static RD r;
 static char line[256];
 static char *pat;
-static uint8_t up(uint8_t c) { return c >= 'a' && c <= 'z' ? c - 32 : c; }
-static uint8_t matchhere(const char *re, const char *t);
-static uint8_t one(const char *re, const char *t)
+static char pbuf[130];
+static uint8_t icase = 1;
+static uint8_t low(uint8_t c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; }
+/* largo del atomo que empieza en re: 2 si \c, el corchete entero si [..], si no 1 */
+static uint8_t atomlen(const char *re)
 {
-    if (!*t) return 0;
-    if (*re == '.') return 1;
-    if (*re == '\\') re++;
-    return up(*re) == up(*t);
+    uint8_t n;
+    if (re[0] == '\\' && re[1]) return 2;
+    if (re[0] == '[') {
+        n = 1;
+        if (re[n] == '^') n++;
+        if (re[n] == ']') n++;              /* un ] al principio es literal */
+        while (re[n] && re[n] != ']') n++;
+        return re[n] == ']' ? n + 1 : n;
+    }
+    return 1;
 }
-static uint8_t len1(const char *re) { return *re == '\\' && re[1] ? 2 : 1; }
-static uint8_t matchstar(const char *c, const char *re, const char *t)
+/* el caracter c contra el atomo (re, de largo L) */
+static uint8_t atom1(const char *re, uint8_t L, uint8_t c)
 {
-    do { if (matchhere(re, t)) return 1; } while (one(c, t++));
+    uint8_t i, neg, ok;
+    if (re[0] == '\\') return (uint8_t)re[1] == c;
+    if (re[0] == '.') return 1;
+    if (re[0] == '[') {
+        i = 1; neg = 0;
+        if (re[i] == '^') { neg = 1; i++; }
+        ok = 0;
+        while (i < L - 1) {                 /* L-1 es el ] final */
+            if (re[i + 1] == '-' && i + 2 < L - 1) {
+                if (c >= (uint8_t)re[i] && c <= (uint8_t)re[i + 2]) ok = 1;
+                i += 3;
+            } else {
+                if ((uint8_t)re[i] == c) ok = 1;
+                i++;
+            }
+        }
+        return neg ? !ok : ok;
+    }
+    return (uint8_t)re[0] == c;
+}
+static uint8_t matchatom(const char *re, uint8_t L, uint8_t c)
+{
+    if (!c) return 0;
+    if (!icase) return atom1(re, L, c);
+    if (c >= 'a' && c <= 'z') return atom1(re, L, c) || atom1(re, L, c - 32);
+    if (c >= 'A' && c <= 'Z') return atom1(re, L, c) || atom1(re, L, c + 32);
+    return atom1(re, L, c);
+}
+static uint8_t matchhere(const char *re, const char *text);
+/* atomo (re,L) repetido, luego el resto: minimo min veces */
+static uint8_t matchrep(const char *re, uint8_t L, const char *resto, const char *text, uint8_t min)
+{
+    const char *t = text;
+    int16_t n = 0;
+    while (matchatom(re, L, *t)) { t++; n++; }   /* lo mas posible */
+    while (n >= min) {                            /* y vuelve hasta que case el resto */
+        if (matchhere(resto, text + n)) return 1;
+        n--;
+    }
     return 0;
 }
-static uint8_t matchhere(const char *re, const char *t)
+static uint8_t matchhere(const char *re, const char *text)
 {
-    for (;;) {
-        uint8_t l;
-        if (!*re) return 1;
-        l = len1(re);
-        if (re[l] == '*') return matchstar(re, re + l + 1, t);
-        if (re[0] == '$' && !re[1]) return !*t;
-        if (!one(re, t)) return 0;
-        re += l; t++;
+    uint8_t L;
+    if (re[0] == '\0') return 1;
+    if (re[0] == '$' && re[1] == '\0') return *text == '\0';
+    L = atomlen(re);
+    if (re[L] == '*') return matchrep(re, L, re + L + 1, text, 0);
+    if (re[L] == '+') return matchrep(re, L, re + L + 1, text, 1);
+    if (re[L] == '?') {
+        if (*text && matchatom(re, L, *text) && matchhere(re + L + 1, text + 1)) return 1;
+        return matchhere(re + L + 1, text);
     }
+    if (matchatom(re, L, *text)) return matchhere(re + L, text + 1);
+    return 0;
 }
 static uint8_t match(const char *t)
 {
@@ -54,10 +107,21 @@ void main(void)
     }
     pat = a;
     if (!pat || !*p) {
-        pstr("Usage: GREP [-N] [-V] [-C] [-L] pattern file...\n"
+        pstr("Usage: GREP [-N] [-V] [-C] [-L] pattern|? file...\n"
              "  -N line numbers, -V lines that do not match, -C count, -L file names\n"
-             "  pattern: . any char, x* zero or more x, ^ start, $ end (no spaces: use .)\n");
+             "  pattern: . any char, x* x+ x? repeat, ^ start, $ end, [a-z] [^...] classes,\n"
+             "  \\c literal c. No spaces and no case on the command line (use .);\n"
+             "  ? asks for the pattern: spaces allowed and case matters.\n");
         return;
+    }
+    if (pat[0] == '?' && !pat[1]) {          /* el patron por teclado */
+        pstr("Pattern: ");
+        pbuf[0] = 127; pbuf[1] = 0;
+        bdos(10, (uint16_t)pbuf);
+        pstr("\r\n");
+        pbuf[2 + (uint8_t)pbuf[1]] = 0;
+        pat = pbuf + 2;
+        icase = 0;
     }
     while ((a = nextarg(&p)) && nn < 64) {
         uint8_t n = glob(a, q, 64 - nn);

@@ -17,7 +17,7 @@ Programas escritos en C con SDCC 4.2 y una biblioteca chica propia (`cpm.c`). Ca
 | `SNAKE` | La víbora: come los `*` sin chocar | `SNAKE` |
 | `CAT` | Muestra archivos de texto seguidos, sin pausas | `CAT NOTAS.TXT`, `CAT *.ASM` |
 | `MORE` | Un archivo de texto por pantallas (espacio, RETURN, Q) | `MORE LEEME.TXT` |
-| `GREP` | Busca un patrón (`.` `x*` `^` `$`) sin distinguir mayúsculas; `-N` números de línea, `-V` las que no, `-C` cuántas, `-L` los archivos | `GREP -N ^ORG *.ASM` |
+| `GREP` | Busca un patrón con el motor de grep-milla de Semilla (`.` `* + ?` `^ $` `[a-z]` `[^...]` `\c`); `-N` números de línea, `-V` las que no, `-C` cuántas, `-L` los archivos. Escrito en la línea no distingue mayúsculas; con `?` lo pide por teclado y sí las distingue | `GREP -N ^ORG *.ASM`, `GREP ? *.TXT` |
 | `WC` | Líneas, palabras y caracteres | `WC *.TXT` |
 | `CMP` | Compara dos archivos byte a byte | `CMP A.COM B:A.COM` |
 | `HEXDUMP` | Un archivo en hexadecimal y ASCII, desde un desplazamiento | `HEXDUMP PIP.COM 100` |
@@ -27,6 +27,46 @@ Programas escritos en C con SDCC 4.2 y una biblioteca chica propia (`cpm.c`). Ca
 | `UNZIP` | Saca los archivos de un `.ZIP` (guardados o con deflate, también los hechos en la Mac) y comprueba el CRC | `UNZIP COPIA`, `UNZIP -L COPIA`, `UNZIP COPIA B:` |
 
 `TOP` (el uso de la CPU) y `TALK` usan los servicios 44 y 45 del XIOS: necesitan el `MPM.SYS` de noviembre de 2026 o posterior. `TOP`, `TALK` y `CLOCK` solo andan en MP/M; los demás también en CP/M 2.2.
+
+## Los filtros de Semilla
+
+Las utilidades de C-milla del proyecto Semilla (`semilla/*.c`), compiladas con SDCC casi sin cambios. Allá son filtros de la entrada a la salida, con las opciones en la primera línea; `filtro.c` les arma eso desde la línea de órdenes de CP/M:
+
+```
+PROG [opciones] [archivo...] [>salida]
+```
+
+- Lo que nombra un archivo que existe (con `*` y `?`) es la entrada, uno detrás de otro; sin archivos se lee la consola, línea por línea, y `^Z` al principio de una línea termina.
+- Lo demás son las opciones. CP/M pasa la línea en mayúsculas: las que empiezan con `-` pasan a minúsculas (`-R` es `-r`), el resto queda en mayúsculas.
+- `?` pide las opciones por teclado (`Options:`), con minúsculas, comillas y espacios tal cual: hace falta para `AWK` y para `SED` o `TR` con minúsculas.
+- `>ARCH` manda la salida a un archivo (CR LF y relleno con `^Z`).
+
+| Programa | Como en Linux | Ejemplo |
+|---|---|---|
+| `SORT` | `sort` (`-r`, `-u`) | `SORT -R NOMBRES.TXT >ORDEN.TXT` |
+| `UNIQ` | `uniq` (`-c`) | `UNIQ -C ORDEN.TXT` |
+| `TR` | `tr SET1 SET2`, `tr -d SET` | `TR -D AEIOU TEXTO.TXT`, `TR ? TEXTO.TXT` → `a-z A-Z` |
+| `CUT` | `cut -dX -fLISTA` | `CUT -D, -F1,3 DATOS.CSV` |
+| `HEAD`, `TAIL` | `head -n N`, `tail -n N` | `TAIL -N 5 LOG.TXT` |
+| `REV`, `TAC`, `NL` | `rev`, `tac`, `nl -ba` | `NL PROG.ASM` |
+| `OD` | `od -A x -t x1 -v` | `OD DATOS.BIN` |
+| `BASE64` | `base64`, `base64 -d` | `BASE64 PROG.COM >PROG.B64`, `BASE64 -D PROG.B64 >PROG.COM` |
+| `CKSUM` | `cksum` (CRC de POSIX y tamaño) | `CKSUM PROG.COM` |
+| `FACTOR` | `factor` (32 bits) | `FACTOR 360 65537` |
+| `SEQ` | `seq` | `SEQ 1 2 10` |
+| `SED` | `sed s/RE/repl/[g]` (`&` es lo casado) | `SED S/ALFA/BETA/G T.TXT`, `SED ? T.TXT` |
+| `AWK` | un awk chico: campos, `NF` `NR`, `BEGIN` `END`, `/re/`, `if` `while` `for` `for (k in a)`, arreglos, `length` `substr` `index` `int` `split` | `AWK ? DATOS.TXT` → `{s+=$3} END{print s/NR}` |
+| `CALC` | calculadora de 16 bits con signo | `CALC 12+30*2`, o `CALC` y una expresión por línea |
+| `PRIMOS`, `HANOI`, `VIDA` | las demostraciones de Semilla | `PRIMOS` |
+
+Se probaron en el emulador contra las herramientas de Linux, byte a byte, con un archivo de 43 líneas: `SORT` (y `-r`, `-u`), `UNIQ -C`, `TR -D`, `CUT`, `HEAD`, `TAIL`, `REV`, `NL`, `TAC`, `OD`, `BASE64` (ida y vuelta), `CKSUM`, `FACTOR`, `SEQ` y `SED` dan lo mismo que en Linux, y `AWK` da lo mismo que `awk` en 8 programas de prueba. En `AWK` los números son `float` (en SDCC el `double` es de 32 bits): unos 7 dígitos, y algunos límites más chicos que en Semilla (líneas de 256, cadenas de 40, 200 tokens; ver el principio de `semilla/awk.c`).
+
+Cambios a las fuentes de Semilla, todos para SDCC: prototipos al principio de `awk.c` y `calc.c` (SDCC no acepta llamar sin declarar), un cast en el `qsort` de `sort.c`, `%lu` en `cksum.c` y `factor.c` (allá el `int` era de 32 bits), `S` y `G` en mayúscula en `sed.c`, los límites de `awk.c` bajo `#ifdef __SDCC`, y `hanoi.c` y `primos.c` pasados del C de 1980 a funciones con prototipo. Se compilan con `mks.sh`.
+
+## Más de Semilla
+
+- **`SBASIC`**: SEMILLA BASIC, escrito en Tallo y compilado a Z80 por Semilla (`ejemplos/basic.tl`). Usa solo la consola de CP/M. `SBASIC`, después `LIST`, `RUN`, `NEW` y líneas numeradas.
+- **`extra/ZEXDOC.COM`**: el ejercitador de instrucciones del Z80 (Frank Cringle, GPL; la copia de github.com/agn453/ZEXALL). Prueba 67 grupos de instrucciones contra el CRC de un Z80 real. En MP/M a 7,37 MHz tarda un par de horas: conviene correrlo en otra consola (`^D` para dejarlo atrás, o desde otra terminal).
 
 ## VI
 

@@ -6,7 +6,7 @@ mkdir -p obj
 CF="-mz80 --std-sdcc11 ${XCF:---opt-code-size}"
 sdasz80 -g -o obj/crt0.rel crt0.s
 sdcc $CF -c cpm.c -o obj/cpm.rel
-progs="$@"; [ -z "$progs" ] && progs=$(ls *.c | grep -v '^cpm.c$' | sed 's/\.c$//')
+progs="$@"; [ -z "$progs" ] && progs=$(ls *.c | grep -v '^cpm.c$\|^filtro.c$' | sed 's/\.c$//')
 for p in $progs; do
   sdcc $CF -c $p.c -o obj/$p.rel
   ex=""; if [ -f ${p}_a.s ]; then sdasz80 -g -o obj/${p}_a.rel ${p}_a.s; ex=obj/${p}_a.rel; fi

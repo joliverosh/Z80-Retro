@@ -1,0 +1,6 @@
+{n++; s+=$3} $2>25{grandes++} END{print n, s, grandes, s/n}
+alice 30 100
+bob 25 200
+carol 40 150
+alice 30 50
+dave 22 300
