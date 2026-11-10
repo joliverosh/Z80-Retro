@@ -157,6 +157,15 @@ FD3:    INC     HL
         EX      DE,HL
         JR      NZ,FD4
         DJNZ    FD3
+        INC     HL              ; y es la extension 0 (si no, el archivo
+        LD      A,(HL)          ; esta roto y se usa el de la flash)
+        AND     1Fh
+        JR      NZ,FD4
+        INC     HL
+        INC     HL
+        LD      A,(HL)
+        AND     3Fh
+        JR      NZ,FD4
         POP     DE              ; esta
         POP     HL
         POP     BC

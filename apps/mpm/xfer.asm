@@ -30,6 +30,11 @@ TPS     EQU     60              ; tics por segundo
         LD      DE,FCB
         LD      BC,12
         LDIR
+        XOR     A               ; el resto en cero: FCB esta fuera del .COM
+        LD      B,24            ; (DEFS) y tiene basura, que en la extension
+FZ:     LD      (DE),A          ; hace un archivo que nadie abre
+        INC     DE
+        DJNZ    FZ
         LD      A,(FCB1+1)
         AND     5Fh
         CP      'R'
