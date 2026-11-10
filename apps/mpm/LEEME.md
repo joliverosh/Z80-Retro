@@ -61,10 +61,10 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 | Impresora | **`LST:` sale por SIO B** (la misma línea que la consola 4) **o a un archivo**, según `A:MPM.CFG` |
 | Reloj | El tic de ZIOS: canal 1 del CTC, 120 Hz. MP/M recibe 60 tics por segundo |
 | Hora | Se toma del DS1307 al arrancar. **Si se cambia con `TOD`, se escribe en el DS1307** |
-| Caché de disco | 64 KB con la RAM de la placa, 128 KB con RAM de expansión: el directorio y los programas no se vuelven a leer de la SD. Las escrituras de un mismo bloque de 512 bytes se juntan y van a la tarjeta al pasar a otro bloque o al escribir el directorio (al cerrar un archivo todo queda en la SD) |
+| Caché de disco | 64 KB con la RAM de la placa, 128 KB con RAM de expansión: el directorio y los programas no se vuelven a leer de la SD. Las escrituras de un mismo bloque de 512 bytes se juntan y van a la tarjeta al pasar a otro bloque o al escribir el directorio (al cerrar un archivo todo queda en la SD). En un bloque de asignación nuevo no se lee antes lo que hay en la tarjeta, salvo que un programa lea otro archivo entre dos registros (en la 1.4 hasta noviembre de 2026 eso perdía registros; lo mostró `ZIP`) |
 | Historial | **`^W`** en el indicador repite la última orden; otro `^W`, la anterior (8 órdenes por consola) |
 | Arranque | Si existe **`A:STARTUP.SUB`** (usuario 0), se ejecuta solo al arrancar |
-| Servicios de ZIOS | Los programas que llaman a ZIOS con `RST 30h` funcionan: consola (0, 4, 5, 6), mapa de unidades (10, 11), hora (28), tics (31), I2C (34) y datos de una unidad (36). Propios: 40 (ver la consola E, para `H:VC`), 41 (modo crudo de la consola, para `H:XFER`), 42 (lo que espera escribirse, a la SD: `H:ZLOADER`) y 43 (un registro a cualquier pista de una unidad: `H:SETBOOT`) |
+| Servicios de ZIOS | Los programas que llaman a ZIOS con `RST 30h` funcionan: consola (0, 4, 5, 6), mapa de unidades (10, 11), hora (28), tics (31), I2C (34) y datos de una unidad (36). Propios: 40 (ver la consola E, para `H:VC`), 41 (modo crudo de la consola, para `H:XFER`), 42 (lo que espera escribirse, a la SD: `H:ZLOADER`) 43 (un registro a cualquier pista de una unidad: `H:SETBOOT`), 44 (tics ociosos del último segundo, de 60: el uso de la CPU para `TOP`) y 45 (un carácter a la consola D, para `TALK`) |
 | Errores de la SD | Si una lectura o escritura falla, el XIOS vuelve a iniciar la tarjeta y reintenta. Si vuelve a fallar, avisa en la consola del programa qué unidad, pista y sector |
 | Cambio de tarjeta | Se puede cambiar la SD con MP/M andando: después de cambiarla, `H:DSKRESET`. Cada unidad que se registra olvida lo que la caché tenía de su tarjeta |
 | Volver a ZLoader | **`H:ZLOADER`**, sin RESET |
@@ -243,6 +243,10 @@ apps/mpm/build.sh
   - `dri/` (`GENSYS.COM`, `MPMLDR.COM` y los SPR);
   - `prl/` (las utilidades);
   - vienen de los discos de MP/M II de z80pack.
+
+## Programas en C
+
+`apps/cpmc` tiene programas para MP/M (y casi todos para CP/M 2.2) escritos en C con SDCC: `TOP`, `TALK`, `CLOCK`, `BENCH`, `MANDEL`, `LIFE`, `TETRIS`, `SNAKE`, `MORE`, `GREP`, `WC`, `CMP`, `HEXDUMP`, `I2CSCAN`, `SHA256`, `ZIP` y `UNZIP`. Ver su `LEEME.md`. No caben en el disco H: de la flash: se pasan a A: con `XFER`.
 
 ## Pendiente
 

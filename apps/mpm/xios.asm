@@ -4499,6 +4499,9 @@ ERR1:   LD      A,1
 ; UNCHK: GMODE para WRITE. MP/M pone el bit 1 de C en el primer registro de un
 ; bloque de asignacion nuevo (2 KB, 16 registros): mientras se escriban sus
 ; registros en orden, lo que hay en la tarjeta no importa y no se lee antes.
+; Pero solo al empezar cada bloque de 512 de la SD: si un programa lee otro
+; archivo entre dos registros (ZIP), BUF se va a la tarjeta y hay que volver a
+; leerlo, o el registro anterior se pierde.
 UNCHK:  LD      A,1
         LD      (GMODE),A
         LD      A,(WTYPE)
@@ -4526,8 +4529,12 @@ UNC1:   LD      A,(UNCNT)
         LD      (UNREC),DE
         LD      HL,UNCNT
         DEC     (HL)
-        LD      A,2
-        LD      (GMODE),A
+        LD      A,(OFS)         ; sin leer, solo el primer registro de los 512
+        OR      A               ; bytes: si entre medio BUF fue a la tarjeta (se
+        LD      A,1             ; leyo otro archivo), los otros tres hay que
+        JR      NZ,UNC2         ; leerlos o se pierde lo ya escrito
+        INC     A
+UNC2:   LD      (GMODE),A
         RET
 UNC0:   XOR     A
         LD      (UNCNT),A
@@ -5741,6 +5748,10 @@ ZEMU:   LD      (ZHL),HL
         JP      Z,ZFL
         CP      43
         JP      Z,ZWS
+        CP      44
+        JP      Z,ZCPU
+        CP      45
+        JP      Z,ZOUT
 ZERR:   LD      A,0FFh
 ZRET:   POP     BC
         POP     DE
@@ -5893,6 +5904,14 @@ ZWS:    LD      HL,(ZHL)
         PUSH    BC
         LD      HL,WRSYS
         CALL    ZBK
+        JP      ZRET
+; 44 (propio): A = tics sin trabajo en el ultimo segundo (de 60; H:TOP)
+ZCPU:   LD      A,(IDLES)
+        JP      ZRET
+; 45 (propio): el caracter E a la consola D (H:TALK)
+ZOUT:   LD      C,E
+        CALL    CONOUT
+        XOR     A
         JP      ZRET
 ; 42 (propio): lo que espera en BUF a la tarjeta (H:ZLOADER, con MXDisk)
 ZFL:    LD      HL,FLUSHQ       ; (A = 0)
