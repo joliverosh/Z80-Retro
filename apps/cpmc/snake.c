@@ -20,7 +20,7 @@ static void food(void)
 void main(void)
 {
     static const int8_t dx[5] = {0, 0, 0, 1, -1}, dy[5] = {0, -1, 1, 0, 0};
-    uint8_t d = K_RIGHT, nd, x, y, spd = 8;
+    uint8_t d = K_RIGHT, nd, x, y, spd = 8, quit = 0;
     uint16_t last, score = 0, tail;
     srnd(ticks() | 1);
     pstr(CLS HIDE);
@@ -45,7 +45,7 @@ void main(void)
             gotoxy(X0 + 26, Y0 + FH + 1); pstr(ESC "[7m PAUSED " ESC "[0m");
             waitkey();
             gotoxy(X0 + 26, Y0 + FH + 1); pstr("---------");
-        } else if ((k | 32) == 'q' || k == 3) break;
+        } else if ((k | 32) == 'q' || k == 3) { quit = 1; break; }
         if ((uint16_t)(ticks() - last) < spd) { delay(1); continue; }
         last = ticks();
         x = sx[head] + dx[d & 7]; y = sy[head] + dy[d & 7];
@@ -71,7 +71,7 @@ void main(void)
         gotoxy(X0, 1); pf("Score %u  ", score);
         gotoxy(1, 23);
     }
-    gotoxy(X0 + 25, Y0 + FH / 2); pstr(ESC "[7m GAME OVER " ESC "[0m");
+    gotoxy(X0 + 25, Y0 + FH / 2); pstr(quit ? ESC "[7m   QUIT    " ESC "[0m" : ESC "[7m GAME OVER " ESC "[0m");
     gotoxy(X0 + 25, Y0 + FH / 2 + 1); pf(ESC "[7m Score %4u  " ESC "[0m", score);
     gotoxy(1, 23); pstr(SHOW);
 }

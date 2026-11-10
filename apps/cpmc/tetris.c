@@ -132,7 +132,7 @@ void main(void)
             gotoxy(X0 + 6, Y0 + 9); pstr(ESC "[7m PAUSED " ESC "[0m");
             waitkey();
             memset(shown, 0xFF, sizeof shown);
-        } else if ((k | 32) == 'q' || k == 3) break;
+        } else if ((k | 32) == 'q' || k == 3) { over = 2; break; }
         else moved = 0;
         if ((uint16_t)(ticks() - last) >= spd) {
             last = ticks();
@@ -142,6 +142,6 @@ void main(void)
         }
         if (moved) draw(); else delay(1);
     }
-    gotoxy(X0 + 5, Y0 + 9); pstr(ESC "[7m GAME OVER " ESC "[0m");
+    gotoxy(X0 + 5, Y0 + 9); pstr(over == 2 ? ESC "[7m   QUIT    " ESC "[0m" : ESC "[7m GAME OVER " ESC "[0m");
     gotoxy(1, 23); pstr(SHOW);
 }
