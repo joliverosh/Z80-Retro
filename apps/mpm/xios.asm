@@ -2805,7 +2805,7 @@ KEYIN:  LD      A,(RAWA)        ; modo crudo (H:XFER): todo tal cual al anillo
         CP      10
         JR      Z,KI10
         OR      A
-        JR      NZ,KI1
+        JP      NZ,KI1
         LD      A,C
         CP      1Bh
         JR      Z,KIST
@@ -2852,7 +2852,12 @@ KIPUT:  LD      A,(VIEWING)     ; al bufer de la consola que se ve (si se miraba
         JR      NC,KIP1
         INC     H
 KIP1:   LD      A,(HL)
-        CP      63
+        CP      47              ; casi lleno: RTS queda apagado hasta que
+        JR      C,KIP2          ; alguien lea (VRXGET), o 1 s si nadie lee
+        LD      A,TPS
+        LD      (RXFULL),A
+        LD      A,(HL)
+KIP2:   CP      63
         RET     NC              ; lleno: se pierde
         INC     (HL)
         LD      A,D
@@ -2894,7 +2899,7 @@ KI1:    LD      E,A             ; E = KN (1-6): ESC [ parametros final
         JP      NZ,KIBAD
 KINX:   LD      HL,KN
         INC     (HL)
-        JR      KITMO
+        JP      KITMO
 KI2:    LD      A,C
         CP      ';'
         JR      Z,KI3
@@ -3019,18 +3024,19 @@ VRXGET: LD      A,D
         LD      D,0
         ADD     HL,DE
         DEC     (HL)
-        LD      A,C
+        LD      A,(HL)          ; con menos de 40 el PC puede seguir mandando
+        CP      40
+        JR      NC,VRG1
+        XOR     A
+        LD      (RXFULL),A
+        CALL    RTSON
+VRG1:   LD      A,C
         RET
 
 ; RAWPUT / RAWGET: el anillo del modo crudo (256 bytes). RAWGET: A = el byte,
 ; carry si no hay.
-; RTSON: RTS de la SIO A prendido (WR5 como lo deja ZIOS)
-RTSON:  LD      A,5
-        OUT     (SIOAC),A
-        LD      A,0EAh
-        OUT     (SIOAC),A
-        RET
 RAWCLR: XOR     A
+        LD      (RXFULL),A
         LD      (RAWH),A
         LD      (RAWT),A
         RET
@@ -3082,6 +3088,9 @@ VSET:   LD      HL,VIEWOFS
 ; redibuja su pantalla (lo tecleado en cada consola queda en la suya)
 VSWE:   LD      A,E             ; (servicio 40 de ZIOS: H:VC)
 VSW:    LD      E,A
+        XOR     A               ; la otra consola: RTS segun su bufer
+        LD      (RXFULL),A
+        LD      A,E
         LD      A,(NVC)
         DEC     A
         CP      E
@@ -4421,6 +4430,24 @@ BUFPTR: LD      HL,BUF          ; HL = BUF + OFS*128
         RET
 
 
+; variables del disco (solo las usa la parte con bancos)
+CMNPG:  DEFB    0
+DRV:    DEFB    0
+TRK:    DEFW    0
+SEC:    DEFW    0
+DSKC:   DEFB    0
+OFS:    DEFB    0
+RECN:   DEFW    0
+BLK:    DEFS    4
+ARG:    DEFS    4
+CCARD:  DEFB    0FFh
+CBLK:   DEFS    4
+HCARD:  DEFB    0,0
+SELE:   DEFB    0
+JTBL:   DEFW    0
+DBGE:   DEFW    0
+DBGR:   DEFB    0
+
 BUF:    DEFS    512             ; bloque de 512 de la SD (en el banco 0)
         DEFS    XPAD            ; relleno que pone mkspr.py (ver alli)
 ; =============================================================== memoria comun
@@ -4796,12 +4823,33 @@ STCLK:  LD      A,0FFh
 SPCLK:  XOR     A
         LD      (TICKN),A
         RET
+; RTSOFF / RTSON: RTS de la SIO A apagado (WR5 = E8h) o prendido (EAh, como lo
+; deja ZIOS). Con control de flujo en el PC (picocom --flow h) el PC deja de
+; mandar mientras esta apagado: alrededor del despachador, que corre con las
+; interrupciones apagadas, y de KEYIN. Deja las interrupciones apagadas.
+RTSOFF: LD      A,0E8h
+        JR      RTS1
+RTSON:  LD      A,(RXFULL)      ; (no con el bufer de la consola casi lleno, ni si
+        OR      A               ; la SIO ya tiene otro caracter: RR0 bit 0; la
+        RET     NZ              ; interrupcion de ese lo prende)
+        IN      A,(SIOAC)
+        RRA
+        RET     C
+        LD      A,0EAh
+RTS1:   PUSH    AF
+        LD      A,5
+        DI
+        OUT     (SIOAC),A
+        POP     AF
+        OUT     (SIOAC),A
+        RET
 EXITRG: LD      A,(PREEMP)
         OR      A
         RET     NZ
 EIRET:  EI
         RET
-IDLE:   EI
+IDLE:   CALL    RTSON
+        EI
         HALT
         RET
 
@@ -4819,9 +4867,11 @@ IRXA:   LD      (SVSP),SP       ; (en la pila de las interrupciones: la del
         LD      A,(RAWA)        ; modo crudo en la SIO A (H:XFER): derecho al
         DEC     A               ; anillo, solo con la ventana 1. Por BKCALL y
         JR      Z,IRXR          ; KEYIN no alcanza a 115200: se pierden bytes
-        LD      HL,KEYIN
+        CALL    RTSOFF          ; KEYIN tarda mas que un caracter a 115200: con
+        LD      HL,KEYIN        ; --flow h el PC espera (al pegar texto)
         CALL    BKCALL
         CALL    TXSTA           ; (si cambio de consola o de vista: a redibujar)
+        CALL    RTSON
         JR      IRX9
 IRXR:   LD      A,(VTAPG)
         LD      (RXACT),A       ; (no cero: llego algo en este tic)
@@ -5006,24 +5056,16 @@ INULL:  EI
 
 ; Tic del CTC (canal 1). IFLG: el mismo marco para poner la bandera IFLGN.
 ITICK:  PUSH    AF
-        LD      A,(RAWA)        ; modo crudo en la SIO A: RTS apagado mientras
-        DEC     A               ; el despachador tiene las interrupciones
-        JR      NZ,ITK00        ; apagadas (con picocom --flow h el PC espera);
-        LD      A,5             ; RAWGET lo vuelve a prender
-        OUT     (SIOAC),A
-        LD      A,0E8h
-        OUT     (SIOAC),A
-ITK00:  XOR     A
+        XOR     A
         LD      (IFLGN),A
         POP     AF
 IFLG:   LD      (SVHL),HL
         POP     HL
         LD      (SVRET),HL
         PUSH    AF
-        LD      HL,0
-        ADD     HL,SP
-        LD      (SVSP),HL
+        LD      (SVSP),SP
         LD      SP,ISTK
+        CALL    RTSOFF          ; va al despachador, que apaga las interrupciones
         PUSH    DE
         PUSH    BC
         LD      A,0FFh
@@ -5052,7 +5094,7 @@ ITK0B:  LD      HL,TXA          ; por si se perdio una interrupcion de transmisi
         CALL    TXKICK
         LD      HL,TDIV         ; 120 Hz -> 60 Hz
         DEC     (HL)
-        JR      NZ,ITNOD        ; los tics de en medio no despachan
+        JP      NZ,ITNOD        ; los tics de en medio no despachan
         LD      A,(TDIVN)
         LD      (HL),A
         LD      HL,TICKS        ; cuenta de tics (60 por segundo), 32 bits
@@ -5066,7 +5108,12 @@ ITK0B:  LD      HL,TXA          ; por si se perdio una interrupcion de transmisi
         JR      NZ,ITK1
         INC     HL
         INC     (HL)
-ITK1:   LD      A,(TICKN)
+ITK1:   LD      HL,RXFULL       ; cuenta regresiva del bufer casi lleno
+        LD      A,(HL)
+        OR      A
+        JR      Z,ITK1B
+        DEC     (HL)
+ITK1B:  LD      A,(TICKN)
         OR      A
         JR      Z,IT1
         LD      C,FLAGSET       ; bandera 1: cada tic
@@ -5117,7 +5164,8 @@ ITDONE: LD      HL,(PDISP+1)
         LD      A,(RXACT)
         OR      A
         JR      Z,ITD1
-ITNOD:  LD      HL,EIRET
+ITNOD:  CALL    RTSON           ; sin despachador: el PC puede seguir
+        LD      HL,EIRET
 ITD1:   LD      (DSPV),HL
         XOR     A
         LD      (RXACT),A
@@ -5375,7 +5423,7 @@ ZTX:    LD      A,E             ; E = caracter
         LD      C,2             ; FE y FF no se pueden mandar con la 6
 ZTX1:   CALL    5
         XOR     A
-        JP      ZRET
+        JR      ZRET
 ZRX:    LD      C,6             ; esperar un caracter, sin eco
         LD      E,0FFh
         CALL    5
@@ -5388,7 +5436,7 @@ ZRX:    LD      C,6             ; esperar un caracter, sin eco
 ZCK:    LD      C,11            ; A = FF si hay caracter
         CALL    5
         OR      A
-        JP      ZRET
+        JR      ZRET
 ; 11: mapa de unidades, 3 bytes por unidad (tarjeta, disco virtual) en (HL)
 ZQMP:   LD      HL,(ZHL)
         LD      C,0
@@ -5689,6 +5737,7 @@ IFLGN:  DEFB    0               ; bandera que pone IFLG (0 = es el tic)
 
 SECS:   DEFW    0               ; segundos desde el arranque
 PREEMP: DEFB    0
+RXFULL: DEFB    0               ; tics que RTS sigue apagado: el bufer de la consola que se ve casi lleno
 RXACT:  DEFB    0               ; modo crudo: llego algo desde el ultimo tic
 DSPV:   DEFW    0               ; a donde sigue el fin del tic
 TDIV:   DEFB    2
@@ -5719,26 +5768,10 @@ SWCNT:  DEFB    0               ; cambios de consola
 KTMO:   DEFB    0               ; tics para dar por terminada una secuencia ESC
 BKSV:   DEFW    0
 BKA:    DEFB    0
-CMNPG:  DEFB    0
 BNKPG:  DEFS    24              ; 3 paginas por banco, bancos 0-7
-DRV:    DEFB    0
-TRK:    DEFW    0
-SEC:    DEFW    0
 DMA:    DEFW    0
-DSKC:   DEFB    0
-OFS:    DEFB    0
-RECN:   DEFW    0
-BLK:    DEFS    4
-ARG:    DEFS    4
-CCARD:  DEFB    0FFh
-CBLK:   DEFS    4
-HCARD:  DEFB    0,0
 DCARD:  DEFS    NDRV
-SELE:   DEFB    0
 DMW:    DEFS    2*NDRV
-JTBL:   DEFW    0
-DBGE:   DEFW    0
-DBGR:   DEFB    0
 FIRMA:  DEFB    0
 ZMAP    EQU     BUF             ; SYSINIT usa BUF para el mapa de ZIOS y su pila
 LSTK    EQU     BUF+512
