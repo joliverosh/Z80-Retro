@@ -64,6 +64,8 @@ LSTT    EQU     0FFD0h          ; cola (la pone LIST)
 CURPG2  EQU     0FFD2h          ; pagina de la ventana 2 del banco puesto (para LSTFILE)
 CURPG1  EQU     0FFD4h          ; y de la ventana 1 (BKCALL la repone)
 VQN     EQU     0FFD3h          ; cuantos hay en VQ
+VQMAX   EQU     6               ; VQFL corre con las interrupciones apagadas: de a
+                                ; pocos, para que la SIO A no pierda lo que llega
 VSIO    EQU     0FFE0h          ; vectores de la SIO (WR2 = E0h, lo puso ZIOS)
 VCTC    EQU     0FFF0h          ; vectores del CTC (vector F0h, lo puso ZIOS)
 
@@ -2852,12 +2854,7 @@ KIPUT:  LD      A,(VIEWING)     ; al bufer de la consola que se ve (si se miraba
         JR      NC,KIP1
         INC     H
 KIP1:   LD      A,(HL)
-        CP      47              ; casi lleno: RTS queda apagado hasta que
-        JR      C,KIP2          ; alguien lea (VRXGET), o 1 s si nadie lee
-        LD      A,TPS
-        LD      (RXFULL),A
-        LD      A,(HL)
-KIP2:   CP      63
+        CP      63
         RET     NC              ; lleno: se pierde
         INC     (HL)
         LD      A,D
@@ -3024,19 +3021,46 @@ VRXGET: LD      A,D
         LD      D,0
         ADD     HL,DE
         DEC     (HL)
-        LD      A,(HL)          ; con menos de 40 el PC puede seguir mandando
-        CP      40
-        JR      NC,VRG1
-        XOR     A
-        LD      (RXFULL),A
+        LD      HL,(RAWH)       ; queda algo sin pasar (se paro con el bufer
+        LD      A,L             ; lleno): a KDRAIN otra vez
+        CP      H
+        JR      Z,VRG1
+        LD      A,1
+        LD      (RXPEND),A
+VRG1:   CALL    RTSON
+        LD      A,C
+        RET
+
+; KDONE: un caracter de RAWQ por KEYIN. Carry si no hay o si el bufer de la
+; consola que se ve esta casi lleno (queda en RAWQ hasta que lean: VRXGET).
+KDONE:  LD      A,(RAWA)        ; modo crudo: el anillo es del programa
+        OR      A
+        JR      NZ,KDN9
+        LD      A,(ACTVC)
+        LD      HL,RXCNT
+        ADD     A,L
+        LD      L,A
+        JR      NC,KDN1
+        INC     H
+KDN1:   LD      A,(HL)
+        CP      60
+        JR      NC,KDN9
+        CALL    RAWGET
+        JR      C,KDN9
+        LD      C,A
+        CALL    RTSOFF          ; mientras KEYIN trabaja (mas que un caracter a
+        CALL    KEYIN           ; 115200), con --flow h el PC espera
         CALL    RTSON
-VRG1:   LD      A,C
+        OR      A               ; NC: hubo uno
+        RET
+KDN9:   XOR     A
+        LD      (RXPEND),A
+        SCF
         RET
 
 ; RAWPUT / RAWGET: el anillo del modo crudo (256 bytes). RAWGET: A = el byte,
 ; carry si no hay.
 RAWCLR: XOR     A
-        LD      (RXFULL),A
         LD      (RAWH),A
         LD      (RAWT),A
         RET
@@ -3088,9 +3112,6 @@ VSET:   LD      HL,VIEWOFS
 ; redibuja su pantalla (lo tecleado en cada consola queda en la suya)
 VSWE:   LD      A,E             ; (servicio 40 de ZIOS: H:VC)
 VSW:    LD      E,A
-        XOR     A               ; la otra consola: RTS segun su bufer
-        LD      (RXFULL),A
-        LD      A,E
         LD      A,(NVC)
         DEC     A
         CP      E
@@ -4494,7 +4515,22 @@ DPBFL:  DEFW    512             ; disco en flash (ZIOS, paginas 03-1F)
 ; Consolas 0-3: virtuales, en la SIO A (Ctrl-F1..F4 elige la que se ve, como en
 ; Linux); consola 4: la SIO B. El bufer de entrada de la SIO A es de la consola
 ; que se ve (al cambiar se vacia). D = consola
-CONST:  CALL    ISTMP           ; el TMP (indicador de ordenes): historial
+; KDRAIN: lo que llego por la SIO A pasa por KEYIN (de a uno, con las
+; interrupciones prendidas entre uno y otro, para que la SIO no pierda nada)
+KDRAIN: LD      A,(RXPEND)
+        OR      A
+        RET     Z
+KDR1:   DI
+        LD      HL,KDONE
+        CALL    BKCALL
+        EI
+        JR      NC,KDR1         ; NC: proceso uno
+        DI
+        CALL    TXSTA           ; (si cambio de consola o de vista: a redibujar)
+        EI
+        RET
+CONST:  CALL    KDRAIN
+        CALL    ISTMP           ; el TMP (indicador de ordenes): historial
         JP      Z,TCONST
 CONSTR: LD      A,D
         CP      4
@@ -4525,7 +4561,8 @@ CSTR:   LD      A,0
 
 CONIN:  CALL    ISTMP
         JP      Z,TCONIN
-CONINR: LD      A,I
+CONINR: CALL    KDRAIN
+        LD      A,I
         DI
         PUSH    AF
         CALL    CONSTR
@@ -4698,7 +4735,7 @@ VCO:    LD      A,(ACTVC)
         JR      NZ,VC0
         LD      HL,VQN          ; la que se ve: a la cola de su pantalla (se pasan
         LD      A,(HL)          ; juntos, con una sola llamada al banco 0) y a la SIO
-        CP      32
+        CP      VQMAX
         JR      NC,VC0B
         INC     (HL)
         ADD     A,VQ AND 0FFh
@@ -4809,10 +4846,15 @@ POLLDEV: LD     A,C
         JP      NC,NADA
         SRL     A
         LD      D,A
-        JP      C,CONSTR        ; impar: entrada de la consola D
+        JR      C,CPOLL         ; impar: entrada de la consola D
         LD      A,0FFh          ; par: salida (se espera con banderas)
         RET
 
+CPOLL:  LD      A,(RXPEND)      ; algo por pasar por KEYIN: que despierte (y
+        OR      A               ; lo pase, KDRAIN)
+        JP      Z,CONSTR
+        LD      A,0FFh
+        RET
 MAXCON: LD      A,NMBCNS
         RET
 
@@ -4829,10 +4871,7 @@ SPCLK:  XOR     A
 ; interrupciones apagadas, y de KEYIN. Deja las interrupciones apagadas.
 RTSOFF: LD      A,0E8h
         JR      RTS1
-RTSON:  LD      A,(RXFULL)      ; (no con el bufer de la consola casi lleno, ni si
-        OR      A               ; la SIO ya tiene otro caracter: RR0 bit 0; la
-        RET     NZ              ; interrupcion de ese lo prende)
-        IN      A,(SIOAC)
+RTSON:  IN      A,(SIOAC)       ; (no si la SIO ya tiene otro: RR0 bit 0)
         RRA
         RET     C
         LD      A,0EAh
@@ -4862,20 +4901,17 @@ IRXA:   LD      (SVSP),SP       ; (en la pila de las interrupciones: la del
         PUSH    HL
         PUSH    DE
         PUSH    BC
-        IN      A,(SIOAD)
-        LD      C,A
-        LD      A,(RAWA)        ; modo crudo en la SIO A (H:XFER): derecho al
-        DEC     A               ; anillo, solo con la ventana 1. Por BKCALL y
-        JR      Z,IRXR          ; KEYIN no alcanza a 115200: se pierden bytes
-        CALL    RTSOFF          ; KEYIN tarda mas que un caracter a 115200: con
-        LD      HL,KEYIN        ; --flow h el PC espera (al pegar texto)
-        CALL    BKCALL
-        CALL    TXSTA           ; (si cambio de consola o de vista: a redibujar)
-        CALL    RTSON
-        JR      IRX9
-IRXR:   LD      A,(VTAPG)
-        LD      (RXACT),A       ; (no cero: llego algo en este tic)
-        OUT     (PGPORT+1),A
+        IN      A,(SIOAD)       ; todo va derecho al anillo RAWQ, solo con la
+        LD      C,A             ; ventana 1 (unos 150 ciclos): KEYIN tarda mas
+        LD      A,(RAWA)        ; que un caracter a 115200 y va despues, fuera
+        LD      (RXACT),A       ; de la interrupcion (KDRAIN). En modo crudo
+        CP      2               ; RXACT no es cero: llego algo en este tic.
+        JR      Z,IRX9          ; (con XFER en la SIO B el anillo es suyo)
+        OR      A
+        LD      A,(VTAPG)
+        JR      NZ,IRXQ         ; modo crudo: lo lee XFER, no KEYIN
+        LD      (RXPEND),A      ; (no cero)
+IRXQ:   OUT     (PGPORT+1),A
         LD      HL,(RAWH)       ; L = cabeza, H = cola
         LD      A,H
         INC     A
@@ -5046,7 +5082,7 @@ TXN10:  OR      A
 IEXA:   PUSH    AF
         LD      A,10h
         OUT     (SIOAC),A
-        JP      IRET
+        JR      IRET
 IEXB:   PUSH    AF
         LD      A,10h
         OUT     (SIOBC),A
@@ -5094,7 +5130,7 @@ ITK0B:  LD      HL,TXA          ; por si se perdio una interrupcion de transmisi
         CALL    TXKICK
         LD      HL,TDIV         ; 120 Hz -> 60 Hz
         DEC     (HL)
-        JP      NZ,ITNOD        ; los tics de en medio no despachan
+        JR      NZ,ITNOD        ; los tics de en medio no despachan
         LD      A,(TDIVN)
         LD      (HL),A
         LD      HL,TICKS        ; cuenta de tics (60 por segundo), 32 bits
@@ -5108,12 +5144,7 @@ ITK0B:  LD      HL,TXA          ; por si se perdio una interrupcion de transmisi
         JR      NZ,ITK1
         INC     HL
         INC     (HL)
-ITK1:   LD      HL,RXFULL       ; cuenta regresiva del bufer casi lleno
-        LD      A,(HL)
-        OR      A
-        JR      Z,ITK1B
-        DEC     (HL)
-ITK1B:  LD      A,(TICKN)
+ITK1:   LD      A,(TICKN)
         OR      A
         JR      Z,IT1
         LD      C,FLAGSET       ; bandera 1: cada tic
@@ -5164,7 +5195,13 @@ ITDONE: LD      HL,(PDISP+1)
         LD      A,(RXACT)
         OR      A
         JR      Z,ITD1
-ITNOD:  CALL    RTSON           ; sin despachador: el PC puede seguir
+ITNOD:  LD      A,(RXPEND)      ; uno por tic aunque nadie lea (Ctrl-F), en los
+        OR      A               ; tics que no despachan (no se suma al despachador)
+        JR      Z,ITN1
+        LD      HL,KDONE
+        CALL    BKCALL
+        CALL    TXSTA
+ITN1:   CALL    RTSON           ; sin despachador: el PC puede seguir
         LD      HL,EIRET
 ITD1:   LD      (DSPV),HL
         XOR     A
@@ -5275,30 +5312,24 @@ SB1:    LD      A,(HL)
 
 ; XRD64 / XWR64: 64 bytes entre BUF (banco 0) y el DMA del programa (su banco),
 ; pasando por BOUNCE en la memoria alta. XSRC y XDST avanzan.
-XRD64:  LD      HL,(XSRC)
-        LD      DE,BOUNCE
-        LD      BC,64
-        LDIR
-        LD      (XSRC),HL
+XRD64:  CALL    XCP1
         CALL    SWTUSER
-        LD      HL,BOUNCE
-        LD      DE,(XDST)
-        LD      BC,64
-        LDIR
-        LD      (XDST),DE
+        CALL    XCP2
         JP      SWTSYS
 XWR64:  CALL    SWTUSER
-        LD      HL,(XSRC)
-        LD      DE,BOUNCE
-        LD      BC,64
-        LDIR
-        LD      (XSRC),HL
+        CALL    XCP1
         CALL    SWTSYS
-        LD      HL,BOUNCE
+XCP2:   LD      HL,BOUNCE       ; BOUNCE -> (XDST)
         LD      DE,(XDST)
         LD      BC,64
         LDIR
         LD      (XDST),DE
+        RET
+XCP1:   LD      HL,(XSRC)       ; (XSRC) -> BOUNCE
+        LD      DE,BOUNCE
+        LD      BC,64
+        LDIR
+        LD      (XSRC),HL
         RET
 XSRC:   DEFW    0
 XDST:   DEFW    0
@@ -5390,11 +5421,11 @@ ZEMU:   LD      (ZHL),HL
         OR      A
         JP      Z,0             ; 0: terminar el programa
         CP      4
-        JP      Z,ZTX
+        JR      Z,ZTX
         CP      5
-        JP      Z,ZRX
+        JR      Z,ZRX
         CP      6
-        JP      Z,ZCK
+        JR      Z,ZCK
         CP      28
         JP      Z,ZDT
         CP      31
@@ -5402,9 +5433,9 @@ ZEMU:   LD      (ZHL),HL
         CP      10
         JP      Z,ZMNT
         CP      11
-        JP      Z,ZQMP
+        JR      Z,ZQMP
         CP      36
-        JP      Z,ZDRV
+        JR      Z,ZDRV
         CP      34
         JP      Z,ZI2C
         CP      40
@@ -5428,7 +5459,7 @@ ZRX:    LD      C,6             ; esperar un caracter, sin eco
         LD      E,0FFh
         CALL    5
         OR      A
-        JP      NZ,ZRET
+        JR      NZ,ZRET
         LD      C,141           ; ceder un tic a los demas procesos
         LD      DE,1
         CALL    5
@@ -5455,7 +5486,7 @@ ZQ1:    LD      A,C
         CP      NDRV
         JR      NZ,ZQ1
         XOR     A
-        JP      ZRET
+        JR      ZRET
 ; ZMPADR: unidad A -> A = tarjeta, DE = disco virtual, HL -> su DMW
 ZMPADR: LD      E,A
         LD      D,0
@@ -5480,7 +5511,7 @@ ZMP1:   SRL     D
 ; 36: H = unidad -> A = tarjeta, DE = DSM, B = 0
 ZDRV:   LD      A,(ZHL+1)
         CP      NDRV
-        JP      NC,ZERR
+        JR      NC,ZERR
         PUSH    HL
         CALL    ZMPADR
         POP     HL
@@ -5737,7 +5768,7 @@ IFLGN:  DEFB    0               ; bandera que pone IFLG (0 = es el tic)
 
 SECS:   DEFW    0               ; segundos desde el arranque
 PREEMP: DEFB    0
-RXFULL: DEFB    0               ; tics que RTS sigue apagado: el bufer de la consola que se ve casi lleno
+RXPEND: DEFB    0               ; hay algo en RAWQ por pasar por KEYIN
 RXACT:  DEFB    0               ; modo crudo: llego algo desde el ultimo tic
 DSPV:   DEFW    0               ; a donde sigue el fin del tic
 TDIV:   DEFB    2
