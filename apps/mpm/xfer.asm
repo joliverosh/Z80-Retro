@@ -141,7 +141,12 @@ DT2:    LD      A,(NUM)         ; el que tocaba, o el anterior repetido
         INC     A
         CP      (HL)
         JR      Z,DTACK
-        JR      DTCANC          ; fuera de orden
+        LD      A,(NUM)         ; fuera de orden: se anota (para el mensaje) y
+        LD      (MALN),A        ; cuenta como error: NAK y que lo mande otra vez
+        LD      A,(HL)
+        LD      (MALE),A
+        CALL    PURGA
+        JR      DTMAL2
 DT3:    CALL    GRABAR
         JR      NZ,DTDISCO
         LD      HL,BLQ
@@ -217,7 +222,25 @@ RFALLA: DEC     A               ; 1 cancelado, 2 disco
         CALL    BORRAR
         POP     AF
         LD      DE,MCAN
+        JR      NZ,RF2
+        CALL    PRINT
+        LD      A,(MALE)        ; hubo bloques fuera de orden? cuales
+        OR      A
+        LD      DE,MFIN
         JP      Z,FIN
+        LD      DE,MSEQ
+        CALL    PRINT
+        LD      HL,(MALN)
+        LD      H,0
+        CALL    DECIM
+        LD      DE,MSEQ2
+        CALL    PRINT
+        LD      HL,(MALE)
+        LD      H,0
+        CALL    DECIM
+        LD      DE,MSEQ3
+        JP      FIN
+RF2:
         LD      DE,MDISCO
         JP      FIN
 RTMO:   CALL    NORMAL
@@ -1123,6 +1146,12 @@ MBLQ:   DEFB    ' blocks$'
 MCAN:   DEFB    13,10,'Transfer cancelled$'
 MTMO:   DEFB    13,10,'No answer from the other side$'
 MDISCO: DEFB    13,10,'Disk full or write error$'
+MSEQ:   DEFB    ' (block $'
+MSEQ2:  DEFB    ' out of sequence, expected $'
+MSEQ3:  DEFB    ')$'
+MFIN:   DEFB    '$'
+MALN:   DEFB    0
+MALE:   DEFB    0
 BLQ:    DEFB    0
 NUM:    DEFB    0
 MODO:   DEFB    0
