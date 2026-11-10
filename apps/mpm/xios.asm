@@ -3127,7 +3127,15 @@ RAWGET: CALL    RTSON           ; el programa lee: el PC puede seguir mandando
         AND     1
         LD      H,A
         LD      (RAWH),HL
-        POP     DE
+        EX      DE,HL           ; menos de 256 en RAWQ: RTS puede volver
+        LD      HL,(RAWT)
+        OR      A
+        SBC     HL,DE
+        BIT     0,H
+        JR      NZ,RWG1
+        XOR     A
+        LD      (RTSHLD),A
+RWG1:   POP     DE
         LD      HL,RAWQ
         ADD     HL,DE
         LD      A,(HL)
@@ -4911,8 +4919,7 @@ CIN4:   LD      HL,HDB          ; consola 4: el bufer de la SIO B
         LD      L,A
         LD      H,RXB SHR 8
         LD      A,(HL)
-CIN5:   AND     7Fh
-        LD      C,A
+CIN5:   LD      C,A             ; (los 8 bits: UTF-8)
         POP     AF
         LD      A,C
         RET     PO
@@ -5169,6 +5176,9 @@ RTSOFF: LD      A,0E8h
 RTSON:  IN      A,(SIOAC)       ; (no si la SIO ya tiene otro: RR0 bit 0)
         RRA
         RET     C
+        LD      A,(RTSHLD)      ; (ni con RAWQ casi lleno: lo bajo IRXA)
+        OR      A
+        RET     NZ
         LD      A,0EAh
 RTS1:   PUSH    AF              ; (las dos SIO: la B tambien puede ser una consola)
         LD      A,5
@@ -5222,7 +5232,27 @@ IRXQ:   OUT     (PGPORT+1),A
         POP     DE
         JR      Z,IRXR1         ; lleno: se pierde
         LD      (RAWT),HL
-        LD      HL,RAWQ
+        LD      A,(RAWA)        ; casi lleno (448 de 512, no en modo crudo):
+        OR      A               ; RTS abajo hasta que RAWGET lo deje en menos
+        JR      NZ,IRXR0        ; de 256 (RTSHLD); el PC espera
+        LD      DE,(RAWH)
+        SBC     HL,DE
+        BIT     0,H
+        JR      Z,IRXR0
+        LD      A,L
+        CP      0C0h
+        JR      C,IRXR0
+        LD      A,5
+        OUT     (SIOAC),A
+        LD      A,0E8h
+        OUT     (SIOAC),A
+        LD      (RTSHLD),A
+IRXR0:  LD      HL,(RAWT)       ; (la cola vieja: DE se uso)
+        DEC     HL
+        LD      A,H
+        AND     1
+        LD      H,A
+        LD      DE,RAWQ
         ADD     HL,DE
         LD      (HL),C
 IRXR1:  LD      A,(CURPG1)
@@ -6063,6 +6093,7 @@ IFLGN:  DEFB    0               ; bandera que pone IFLG (0 = es el tic)
 SECS:   DEFW    0               ; segundos desde el arranque
 PREEMP: DEFB    0
 RXPEND: DEFB    0               ; hay algo en RAWQ por pasar por KEYIN
+RTSHLD: DEFB    0               ; RTS abajo hasta que RAWQ baje de 256
 RXACT:  DEFB    0               ; modo crudo: llego algo desde el ultimo tic
 DSPV:   DEFW    0               ; a donde sigue el fin del tic
 TDIV:   DEFB    2
