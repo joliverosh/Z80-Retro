@@ -3090,6 +3090,42 @@ KDN9:   XOR     A
         SCF
         RET
 
+; ZRAWB: servicio 41 con B = 0 (prender el modo crudo en la consola C, que
+; tiene que ser la que se ve) o 1 (apagarlo y redibujar). A = 0 bien, FF no.
+ZRAWB:  LD      A,B
+        OR      A
+        JR      NZ,ZRB1
+        LD      A,C
+        CP      4
+        JR      C,ZRB0
+        LD      A,(SIOBM)       ; consola 4
+        OR      A
+        LD      A,2             ; la SIO B
+        JR      Z,ZRB0B
+        LD      A,(SIOBM)
+        DEC     A
+        JR      Z,ZRBE          ; CONSOLE4=OFF
+        LD      A,4             ; virtual
+ZRB0:   LD      HL,ACTVC
+        CP      (HL)
+        JR      NZ,ZRBE
+        LD      A,1
+ZRB0B:  LD      (RAWA),A
+        CALL    RAWCLR          ; anillo vacio
+        XOR     A
+        RET
+ZRBE:   LD      A,0FFh
+        RET
+ZRB1:   LD      A,(RAWA)
+        DEC     A
+        LD      A,0
+        LD      (RAWA),A
+        RET     NZ
+        CALL    VSNAP
+        CALL    TXSTA
+        XOR     A
+        RET
+
 ; RAWPUT / RAWGET: el anillo del modo crudo (256 bytes). RAWGET: A = el byte,
 ; carry si no hay.
 RAWCLR: LD      HL,0
@@ -5782,6 +5818,8 @@ ZEMU:   LD      (ZHL),HL
         JP      Z,ZCPU
         CP      45
         JP      Z,ZOUT
+        CP      46
+        JP      Z,ZBLK
 ZERR:   LD      A,0FFh
 ZRET:   POP     BC
         POP     DE
@@ -5943,6 +5981,39 @@ ZOUT:   LD      C,E
         CALL    CONOUT
         XOR     A
         JP      ZRET
+; 46 (propio): DE caracteres desde HL a la consola del programa, directo al
+; XIOS: sin el BDOS (ni ^S, ni tabuladores, ni columna). Para los programas que
+; dibujan la pantalla (MD, VI, CAT...): la mitad de ciclos por caracter.
+ZBLK:   PUSH    DE
+        CALL    ZCON
+        POP     DE
+        LD      B,C             ; B = consola
+        LD      HL,(ZHL)
+ZBL1:   LD      A,D
+        OR      E
+        JP      Z,ZRET          ; (A = 0)
+        PUSH    HL
+        PUSH    DE
+        PUSH    BC
+        LD      D,B
+        LD      C,(HL)
+        CALL    CONOUT
+        POP     BC
+        POP     DE
+        POP     HL
+        INC     HL
+        DEC     DE
+        JR      ZBL1
+; ZCON: C = la consola del proceso que corre
+ZCON:   LD      HL,(RLRA)
+        LD      A,(HL)
+        INC     HL
+        LD      H,(HL)
+        LD      L,A
+        LD      DE,0Eh
+        ADD     HL,DE
+        LD      C,(HL)
+        RET
 ; 42 (propio): lo que espera en BUF a la tarjeta (H:ZLOADER, con MXDisk)
 ZFL:    LD      HL,FLUSHQ       ; (A = 0)
         CALL    ZBK
@@ -5959,54 +6030,15 @@ ZVC:    LD      HL,VSWE
 ; prender (la consola tiene que ser la que se ve), 1 apagar, 2 recibir un
 ; byte (DE = tics de espera; A = byte, carry si no llego), 3 mandar E.
 ZRAW:   PUSH    DE
-        LD      HL,(RLRA)       ; la consola del proceso
-        LD      A,(HL)
-        INC     HL
-        LD      H,(HL)
-        LD      L,A
-        LD      DE,0Eh
-        ADD     HL,DE
-        LD      C,(HL)          ; C = consola
+        CALL    ZCON            ; C = la consola del proceso
         POP     DE
         LD      A,B
-        OR      A
-        JR      NZ,ZRW1
-        LD      A,C             ; 0: prender
-        CP      4
-        JR      C,ZRW0
-        LD      A,(SIOBM)
-        OR      A
-        LD      A,2             ; la SIO B
-        JR      Z,ZRW0B
-        DEC     A
-        DEC     A
-        JP      Z,ZERR          ; CONSOLE4=OFF
-        LD      A,4
-ZRW0:   LD      HL,ACTVC        ; virtual: tiene que ser la que se ve
-        CP      (HL)
-        JP      NZ,ZERR
-        LD      A,1
-ZRW0B:  DI                      ; anillo vacio
-        LD      (RAWA),A
-        LD      HL,RAWCLR
-        CALL    BKCALL
-        EI
-        XOR     A
+        CP      2
+        JR      NC,ZRW1X
+        LD      HL,ZRAWB        ; 0 prender, 1 apagar: en la parte con bancos
+        CALL    ZBK
         JP      ZRET
-ZRW1:   DEC     A
-        JR      NZ,ZRW2
-        DI                      ; 1: apagar y redibujar la pantalla
-        LD      A,(RAWA)
-        DEC     A
-        LD      A,0
-        LD      (RAWA),A
-        JR      NZ,ZRW1B
-        LD      HL,VSNAP
-        CALL    BKCALL
-        CALL    TXSTA
-ZRW1B:  EI
-        XOR     A
-        JP      ZRET
+ZRW1X:  DEC     A
 ZRW2:   DEC     A
         JR      NZ,ZRW3
 ZRW2A:  DI                      ; 2: recibir

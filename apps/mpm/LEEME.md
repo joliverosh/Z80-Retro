@@ -44,6 +44,10 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 - **más memoria común libre**: los servicios 10, 11 y 36 de ZIOS y el mapa de unidades pasaron a la parte con bancos (quedan unos 80 bytes);
 - **el teclado**: lo que llega por la SIO A va a un anillo de 512 bytes en la interrupción y se procesa después (ver *Cómo está hecho*).
 
+**Cuarta tanda de la 1.4** (10/11/2026, probada en el emulador):
+- **consola más rápida para los programas en C**: el servicio 46 manda un bloque de caracteres a la consola del programa sin pasar por el BDOS, que se llevaba el 39 % de los ciclos de cada carácter (columna, ^S, despacho). `cpm.c` junta la salida en un búfer de 128 bytes y lo vacía con ese servicio antes de cualquier llamada al BDOS y al terminar. `BENCH`: de 2660 a 4080 caracteres por segundo; `CAT` de un texto de 17,5 KB, de 72 a 42 millones de ciclos. Como el BDOS 6, no se detiene con ^S ni expande tabuladores. Con un MP/M sin el servicio, o en CP/M, la salida sigue por el BDOS 6;
+- **el modo crudo del servicio 41** (prender y apagar) pasó a la parte con bancos para hacer lugar en la memoria común; de paso, `H:XFER` anda en la consola 4 cuando es virtual (`CONSOLE4=VIRTUAL`), que antes daba error.
+
 ## Qué ofrece
 
 | | |
@@ -64,7 +68,7 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 | Caché de disco | 64 KB con la RAM de la placa, 128 KB con RAM de expansión: el directorio y los programas no se vuelven a leer de la SD. Las escrituras de un mismo bloque de 512 bytes se juntan y van a la tarjeta al pasar a otro bloque o al escribir el directorio (al cerrar un archivo todo queda en la SD). En un bloque de asignación nuevo no se lee antes lo que hay en la tarjeta, salvo que un programa lea otro archivo entre dos registros (en la 1.4 hasta noviembre de 2026 eso perdía registros; lo mostró `ZIP`) |
 | Historial | **`^W`** en el indicador repite la última orden; otro `^W`, la anterior (8 órdenes por consola) |
 | Arranque | Si existe **`A:STARTUP.SUB`** (usuario 0), se ejecuta solo al arrancar |
-| Servicios de ZIOS | Los programas que llaman a ZIOS con `RST 30h` funcionan: consola (0, 4, 5, 6), mapa de unidades (10, 11), hora (28), tics (31), I2C (34) y datos de una unidad (36). Propios: 40 (ver la consola E, para `H:VC`), 41 (modo crudo de la consola, para `H:XFER`), 42 (lo que espera escribirse, a la SD: `H:ZLOADER`) 43 (un registro a cualquier pista de una unidad: `H:SETBOOT`), 44 (tics ociosos del último segundo, de 60: el uso de la CPU para `TOP`) y 45 (un carácter a la consola D, para `TALK`) |
+| Servicios de ZIOS | Los programas que llaman a ZIOS con `RST 30h` funcionan: consola (0, 4, 5, 6), mapa de unidades (10, 11), hora (28), tics (31), I2C (34) y datos de una unidad (36). Propios: 40 (ver la consola E, para `H:VC`), 41 (modo crudo de la consola, para `H:XFER`), 42 (lo que espera escribirse, a la SD: `H:ZLOADER`) 43 (un registro a cualquier pista de una unidad: `H:SETBOOT`), 44 (tics ociosos del último segundo, de 60: el uso de la CPU para `TOP`), 45 (un carácter a la consola D, para `TALK`) y 46 (DE caracteres desde HL a la consola del programa, directo al XIOS: lo usan los programas en C de `cpmc`) |
 | Errores de la SD | Si una lectura o escritura falla, el XIOS vuelve a iniciar la tarjeta y reintenta. Si vuelve a fallar, avisa en la consola del programa qué unidad, pista y sector |
 | Cambio de tarjeta | Se puede cambiar la SD con MP/M andando: después de cambiarla, `H:DSKRESET`. Cada unidad que se registra olvida lo que la caché tenía de su tarjeta |
 | Volver a ZLoader | **`H:ZLOADER`**, sin RESET |

@@ -5,10 +5,21 @@
 
 uint16_t zde, zhl;
 
+/* La salida a la consola se junta en ob[] y sale de una vez con el servicio
+   46 del XIOS de ZEPHYRUS (sin pasar por el BDOS: la mitad de ciclos por
+   caracter). En CP/M o con un MP/M sin ese servicio, cada caracter va por el
+   BDOS 6 como antes. Cualquier llamada al BDOS vacia ob[] antes. */
+#define OBSZ 128
+uint8_t obn;
+static uint8_t ob[OBSZ], omode;     /* 0 sin decidir, 1 servicio 46, 2 BDOS */
+
 uint16_t bdos(uint8_t c, uint16_t de) __sdcccall(0) __naked
 {
     (void)c; (void)de;
     __asm
+        ld      a,(_obn)
+        or      a
+        call    nz,_oflush
         ld      hl,#2
         add     hl,sp
         ld      c,(hl)
@@ -51,8 +62,24 @@ uint8_t zios(uint8_t c, uint8_t b, uint16_t de, uint16_t hl) __sdcccall(0) __nak
     __endasm;
 }
 
+void oflush(void)
+{
+    uint8_t n = obn;
+    obn = 0;
+    if (n) zios(46, 0, n, (uint16_t)ob);
+}
+
 void putch(char c)
 {
+    if (omode == 1) {
+        ob[obn++] = c;
+        if (obn == OBSZ) oflush();
+        return;
+    }
+    if (!omode) {
+        omode = 2;
+        if (ismpm() && zios(46, 0, 0, 0) == 0) { omode = 1; putch(c); return; }
+    }
     if ((uint8_t)c >= 0xFE) bdos(2, (uint8_t)c);
     else bdos(6, (uint8_t)c);
 }

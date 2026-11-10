@@ -8,11 +8,13 @@
         ld      sp,(6)
         call    gsinit
         call    _main
-_exit::
-        ld      c,#0
-        jp      5
+        jp      _exit           ; (la cabecera no pasa de 0110h)
         .area   _HOME
         .area   _CODE
+_exit::
+        call    _oflush         ; lo que quedo en el bufer de la consola
+        ld      c,#0
+        jp      5
         .area   _INITIALIZER
         .area   _GSINIT
         .area   _GSFINAL

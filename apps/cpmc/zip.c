@@ -31,7 +31,7 @@ static void oload(void)
     else memset(ob, 0, 128);
     odirty = 0;
 }
-static void oflush(void)
+static void zflush(void)
 {
     if (odirty) {
         if (rwrite(&zf, orec, ob)) oerr = 1;
@@ -41,14 +41,14 @@ static void oflush(void)
 }
 static void oseek(uint32_t p)
 {
-    oflush();
+    zflush();
     orec = p >> 7; oi = p & 127; opos = p;
     oload();
 }
 void putb(uint8_t c)
 {
     ob[oi++] = c; odirty = 1; opos++;
-    if (oi == 128) { oflush(); orec++; oi = 0; oload(); }
+    if (oi == 128) { zflush(); orec++; oi = 0; oload(); }
 }
 static void put2(uint16_t v) { putb(v); putb(v >> 8); }
 static void put4(uint32_t v) { put2(v); put2(v >> 16); }
@@ -254,7 +254,7 @@ void main(void)
             r = 0;
         } else r = deflate();
     stop:
-        if (r == 2) { pstr("\nStopped\n"); fclose(&inf); oflush(); fclose(&zf); fdelete(&zf); return; }
+        if (r == 2) { pstr("\nStopped\n"); fclose(&inf); zflush(); fclose(&zf); fdelete(&zf); return; }
         e->crc = ~icrc; e->usz = isize; e->csz = opos - dat;
         if (e->meth == 8 && e->csz >= e->usz) {         /* no gano: sin comprimir */
             oseek(dat);
@@ -296,7 +296,7 @@ void main(void)
         cdsz += 4 + pad;
     }
     put4(0x06054B50UL); put2(0); put2(0); put2(nf); put2(nf); put4(cdsz); put4(cd); put2(0);
-    oflush();
+    zflush();
     fclose(&zf);
     if (oerr) { pstr("Write error (disk full?)\n"); return; }
     pf("%u files, %lu -> %lu bytes\n", nf, tu, opos);

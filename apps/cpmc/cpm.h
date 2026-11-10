@@ -8,6 +8,7 @@ uint16_t bdos(uint8_t c, uint16_t de) __sdcccall(0);
 uint8_t zios(uint8_t c, uint8_t b, uint16_t de, uint16_t hl) __sdcccall(0);
 extern uint16_t zde, zhl;
 void exit(void);
+void oflush(void);                /* lo que espera en el bufer de salida, a la consola */
 void putch(char c);              /* sin traducir (BDOS 6) */
 void pstr(const char *s);        /* \n -> CR LF */
 void pf(const char *fmt, ...);   /* %d %u %ld %lu %x %X %lx %s %c, ancho y 0 */
