@@ -8,11 +8,13 @@ void main(void)
     pstr(HIDE CLS);
     for (;;) {
         TOD t; uint16_t y; uint8_t mo, d, n = 0;
-        uint8_t idle = zios(44, 0, 0, 0), cpu = idle > 60 ? 0 : 100 - (uint16_t)idle * 100 / 60;
+        uint8_t idle = zios(44, 0, 0, 0);    /* FF: un XIOS sin el servicio 44 */
         gettod(&t); ymd(t.day, &y, &mo, &d);
         pstr(HOME);
-        pf("TOP - MP/M II ZEPHYRUS   CPU %3u%%   %u-%02u-%02u %02x:%02x:%02x   (any key: exit)" ESC "[K\n\n",
-           cpu, y, mo, d, t.h, t.m, t.s);
+        if (idle > 60) pstr("TOP - MP/M II ZEPHYRUS   CPU  n/a");
+        else pf("TOP - MP/M II ZEPHYRUS   CPU %3u%%", 100 - (uint16_t)idle * 100 / 60);
+        pf("   %u-%02u-%02u %02x:%02x:%02x   (any key: exit)" ESC "[K\n\n",
+           y, mo, d, t.h, t.m, t.s);
         pf("Process   Cons  Mseg  Prio  State" ESC "[K\n");
         uint16_t run = *(uint16_t *)(dp + 5);
         uint16_t pd = *(uint16_t *)(dp + 17);
