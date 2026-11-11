@@ -5,7 +5,7 @@
 /* mk: --max-allocs-per-node 200000 */
 #include "zcalc.h"
 
-void npow(num *r, const num *a, const num *b) __sdcccall(0);
+
 
 static uint8_t rb[256];          /* el registro */
 static uint16_t rt, rl;          /* su tipo y su largo */

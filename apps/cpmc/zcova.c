@@ -5,7 +5,7 @@
 /* mk: --max-allocs-per-node 200000 */
 #include "zcalc.h"
 
-void npow(num *r, const num *a, const num *b) __sdcccall(0);
+
 
 static uint8_t fc_, fr_;         /* la celda de la formula (para las relativas) */
 static uint8_t sp_;              /* la pila de la formula: donde empieza cada operando en eb */

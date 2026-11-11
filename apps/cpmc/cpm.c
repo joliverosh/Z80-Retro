@@ -113,6 +113,7 @@ void pstr(const char *s)
     }
 }
 
+#ifndef CPM_LITE                 /* (CPM_LITE: sin esto, para los programas grandes) */
 static uint8_t hexa;
 static void pnum(uint32_t v, uint8_t base, uint8_t w, char pad, uint8_t neg)
 {
@@ -122,7 +123,9 @@ static void pnum(uint32_t v, uint8_t base, uint8_t w, char pad, uint8_t neg)
     while (n < w) { putch(pad); w--; }
     while (n) putch(b[--n]);
 }
+#endif
 
+#ifndef CPM_LITE                 /* (CPM_LITE: sin esto, para los programas grandes) */
 void pf(const char *fmt, ...)
 {
     va_list ap; va_start(ap, fmt);
@@ -151,6 +154,7 @@ void pf(const char *fmt, ...)
     }
     va_end(ap);
 }
+#endif
 
 int getkey(void) { return bdos(6, 0xFF) & 0xFF; }
 
@@ -203,6 +207,7 @@ uint8_t fread(FCB *f, uint8_t *buf) { bdos(26, (uint16_t)buf); return bdos(20, (
    que leer el registro de la cache. Devuelve cuantos leyo (0 = fin). El
    contador vuelve a 1, porque las demas llamadas lo dan por sentado. En CP/M
    2.2, de a uno. */
+#ifndef CPM_LITE                 /* (CPM_LITE: sin esto, para los programas grandes) */
 uint8_t freadn(FCB *f, uint8_t *buf, uint8_t n)
 {
     uint16_t r;
@@ -218,9 +223,11 @@ uint8_t freadn(FCB *f, uint8_t *buf, uint8_t n)
     if (!(r & 0xFF)) return n;
     return (r >> 12) & 15;          /* los que alcanzo a leer, en la mitad alta de H */
 }
+#endif
 uint8_t fwrite(FCB *f, uint8_t *buf) { bdos(26, (uint16_t)buf); return bdos(21, (uint16_t)f) & 0xFF; }
 /* fwriten: n registros seguidos (n <= 16) con una sola llamada (BDOS 44);
    0 bien. En CP/M 2.2, de a uno. */
+#ifndef CPM_LITE                 /* (CPM_LITE: sin esto, para los programas grandes) */
 uint8_t fwriten(FCB *f, uint8_t *buf, uint8_t n)
 {
     uint8_t r;
@@ -235,6 +242,7 @@ uint8_t fwriten(FCB *f, uint8_t *buf, uint8_t n)
     bdos(44, 1);
     return r;
 }
+#endif
 uint8_t fmake(FCB *f)
 {
     bdos(19, (uint16_t)f);
@@ -264,6 +272,7 @@ char *nextarg(char **p)
     return r;
 }
 
+#ifndef CPM_LITE                 /* (CPM_LITE: sin esto, para los programas grandes) */
 void fname(FCB *f, char *o)
 {
     uint8_t i;
@@ -275,6 +284,7 @@ void fname(FCB *f, char *o)
     }
     *o = 0;
 }
+#endif
 
 uint16_t ticks(void) { zios(31, 0, 0, 0); return zhl; }
 uint8_t tps(void) { return zios(31, 0, 0, 0); }
@@ -303,7 +313,9 @@ void ymd(uint16_t day, uint16_t *y, uint8_t *mo, uint8_t *d)
 static uint16_t rs = 12345;
 uint16_t rnd(void) { rs ^= rs << 7; rs ^= rs >> 9; rs ^= rs << 8; return rs; }
 void srnd(uint16_t s) { rs = s ? s : 1; }
+#ifndef CPM_LITE
 void gotoxy(uint8_t x, uint8_t y) { pf(ESC "[%u;%uH", y, x); }
+#endif
 
 uint8_t fdelete(FCB *f) { return (bdos(19, (uint16_t)f) & 0xFF) == 0xFF; }
 static uint8_t rio(uint8_t fn, FCB *f, uint16_t rec, uint8_t *buf)
@@ -337,6 +349,7 @@ void nm2fcb(NAME12 n, FCB *f)
     f->dr = n[0];
     memcpy(f->f, n + 1, 11);
 }
+#ifndef CPM_LITE
 uint8_t ropen(RD *r, FCB *f)
 {
     if (f != &r->f) memcpy(&r->f, f, sizeof(FCB));
@@ -383,6 +396,8 @@ rgetc1: ld      de,#-39
         jp      _rgetcs
     __endasm;
 }
+#endif
+#ifndef CPM_LITE                 /* (CPM_LITE: sin esto, para los programas grandes) */
 int32_t mul16(int16_t a, int16_t b)
 {
     uint8_t neg = 0; uint16_t ua, ub; uint32_t r;
@@ -391,4 +406,5 @@ int32_t mul16(int16_t a, int16_t b)
     r = (uint32_t)ua * ub;
     return neg ? -(int32_t)r : (int32_t)r;
 }
+#endif
 uint8_t brk(void) { uint8_t k = getkey(); return k == 3 || k == 27 || (k | 32) == 'q'; }
