@@ -3159,8 +3159,8 @@ ZRB1:   LD      A,(RAWA)
 ; (redibujo, linea de estado), sigue el camino de siempre (ITXA).
 ITXFS:
         .phase  ITXF
-        PUSH    AF
-        PUSH    HL
+        PUSH    AF              ; (en la pila del proceso solo AF, como ISPA:
+        LD      (ITXHL),HL      ; puede ser la corta del BDOS)
         LD      A,(TXA+3)       ; alguien espera lugar: el camino de siempre
         OR      A
         JR      NZ,ITXF9
@@ -3177,7 +3177,7 @@ ITXFS:
         LD      H,TXA SHR 8
         LD      A,(HL)
         OUT     (SIOAD),A
-ITXF7:  POP     HL
+ITXF7:  LD      HL,(ITXHL)
         POP     AF
         EI
         RETI
@@ -3189,7 +3189,7 @@ ITXF8:  LD      A,(GENACT)      ; vacio y sin redibujo ni linea de estado
         LD      A,28h           ; reponer "Tx int pending"
         OUT     (SIOAC),A
         JR      ITXF7
-ITXF9:  POP     HL
+ITXF9:  LD      HL,(ITXHL)
         POP     AF
         JP      ITXA
         .dephase
@@ -3198,16 +3198,19 @@ ITXFE:
         .error  ITXF no cabe antes de RXB
         ENDIF
 
-; ZBF: un caracter C a la consola que se ve, por el camino corto (del servicio
-; 46). Z: listo. NZ: no se pudo (se mira hacia atras, se redibuja, VQ lleno, el
+; ZBF: el caracter C a la consola B, por el camino corto (del servicio 46). Z:
+; listo. NZ: no se pudo (no es la que se ve, se mira hacia atras, se redibuja, VQ lleno, el
 ; transmisor parado o su bufer lleno): el que llama usa CONOUT. Se copia a ZBF
 ; (FF00, donde estaba BOUNCE) al arrancar.
 ZBFS:
         .phase  ZBF
         DI
+        LD      HL,(ACTVC)      ; L = ACTVC, H = VIEWING
+        LD      A,L
+        CP      B               ; la consola B es la que se ve (aqui, con las
+        JR      NZ,ZBFE         ; interrupciones apagadas: puede haber cambiado)
         LD      A,(GENACT)
-        LD      HL,VIEWING
-        OR      (HL)
+        OR      H
         JR      NZ,ZBFE
         LD      HL,VQN
         LD      A,(HL)
@@ -6280,9 +6283,7 @@ ZBL1:   LD      A,D
         OR      E
         JR      Z,ZBL9
         LD      C,(IX+0)
-        LD      A,(ACTVC)       ; la que se ve, y sin nada raro: ZBF (en FF00)
-        CP      B
-        CALL    Z,ZBF
+        CALL    ZBF             ; la que se ve, y sin nada raro: ZBF (en FF00)
         JR      Z,ZBL2
         PUSH    DE              ; si no, como cualquier caracter
         PUSH    BC
@@ -6430,6 +6431,7 @@ SVSP:   DEFW    0
 RXCNT:  DEFS    5               ; caracteres tecleados en cada consola virtual
 SIOBM:  DEFB    0               ; consola 4: 0 la SIO B, 1 nada (OFF), 2 virtual
 LASTPD: DEFW    0               ; proceso que escribio ultimo en la consola que se ve
+ITXHL:  DEFW    0               ; HL durante ITXF
 RLRA:   DEFW    0               ; donde esta el proceso que corre (datapg+5)
 IDLEC:  DEFB    0               ; tics del segundo en que la CPU no hacia nada
 IDLES:  DEFB    TPS             ; los del segundo anterior
@@ -6440,6 +6442,9 @@ VTPG:   DEFB    0               ; pagina de las pantallas de las consolas virtua
 VTAPG:  DEFB    0               ; y la de sus atributos
 ACTVC:  DEFB    0               ; consola que se ve en la SIO A
 VIEWING: DEFB   0               ; se esta mirando hacia atras (Shift-RePag)
+        IF      VIEWING-ACTVC <> 1
+        .error  VIEWING tiene que ir justo despues de ACTVC
+        ENDIF
 RAWA:   DEFB    0               ; modo crudo (H:XFER): 1 en la SIO A, 2 en la B
 GENACT: DEFB    0               ; la SIO A manda: 1 el redibujo, 2 la linea de estado
 STATDUE: DEFB   0               ; toca la linea de estado
