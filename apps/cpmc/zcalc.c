@@ -1,16 +1,20 @@
-/* ZCALC 1.0 - hoja de calculo para CP/M 2.2 y MP/M II (terminal ANSI de 80x24)
+/* ZCALC 1.1 - hoja de calculo para CP/M 2.2, CP/M 3 y MP/M II (terminal ANSI de 80x24)
    ZCALC [archivo[.ZC]]
    63 columnas (A-BK) x 254 filas. Numeros decimales de 9 cifras: 0,1 y los
    centavos son exactos. Se maneja como las hojas de 1979: el cursor recorre la
    cuadricula, lo que se escribe va a la celda y las ordenes empiezan con '/'.
    Formulas: + - * / ^, comparaciones (= <> < > <= >=), referencias A1, $A$1,
    rangos A1:B5 (o A1...B5) y funciones @SUM @AVG @MIN @MAX @COUNT @LOOKUP
-   @ABS @INT @ROUND @SQRT @MOD @IF @AND @OR @NOT @PI @NA @ERROR @ISNA @ISERROR.
+   @ABS @INT @ROUND @SQRT @MOD @IF @AND @OR @NOT @PI @NA @ERROR @ISNA @ISERROR,
+   de finanzas (@PMT @PV @FV @NPV @IRR), fechas (@DATE @TODAY @NOW @YEAR @MONTH
+   @DAY) y trigonometria (@SIN @COS @TAN @ATAN @LN @LOG @EXP).
+   El evaluador, la aritmetica y las funciones estan en zcalc_a.s.
    (C) OLIVEROS 2026 */
+/* mk: --max-allocs-per-node 200000 */
 #include <string.h>
 #include "cpm.h"
 
-#define VERSION "1.0"            /* tambien en zcalc_a.s y en LEEME.md */
+#define VERSION "1.1"            /* tambien en zcalc_a.s y en LEEME.md */
 
 #define NC 63                    /* columnas */
 #define NR 254                   /* filas */
@@ -108,7 +112,7 @@ static int8_t ncmp(const num *a, const num *b)
 }
 static uint8_t nisint(const num *a) { return a->e >= 0; }
 /* a entero de 16 bits (saturado) */
-static int16_t ntoi(const num *a)
+int16_t ntoi(const num *a) __sdcccall(0)
 {
     static num t;
     static int32_t v;
@@ -120,7 +124,7 @@ static int16_t ntoi(const num *a)
     if (v < -32767) return -32767;
     return (int16_t)v;
 }
-static uint8_t nsqrt(num *r, const num *a)
+uint8_t nsqrt(num *r, const num *a) __sdcccall(0)
 {
     static num x;
     static num y;
@@ -142,13 +146,13 @@ static uint8_t nsqrt(num *r, const num *a)
     *r = y;
     return 0;
 }
-static void npow(num *r, const num *a, const num *b)
+void npow(num *r, const num *a, const num *b) __sdcccall(0)
 {
     static num res;
     static num base;
     static int16_t n;
     static uint8_t neg;
-    if (!nisint(b) || ntoi(b) > 99 || ntoi(b) < -99) { nerr = 1; return; }
+    if (!nisint(b) || ntoi(b) > 9999 || ntoi(b) < -9999) { nerr = 1; return; }
     n = ntoi(b);
     neg = n < 0;
     if (neg) n = -n;
@@ -163,176 +167,40 @@ static void npow(num *r, const num *a, const num *b)
     *r = res;
 }
 
-/* cifras de u en o (sin 0 al final); devuelve cuantas */
-static uint8_t utoa_(uint32_t u, char *o)
-{
-    static char t[10];
-    static uint8_t n;
-    static uint8_t i;
-    n = 0;
-    do { t[n++] = '0' + u % 10; u /= 10; } while (u);
-    for (i = 0; i < n; i++) o[i] = t[n - 1 - i];
-    return n;
-}
-
-/* x en decimal comun en o; dec >= 0: exactamente dec decimales (x ya redondeado).
-   Devuelve el largo, o 0 si pasa de max */
-static uint8_t nplain(char *o, const num *x, int8_t dec, uint8_t max)
-{
-    static char d[10];
-    static uint8_t nd;
-    static uint8_t n;
-    static uint8_t i;
-    static uint8_t neg;
-    static int16_t e;
-    static int16_t ip;
-    static int16_t fp;
-    static int16_t len;
-    n = 0;
-    neg = x->m < 0;
-    e = x->e;
-    nd = utoa_(uabs(x->m), d);
-    if (e >= 0) { ip = nd + e; fp = 0; }
-    else if (nd > -e) { ip = nd + e; fp = -e; }
-    else { ip = 1; fp = -e; }
-    if (dec >= 0 && fp < dec) fp = dec;
-    len = neg + ip + (fp ? 1 + fp : 0);
-    if (len > max) return 0;
-    if (neg && x->m) o[n++] = '-';
-    if (e >= 0) {
-        for (i = 0; i < nd; i++) o[n++] = d[i];
-        for (i = 0; i < e; i++) o[n++] = '0';
-    } else if (nd > -e) {
-        for (i = 0; i < ip; i++) o[n++] = d[i];
-    } else o[n++] = '0';
-    if (fp) {
-        o[n++] = '.';
-        i = 0;
-        if (e < 0) {
-            if (nd > -e) { for (i = ip; i < nd; i++) o[n++] = d[i]; i = nd - ip; }
-            else { int16_t z; for (z = 0; z < -e - nd; z++) o[n++] = '0'; for (z = 0; z < nd; z++) o[n++] = d[z]; i = -e; }
-        }
-        for (; i < fp; i++) o[n++] = '0';
-    }
-    o[n] = 0;
-    return n;
-}
-/* x como d.dddE+nn en a lo mas max caracteres; 0 si no cabe */
-static uint8_t nsci(char *o, const num *x, uint8_t max)
-{
-    static char d[10];
-    static num y;
-    static uint8_t nd;
-    static uint8_t n;
-    static uint8_t md;
-    static uint8_t el;
-    static uint8_t neg;
-    static uint8_t i;
-    static int16_t ex;
-    neg = x->m < 0;
-    nd = ndig(uabs(x->m));
-    ex = nd - 1 + x->e;
-    el = (ex <= -10 || ex >= 10) ? 4 : 3;
-    if (max < neg + 1 + el) return 0;
-    md = max - neg - el;         /* cifras de la mantisa (con el punto) */
-    if (md >= 3) md--; else md = 1;
-    nround(&y, x, md - 1 - ex);
-    nd = utoa_(uabs(y.m), d);
-    ex = nd - 1 + y.e;
-    n = 0;
-    if (neg) o[n++] = '-';
-    o[n++] = d[0];
-    if (nd > 1) { o[n++] = '.'; for (i = 1; i < nd; i++) o[n++] = d[i]; }
-    o[n++] = 'E';
-    o[n++] = ex < 0 ? '-' : '+';
-    if (ex < 0) ex = -ex;
-    if (ex >= 10) o[n++] = '0' + ex / 10;
-    o[n++] = '0' + ex % 10;
-    o[n] = 0;
-    return n;
-}
-/* formatos: 0 el global, 1 general, 2 grafico, 3+k: k decimales */
-static void fmtnum(char *o, const num *x, uint8_t nf, uint8_t w)
-{
-    static num y;
-    static int16_t ip;
-    static uint8_t nd;
-    if (nf >= 3) {
-        nround(&y, x, nf - 3);
-        if (nplain(o, &y, nf - 3, w)) return;
-    } else {
-        if (nplain(o, x, -1, w)) return;
-        nd = ndig(uabs(x->m));
-        ip = x->e >= 0 ? nd + x->e : (nd > -x->e ? nd + x->e : 1);
-        if ((x->m < 0) + ip + 1 < w) {
-            nround(&y, x, w - (x->m < 0) - ip - 1);
-            if (y.m && nplain(o, &y, -1, w)) return;
-        } else if ((x->m < 0) + ip <= w) {
-            nround(&y, x, 0);
-            if (y.m && nplain(o, &y, -1, w)) return;
-        }
-        if (nsci(o, x, w)) return;
-    }
-    memset(o, '>', w);
-    o[w] = 0;
-}
-/* numero escrito: cifras, punto y exponente */
-static const char *pnum(const char *s, num *x)
-{
-    static uint32_t u;
-    static int16_t e;
-    static int16_t ex;
-    static uint8_t nd;
-    static uint8_t dot;
-    static uint8_t ns;
-    u = 0;
-    e = 0;
-    ex = 0;
-    nd = 0;
-    dot = 0;
-    ns = 0;
-    for (;; s++) {
-        if (*s == '.' && !dot && s[1] != '.') { dot = 1; continue; }
-        if (*s < '0' || *s > '9') break;
-        if (nd < 9) { u = u * 10 + (*s - '0'); if (u) nd++; if (dot) e--; }
-        else if (!dot) e++;
-    }
-    if (*s == 'E' && ((s[1] >= '0' && s[1] <= '9') || ((s[1] == '+' || s[1] == '-') && s[2] >= '0' && s[2] <= '9'))) {
-        s++;
-        if (*s == '-') { ns = 1; s++; } else if (*s == '+') s++;
-        while (*s >= '0' && *s <= '9') { if (ex < 200) ex = ex * 10 + (*s - '0'); s++; }
-        e += ns ? -ex : ex;
-    }
-    nerr = 0;
-    mk32(x, u, 0, e);
-    return s;
-}
-
+/* en zcalc_a.s */
+uint8_t utoa_(uint32_t u, char *o) __sdcccall(0);
+uint8_t nplain(char *o, const num *x, int8_t dec, uint8_t max) __sdcccall(0);
+uint8_t nsci(char *o, const num *x, uint8_t max) __sdcccall(0);
+const char *pnum(const char *s, num *x) __sdcccall(0);
+/* formatos: 0 el global, 1 general, 2 grafico, 3+k: k decimales (en zcalc_a.s) */
+void fmtnum(char *o, const num *x, uint8_t nf, uint8_t w) __sdcccall(0);
 /* ================================================================ celdas */
 enum { K_LAB = 1, K_REP, K_NUM, K_FRM };
 typedef struct cell {
     struct cell *nx;
     uint8_t c, r;                /* columna y fila (desde 1) */
-    uint8_t k;                   /* clase */
+    uint8_t fl;                  /* bits 0-2 clase, 3 calculando, 4-5 tipo de valor, 6 protegida, 7 marca */
     uint8_t f;                   /* formato: bits 0-3 numero, 4-5 alineacion */
-    uint8_t g, st;               /* generacion del calculo y "calculando" */
-    val v;
     uint8_t n;                   /* bytes de d */
-    uint8_t d[1];                /* texto o formula compilada */
+    uint8_t d[1];                /* texto; o el valor (5 bytes), y en las formulas
+                                    la generacion (1) y la formula compilada */
 } cell;
+#define KIND(x) ((x)->fl & 7)
+#define VT(x) (((x)->fl >> 4) & 3)
+#define SETVT(x, t) ((x)->fl = ((x)->fl & 0xCF) | ((t) << 4))
+#define F_ST 0x08
+#define F_PROT 0x40
+#define F_MARK 0x80
+#define NUMP(x) ((num *)(x)->d)
+#define GEN(x) (*((x)->d + 5))
+#define TOK(x) ((x)->d + 6)
 #define NH 128
-static cell *ht[NH];
+cell *ht[NH];                    /* tambien lo usa zcalc_a.s */
+cell *find(uint8_t c, uint8_t r) __sdcccall(0);   /* en zcalc_a.s */
 #define HK(c, r) (((c) * 13 + (r)) & (NH - 1))
 static uint8_t hb;
 #define FOR_CELLS(x) for (hb = 0; hb < NH; hb++) for (x = ht[hb]; x; x = x->nx)
 
-static cell *find(uint8_t c, uint8_t r)
-{
-    static cell *x;
-    for (x = ht[HK(c, r)]; x; x = x->nx)
-        if (x->c == c && x->r == r) return x;
-    return 0;
-}
 static void unlink_(cell *x)
 {
     static cell **pp;
@@ -363,7 +231,7 @@ static cell *newcell(uint8_t c, uint8_t r, uint8_t k, uint8_t n)
     x = zalloc(sizeof(cell) - 1 + n);
     if (!x) return 0;
     memset(x, 0, sizeof(cell));
-    x->c = c; x->r = r; x->k = k; x->f = f; x->n = n;
+    x->c = c; x->r = r; x->fl = k; x->f = f; x->n = n;
     link_(x);
     return x;
 }
@@ -394,429 +262,38 @@ static void rehash(void)
 }
 
 /* ================================================================ formulas */
-enum { TK_END, TK_NUM, TK_REF, TK_RNG, TK_FN, TK_LE, TK_GE, TK_NE };
-/* TK_NUM m(4) e(1); TK_REF c r fl; TK_RNG c1 r1 c2 r2 fl; TK_FN id.
-   fl: bit 0 columna fija ($), 1 fila fija; en rangos 2 y 3 los del final.
+enum { TK_END, TK_NUM, TK_REF, TK_RNG, TK_FN, TK_LE, TK_GE, TK_NE, TK_I8 };
+/* TK_NUM m(4) e(1); TK_I8 un entero 0-255; TK_REF cf r; TK_RNG cf1 r1 cf2 r2; TK_FN id.
+   cf: columna en los bits 0-5 y los $ en el 6 (columna) y el 7 (fila).
    Una referencia borrada tiene c = 0 (#REF) */
 enum { F_SUM, F_AVG, F_MIN, F_MAX, F_COUNT, F_LOOKUP, F_ABS, F_INT, F_ROUND, F_SQRT,
-       F_MOD, F_IF, F_AND, F_OR, F_NOT, F_PI, F_NA, F_ERROR, F_ISNA, F_ISERR, NFN };
-static const char *const fnn[NFN] = { "SUM", "AVG", "MIN", "MAX", "COUNT", "LOOKUP",
-    "ABS", "INT", "ROUND", "SQRT", "MOD", "IF", "AND", "OR", "NOT", "PI", "NA", "ERROR",
-    "ISNA", "ISERROR" };
-/* argumentos: minimo y maximo (9 = los que sean) */
-static const uint8_t fmin[NFN] = { 1, 1, 1, 1, 1, 2, 1, 1, 2, 1, 2, 3, 1, 1, 1, 0, 0, 0, 1, 1 };
-static const uint8_t fmax[NFN] = { 9, 9, 9, 9, 9, 2, 1, 1, 2, 1, 2, 3, 9, 9, 1, 0, 0, 0, 1, 1 };
+       F_MOD, F_IF, F_AND, F_OR, F_NOT, F_PI, F_NA, F_ERROR, F_ISNA, F_ISERR,
+       F_PMT, F_PV, F_FV, F_NPV, F_IRR, F_DATE, F_TODAY, F_NOW, F_YEAR, F_MONTH, F_DAY,
+       F_SIN, F_COS, F_TAN, F_ATAN, F_LN, F_EXP, F_LOG, NFN };
+/* los nombres y los argumentos de cada una estan en zcalc_a.s */
 
 static uint8_t isup(char c) { return c >= 'A' && c <= 'Z'; }
 static uint8_t isdig(char c) { return c >= '0' && c <= '9'; }
 
-/* referencia A1, $A$1 ...; avanza *ps */
-static uint8_t pref(const char **ps, uint8_t *c, uint8_t *r, uint8_t *fl)
-{
-    static const char *s;
-    static uint16_t cc;
-    static uint16_t rr;
-    s = *ps;
-    rr = 0;
-    *fl = 0;
-    if (*s == '$') { *fl |= 1; s++; }
-    if (!isup(*s)) return 0;
-    cc = *s++ - 'A' + 1;
-    if (isup(*s)) cc = cc * 26 + (*s++ - 'A' + 1);
-    if (cc > NC) return 0;
-    if (*s == '$') { *fl |= 2; s++; }
-    if (!isdig(*s)) return 0;
-    while (isdig(*s)) { rr = rr * 10 + (*s++ - '0'); if (rr > NR) return 0; }
-    if (!rr || isup(*s)) return 0;
-    *c = cc; *r = rr; *ps = s;
-    return 1;
-}
-static uint8_t colname(char *o, uint8_t c)
-{
-    if (c <= 26) { o[0] = 'A' + c - 1; o[1] = 0; return 1; }
-    o[0] = 'A' + (c - 1) / 26 - 1; o[1] = 'A' + (c - 1) % 26; o[2] = 0;
-    return 2;
-}
-static uint8_t refname(char *o, uint8_t c, uint8_t r, uint8_t fl)
-{
-    static uint8_t n;
-    n = 0;
-    if (!c) { strcpy(o, "#REF"); return 4; }
-    if (fl & 1) o[n++] = '$';
-    n += colname(o + n, c);
-    if (fl & 2) o[n++] = '$';
-    n += utoa_(r, o + n);
-    o[n] = 0;
-    return n;
-}
+/* en zcalc_a.s: referencias y formulas compiladas (la lista de nombres de
+   las funciones tambien esta alli, en el orden de F_SUM...) */
+uint8_t pref(const char **ps, uint8_t *c, uint8_t *r, uint8_t *fl) __sdcccall(0);
+uint8_t colname(char *o, uint8_t c) __sdcccall(0);
+uint8_t refname(char *o, uint8_t c, uint8_t r, uint8_t fl) __sdcccall(0);
+uint8_t tok(const char *s, uint8_t *o) __sdcccall(0);
+uint8_t dtok(const uint8_t *t, char *o, uint8_t max) __sdcccall(0);
 
-/* compila s (en mayusculas) en o; devuelve el largo o 0 si hay un error */
-static uint8_t tok(const char *s, uint8_t *o)
-{
-    static uint8_t n;
-    static uint8_t c;
-    static uint8_t r;
-    static uint8_t fl;
-    static uint8_t c2;
-    static uint8_t r2;
-    static uint8_t f2;
-    static uint8_t i;
-    static num x;
-    static char nm[8];
-    n = 0;
-    if (*s == '=') s++;
-    while (*s) {
-        if (n > MAXT - 8) return 0;
-        if (*s == ' ') { s++; continue; }
-        if (isdig(*s) || (*s == '.' && isdig(s[1]))) {
-            s = pnum(s, &x);
-            if (nerr) return 0;
-            o[n++] = TK_NUM;
-            memcpy(o + n, &x.m, 4); o[n + 4] = x.e; n += 5;
-            continue;
-        }
-        if (*s == '$' || isup(*s)) {
-            if (pref(&s, &c, &r, &fl)) {
-                if (*s == ':' || *s == '.') {
-                    while (*s == ':' || *s == '.') s++;
-                    if (!pref(&s, &c2, &r2, &f2)) return 0;
-                    if (c2 < c) { i = c; c = c2; c2 = i; fl = (fl & 2) | (f2 & 1); f2 = (f2 & 2) | (fl & 1); }
-                    if (r2 < r) { i = r; r = r2; r2 = i; i = fl; fl = (fl & 1) | (f2 & 2); f2 = (f2 & 1) | (i & 2); }
-                    o[n++] = TK_RNG; o[n++] = c; o[n++] = r; o[n++] = c2; o[n++] = r2;
-                    o[n++] = fl | (f2 << 2);
-                } else {
-                    o[n++] = TK_REF; o[n++] = c; o[n++] = r; o[n++] = fl;
-                }
-                continue;
-            }
-            if (*s == '$') return 0;
-        }
-        if (*s == '@' || isup(*s)) {
-            if (*s == '@') s++;
-            for (i = 0; isup(*s); s++) if (i < 7) nm[i++] = *s; else return 0;
-            nm[i] = 0;
-            for (i = 0; i < NFN && strcmp(nm, fnn[i]); i++) ;
-            if (i == NFN) {
-                if (!strcmp(nm, "AVERAGE")) i = F_AVG;
-                else return 0;
-            }
-            o[n++] = TK_FN; o[n++] = i;
-            continue;
-        }
-        if (*s == '<' && s[1] == '=') { o[n++] = TK_LE; s += 2; continue; }
-        if (*s == '>' && s[1] == '=') { o[n++] = TK_GE; s += 2; continue; }
-        if (*s == '<' && s[1] == '>') { o[n++] = TK_NE; s += 2; continue; }
-        if (strchr("+-*/^(),=<>", *s)) { o[n++] = *s++; continue; }
-        return 0;
-    }
-    o[n++] = TK_END;
-    return n;
-}
-
-/* la formula compilada como texto */
-static uint8_t dtok(const uint8_t *t, char *o, uint8_t max)
-{
-    static uint8_t n;
-    static char b[24];
-    static num x;
-    n = 0;
-    while (*t && n < max - 24) {
-        switch (*t) {
-        case TK_NUM:
-            memcpy(&x.m, t + 1, 4); x.e = t[5]; t += 6;
-            if (!nplain(b, &x, -1, 22)) nsci(b, &x, 22);
-            strcpy(o + n, b); n += strlen(b);
-            break;
-        case TK_REF:
-            n += refname(o + n, t[1], t[2], t[3]); t += 4;
-            break;
-        case TK_RNG:
-            n += refname(o + n, t[1], t[2], t[5] & 3);
-            o[n++] = ':';
-            if (!t[1]) n -= 1, o[n] = 0;
-            else n += refname(o + n, t[3], t[4], t[5] >> 2);
-            t += 6;
-            break;
-        case TK_FN:
-            o[n++] = '@'; strcpy(o + n, fnn[t[1]]); n += strlen(fnn[t[1]]); t += 2;
-            break;
-        case TK_LE: o[n++] = '<'; o[n++] = '='; t++; break;
-        case TK_GE: o[n++] = '>'; o[n++] = '='; t++; break;
-        case TK_NE: o[n++] = '<'; o[n++] = '>'; t++; break;
-        default: o[n++] = *t++;
-        }
-    }
-    o[n] = 0;
-    return n;
-}
+/* las funciones de finanzas, fechas y trigonometria (cfunc) y el formato de
+   fecha y hora (datestr) estan en zcalc_a.s */
+uint8_t datestr(char *o, const num *x, uint8_t nf) __sdcccall(0);
 
 /* ================================================================ calculo */
-static const uint8_t *tp;        /* el que sigue en la formula */
-static uint8_t synerr, chk;      /* chk: solo revisar la sintaxis */
-static uint8_t gen = 1, depth, again, circ;
-static void expr(val *v);
-
-static void setv(val *v, int16_t i) { v->t = V_NUM; nset(&v->n, i); }
-static void evalcell(cell *x)
-{
-    const uint8_t *sv;
-    val v;
-    if (x->k != K_FRM || x->g == gen) return;
-    if (x->st) { x->v.t = V_ERR; circ = 1; return; }
-    if (depth >= 12) { again = 1; return; }
-    sv = tp; x->st = 1; depth++;
-    tp = x->d;
-    synerr = 0;
-    expr(&v);
-    if (synerr) v.t = V_ERR;
-    x->v = v;
-    depth--; x->st = 0; x->g = gen; tp = sv;
-}
-/* valor de una celda (vacia o con texto: 0; en rangos se saltan) */
-static uint8_t cellv(val *v, cell *x)
-{
-    if (!x || x->k < K_NUM) return 0;
-    if (x->k == K_FRM) evalcell(x);
-    *v = x->v;
-    return 1;
-}
-static void refval(val *v, uint8_t c, uint8_t r)
-{
-    setv(v, 0);
-    if (!c) { v->t = V_ERR; return; }
-    if (chk) return;
-    cellv(v, find(c, r));
-}
-/* error o NA de dos valores: 1 si hay */
-static uint8_t bad2(val *a, const val *b)
-{
-    if (a->t == V_NUM && b->t == V_NUM) return 0;
-    a->t = (a->t == V_ERR || b->t == V_ERR) ? V_ERR : V_NA;
-    return 1;
-}
-static void bin(val *a, val *b, uint8_t op)
-{
-    static int8_t c;
-    if (bad2(a, b)) return;
-    nerr = 0;
-    switch (op) {
-    case '+': nadd(&a->n, &a->n, &b->n); break;
-    case '-': nsub(&a->n, &a->n, &b->n); break;
-    case '*': nmul(&a->n, &a->n, &b->n); break;
-    case '/': ndiv(&a->n, &a->n, &b->n); break;
-    case '^': npow(&a->n, &a->n, &b->n); break;
-    default:
-        c = ncmp(&a->n, &b->n);
-        switch (op) {
-        case '=': c = c == 0; break;
-        case TK_NE: c = c != 0; break;
-        case '<': c = c < 0; break;
-        case '>': c = c > 0; break;
-        case TK_LE: c = c <= 0; break;
-        case TK_GE: c = c >= 0; break;
-        }
-        setv(a, c);
-    }
-    if (nerr) a->t = V_ERR;
-}
-
-/* funciones con listas de valores y rangos */
-static num acc;
-static uint16_t cnt;
-static uint8_t aet;
-static void feed(val *v, uint8_t id)
-{
-    if (id == F_COUNT) { cnt++; return; }   /* cuenta tambien ERROR y NA */
-    if (v->t != V_NUM) { if (v->t == V_ERR || aet != V_ERR) aet = v->t; return; }
-    if (!cnt++) { acc = v->n; return; }
-    switch (id) {
-    case F_MIN: if (ncmp(&v->n, &acc) < 0) acc = v->n; break;
-    case F_MAX: if (ncmp(&v->n, &acc) > 0) acc = v->n; break;
-    case F_SUM: case F_AVG: nadd(&acc, &acc, &v->n); break;
-    case F_AND: if (!v->n.m) acc = v->n; break;
-    case F_OR: if (v->n.m) acc = v->n; break;
-    }
-}
-static void aggr(val *v, uint8_t id)
-{
-    val a;
-    uint8_t c, r, c1, r1, c2, r2;
-    nzero(&acc); cnt = 0; aet = V_NUM;
-    for (;;) {
-        if (*tp == TK_RNG) {
-            c1 = tp[1]; r1 = tp[2]; c2 = tp[3]; r2 = tp[4]; tp += 6;
-            if (!c1) aet = V_ERR;
-            else if (!chk)
-                for (r = r1; r >= r1 && r <= r2; r++)
-                    for (c = c1; c <= c2; c++)
-                        if (cellv(&a, find(c, r))) feed(&a, id);
-        } else {
-            expr(&a);
-            feed(&a, id);
-        }
-        if (*tp != ',') break;
-        tp++;
-    }
-    v->t = aet;
-    if (aet) return;
-    v->n = acc;
-    nerr = 0;
-    switch (id) {
-    case F_COUNT: nset(&v->n, cnt); break;
-    case F_AVG:
-        if (!cnt) { v->t = V_ERR; break; }
-        nset(&a.n, cnt); ndiv(&v->n, &v->n, &a.n); break;
-    case F_AND: case F_OR: setv(v, cnt && v->n.m != 0); break;
-    default: if (!cnt) nzero(&v->n);
-    }
-    if (nerr) v->t = V_ERR;
-}
-/* @LOOKUP(x, rango): la ultima celda del rango con valor <= x; da la de al lado */
-static void lookup(val *v)
-{
-    val x, a;
-    uint8_t c1, r1, c2, r2, vert, fc = 0, fr = 0, c, r;
-    expr(&x);
-    if (*tp != ',') { synerr = 1; return; }
-    tp++;
-    if (*tp != TK_RNG) { synerr = 1; return; }
-    c1 = tp[1]; r1 = tp[2]; c2 = tp[3]; r2 = tp[4]; tp += 6;
-    v->t = V_NA;
-    if (chk) { setv(v, 0); return; }
-    if (!c1 || x.t) { v->t = x.t ? x.t : V_ERR; return; }
-    vert = c1 == c2;
-    for (c = c1, r = r1; c <= c2 && r <= r2; ) {
-        if (cellv(&a, find(c, r)) && !a.t) {
-            if (ncmp(&a.n, &x.n) > 0) break;
-            fc = c; fr = r;
-        }
-        if (vert) { if (r == NR) break; r++; } else { if (c == NC) break; c++; }
-    }
-    if (!fc) return;
-    if (vert) fc++; else fr++;
-    if (fc > NC || fr > NR) return;
-    setv(v, 0);
-    cellv(v, find(fc, fr));
-}
-static void func(val *v, uint8_t id)
-{
-    val a[3];
-    uint8_t n = 0;
-    setv(v, 0);
-    if (!fmax[id]) {
-        if (*tp == '(' && tp[1] == ')') tp += 2;
-        if (id == F_PI) { v->n.m = 314159265; v->n.e = -8; }
-        else v->t = id == F_NA ? V_NA : V_ERR;
-        return;
-    }
-    if (*tp != '(') { synerr = 1; return; }
-    tp++;
-    if (id <= F_COUNT || id == F_AND || id == F_OR) aggr(v, id);
-    else if (id == F_LOOKUP) lookup(v);
-    else {
-        for (;;) {
-            if (n == 3) { synerr = 1; return; }
-            expr(&a[n++]);
-            if (*tp != ',') break;
-            tp++;
-        }
-        if (n < fmin[id] || n > fmax[id]) { synerr = 1; return; }
-        if (id == F_ISNA || id == F_ISERR) setv(v, a[0].t == (id == F_ISNA ? V_NA : V_ERR));
-        else if (id == F_IF) {
-            if (a[0].t) *v = a[0];
-            else if (a[0].n.m) *v = a[1];
-            else *v = a[2];
-        } else if (a[0].t || (n > 1 && a[1].t)) {
-            *v = a[0];
-            if (n > 1) bad2(v, &a[1]);
-        } else {
-            nerr = 0;
-            v->n = a[0].n;
-            switch (id) {
-            case F_ABS: if (v->n.m < 0) v->n.m = -v->n.m; break;
-            case F_INT: ntrunc(&v->n, &a[0].n); break;
-            case F_ROUND: nround(&v->n, &a[0].n, (int8_t)(ntoi(&a[1].n) > 9 ? 9 : ntoi(&a[1].n) < -9 ? -9 : ntoi(&a[1].n))); break;
-            case F_SQRT: if (nsqrt(&v->n, &a[0].n)) v->t = V_ERR; break;
-            case F_MOD:
-                if (!a[1].n.m) { v->t = V_ERR; break; }
-                ndiv(&v->n, &a[0].n, &a[1].n); ntrunc(&v->n, &v->n);
-                nmul(&v->n, &v->n, &a[1].n); nsub(&v->n, &a[0].n, &v->n); break;
-            case F_NOT: setv(v, !a[0].n.m); break;
-            }
-            if (nerr) v->t = V_ERR;
-        }
-    }
-    if (*tp != ')') { synerr = 1; return; }
-    tp++;
-}
-static void prim(val *v)
-{
-    uint8_t t = *tp;
-    setv(v, 0);
-    switch (t) {
-    case TK_NUM: memcpy(&v->n.m, tp + 1, 4); v->n.e = tp[5]; tp += 6; return;
-    case TK_REF: refval(v, tp[1], tp[2]); tp += 4; return;
-    case TK_FN: tp += 2; func(v, tp[-1]); return;
-    case '(':
-        tp++; expr(v);
-        if (*tp != ')') synerr = 1; else tp++;
-        return;
-    }
-    synerr = 1;
-    if (t) tp++;
-}
-static void una(val *v);
-static void pw(val *v)
-{
-    val b;
-    prim(v);
-    if (*tp == '^') { tp++; una(&b); bin(v, &b, '^'); }
-}
-static void una(val *v)
-{
-    if (*tp == '-') { tp++; una(v); if (!v->t) v->n.m = -v->n.m; return; }
-    if (*tp == '+') { tp++; una(v); return; }
-    pw(v);
-}
-static void term(val *v)
-{
-    val b;
-    uint8_t op;
-    una(v);
-    while ((op = *tp) == '*' || op == '/') { tp++; una(&b); bin(v, &b, op); }
-}
-static void sum_(val *v)
-{
-    val b;
-    uint8_t op;
-    term(v);
-    while ((op = *tp) == '+' || op == '-') { tp++; term(&b); bin(v, &b, op); }
-}
-static void expr(val *v)
-{
-    val b;
-    uint8_t op;
-    if (depth > 60) { synerr = 1; return; }
-    sum_(v);
-    op = *tp;
-    if (op == '=' || op == '<' || op == '>' || op == TK_LE || op == TK_GE || op == TK_NE) {
-        tp++; sum_(&b); bin(v, &b, op);
-    }
-}
-
-static void recalc(void)
-{
-    static cell *x;
-    static uint8_t pass;
-    pass = 0;
-    circ = 0;
-    do {
-        again = 0;
-        if (!++gen) { FOR_CELLS(x) x->g = 0; gen = 1; }
-        depth = 0;
-        FOR_CELLS(x) evalcell(x);
-    } while (again && ++pass < 30);
-}
+/* en zcalc_a.s: la evaluacion de las formulas y el recalculo */
+extern const uint8_t *tp;        /* lo que sigue en la formula */
+extern uint8_t synerr, chk;      /* chk: solo revisar la sintaxis */
+extern uint8_t gen, depth, again, circ;
+void expr(val *v) __sdcccall(0);
+void recalc(void);
 
 /* ================================================================ entradas */
 static uint8_t tb[MAXT];
@@ -844,17 +321,17 @@ static uint8_t setcell(uint8_t c, uint8_t r, const char *s, uint8_t label)
         chk = 0;
         if (synerr || *tp) return 1;
         i = (tb[0] == '-' || tb[0] == '+');
-        if (tb[i] == TK_NUM && tb[i + 6] == TK_END) {
-            x = newcell(c, r, K_NUM, 0);
+        if ((tb[i] == TK_NUM && tb[i + 6] == TK_END) || (tb[i] == TK_I8 && tb[i + 2] == TK_END)) {
+            x = newcell(c, r, K_NUM, 5);
             if (!x) return 2;
-            x->v.t = V_NUM;
-            memcpy(&x->v.n.m, tb + i + 1, 4); x->v.n.e = tb[i + 5];
-            if (tb[0] == '-') x->v.n.m = -x->v.n.m;
+            if (tb[i] == TK_I8) nset(NUMP(x), tb[i + 1]);
+            else memcpy(x->d, tb + i + 1, 5);
+            if (tb[0] == '-') NUMP(x)->m = -NUMP(x)->m;
         } else {
-            x = newcell(c, r, K_FRM, n);
+            x = newcell(c, r, K_FRM, n + 6);
             if (!x) return 2;
-            memcpy(x->d, tb, n);
-            x->v.t = V_NUM;
+            memset(x->d, 0, 6);
+            memcpy(TOK(x), tb, n);
         }
     }
     modified = dirty = 1;
@@ -866,70 +343,31 @@ static void celltext(cell *x, char *o, uint8_t max)
     static uint8_t n;
     *o = 0;
     if (!x) return;
-    switch (x->k) {
+    switch (KIND(x)) {
     case K_LAB: case K_REP:
-        o[0] = x->k == K_LAB ? '"' : '\\';
+        o[0] = KIND(x) == K_LAB ? '"' : '\\';
         n = x->n < max - 2 ? x->n : max - 2;
         memcpy(o + 1, x->d, n); o[n + 1] = 0;
         break;
     case K_NUM:
-        if (!nplain(o, &x->v.n, -1, max - 1)) nsci(o, &x->v.n, 22);
+        if (!nplain(o, NUMP(x), -1, max - 1)) nsci(o, NUMP(x), 22);
         break;
     default:
-        dtok(x->d, o, max);
+        dtok(TOK(x), o, max);
     }
 }
 
 /* ----------------------------------------------------- referencias que se mueven */
 /* modos: 0 insertar en at, 1 borrar at, 2 mover el rectangulo (mc1,mr1)-(mc2,mr2) */
-static uint8_t am, arow, aat, mc1, mr1, mc2, mr2;
-static int8_t mdc, mdr;
-/* v: coordenada; lim: maximo; end: 0 referencia, 1 inicio de rango, 2 fin */
-static uint8_t adj1(uint8_t v, uint8_t lim, uint8_t end)
-{
-    if (!am) {
-        if (v >= aat) { if (v == lim) return end == 2 ? lim : 0; v++; }
-        return v;
-    }
-    if (v == aat) return end == 0 ? 0 : end == 1 ? (aat < lim ? aat : 0) : aat - 1;
-    return v > aat ? v - 1 : v;
-}
-/* ajusta (c, r); 0 si la referencia queda borrada */
-static uint8_t adjref(uint8_t *c, uint8_t *r, uint8_t end)
-{
-    static int16_t nc;
-    static int16_t nr;
-    if (am == 2) {
-        if (*c < mc1 || *c > mc2 || *r < mr1 || *r > mr2) return 1;
-        nc = *c + mdc; nr = *r + mdr;
-        if (nc < 1 || nc > NC || nr < 1 || nr > NR) return 0;
-        *c = nc; *r = nr;
-        return 1;
-    }
-    if (arow) { *r = adj1(*r, NR, end); return *r != 0; }
-    *c = adj1(*c, NC, end);
-    return *c != 0;
-}
-static void adjform(uint8_t *t)
-{
-    while (*t) {
-        switch (*t) {
-        case TK_NUM: t += 6; break;
-        case TK_REF:
-            if (t[1] && !adjref(t + 1, t + 2, 0)) t[1] = 0;
-            t += 4; break;
-        case TK_RNG:
-            if (t[1] && (!adjref(t + 1, t + 2, 1) || !adjref(t + 3, t + 4, 2) || t[3] < t[1] || t[4] < t[2])) t[1] = 0;
-            t += 6; break;
-        case TK_FN: t += 2; break;
-        default: t++;
-        }
-    }
-}
+/* en zcalc_a.s */
+extern uint8_t am, arow, aat, mc1, mr1, mc2, mr2;
+extern int16_t mdc, mdr;
+void adjform(uint8_t *t) __sdcccall(0);
+void shiftform(uint8_t *t, int16_t dc, int16_t dr) __sdcccall(0);
 static void adjall(void)
 {
     static cell *x;
-    FOR_CELLS(x) if (x->k == K_FRM) adjform(x->d);
+    FOR_CELLS(x) if (KIND(x) == K_FRM) adjform(TOK(x));
 }
 /* insertar (del = 0) o borrar una fila o columna */
 static void insdel(uint8_t row, uint8_t at, uint8_t del)
@@ -949,18 +387,6 @@ static void insdel(uint8_t row, uint8_t at, uint8_t del)
     modified = dirty = 1;
 }
 /* copia de x en (c, r), con las referencias relativas corridas */
-static uint8_t shiftref(uint8_t *c, uint8_t *r, uint8_t fl, int16_t dc, int16_t dr)
-{
-    static int16_t nc;
-    static int16_t nr;
-    nc = *c;
-    nr = *r;
-    if (!(fl & 1)) nc += dc;
-    if (!(fl & 2)) nr += dr;
-    if (nc < 1 || nc > NC || nr < 1 || nr > NR) return 0;
-    *c = nc; *r = nr;
-    return 1;
-}
 static uint8_t copycell(cell *x, uint8_t c, uint8_t r)
 {
     static cell *y;
@@ -973,7 +399,7 @@ static uint8_t copycell(cell *x, uint8_t c, uint8_t r)
     static uint8_t n;
     dc = (int16_t)c - x->c;
     dr = (int16_t)r - x->r;
-    k = x->k;
+    k = KIND(x);
     f = x->f;
     n = x->n;
     memcpy(tb, x->d, n);         /* x puede ser la que se reemplaza */
@@ -981,21 +407,7 @@ static uint8_t copycell(cell *x, uint8_t c, uint8_t r)
     if (!y) return 1;
     y->f = f;
     memcpy(y->d, tb, n);
-    if (k == K_NUM) y->v = x->v;
-    if (k == K_FRM)
-        for (t = y->d; *t; ) {
-            switch (*t) {
-            case TK_NUM: t += 6; break;
-            case TK_REF: if (t[1] && !shiftref(t + 1, t + 2, t[3], dc, dr)) t[1] = 0; t += 4; break;
-            case TK_RNG:
-                if (t[1] && (!shiftref(t + 1, t + 2, t[5], dc, dr) || !shiftref(t + 3, t + 4, t[5] >> 2, dc, dr))) t[1] = 0;
-                if (t[1] && t[3] < t[1]) { i = t[1]; t[1] = t[3]; t[3] = i; }
-                if (t[1] && t[4] < t[2]) { i = t[2]; t[2] = t[4]; t[4] = i; }
-                t += 6; break;
-            case TK_FN: t += 2; break;
-            default: t++;
-            }
-        }
+    if (k == K_FRM) shiftform(TOK(y), dc, dr);
     modified = dirty = 1;
     return 0;
 }
@@ -1004,9 +416,13 @@ static uint8_t copycell(cell *x, uint8_t c, uint8_t r)
 static uint8_t cc = 1, cr = 1;           /* cursor */
 static uint8_t fc = 1, fr = 1;           /* primeras columna y fila que se corren */
 static uint8_t tcn, trn;                 /* columnas y filas de titulos */
-static uint8_t gw = 9, gnf = 1, autoc = 1;
-static uint8_t cw[NC + 1];
+uint8_t gw = 9, gnf = 1;         /* tambien los usa zcalc_a.s */
+static uint8_t autoc = 1;
+uint8_t cw[NC + 1];
 static uint8_t vcol[MAXVC], vx[MAXVC], nvc, vrow[GROWS], nvr;
+static uint8_t gtop = GTOP, grows = GROWS;   /* la ventana activa en pantalla */
+/* ventanas: la otra (fr, fc, cc, cr, gtop, grows); win = 1 si hay dos */
+static uint8_t opn[6], win, nohl;
 static char fname_[16];
 static char sb[90];
 #define CW(c) (cw[c] ? cw[c] : gw)
@@ -1021,8 +437,8 @@ static void layout(void)
     for (c = 1; c <= tcn && nvc < MAXVC && x + CW(c) <= 81; c++) { vcol[nvc] = c; vx[nvc++] = x; x += CW(c); }
     for (c = fc; c <= NC && nvc < MAXVC && x + CW(c) <= 81; c++) { vcol[nvc] = c; vx[nvc++] = x; x += CW(c); }
     nvr = 0;
-    for (r = 1; r <= trn && nvr < GROWS; r++) vrow[nvr++] = r;
-    for (r = fr; r <= NR && nvr < GROWS; r++) vrow[nvr++] = r;
+    for (r = 1; r <= trn && nvr < grows; r++) vrow[nvr++] = r;
+    for (r = fr; r <= NR && nvr < grows; r++) vrow[nvr++] = r;
 }
 /* deja el cursor a la vista; 1 si la vista cambio */
 static uint8_t scrollto(void)
@@ -1039,56 +455,8 @@ static uint8_t scrollto(void)
     return ch;
 }
 
-/* el texto de la celda, exactamente w caracteres */
-static void cellstr(char *o, uint8_t c, uint8_t r, uint8_t w)
-{
-    static char t[44];
-    static uint8_t n;
-    static uint8_t al;
-    static uint8_t nf;
-    static uint8_t i;
-    static uint8_t pc;
-    static uint16_t off;
-    static cell *x;
-    memset(o, ' ', w); o[w] = 0;
-    x = find(c, r);
-    if (!x) {                    /* un texto largo de la izquierda sigue aqui */
-        for (off = 0, pc = c - 1; pc >= 1 && off < MAXE; pc--) {
-            off += CW(pc);
-            if (!(x = find(pc, r))) continue;
-            if (x->k == K_LAB && ((x->f >> 4) & 3) != 2 && x->n > off) {
-                n = x->n - off < w ? x->n - off : w;
-                memcpy(o, x->d + off, n);
-            }
-            break;
-        }
-        return;
-    }
-    al = (x->f >> 4) & 3;
-    nf = x->f & 15;
-    if (!nf) nf = gnf;
-    if (x->k == K_LAB) {
-        n = x->n < w ? x->n : w;
-        memcpy(o + (al == 2 ? w - n : 0), x->d, n);
-        return;
-    }
-    if (x->k == K_REP) {
-        for (i = 0; i < w && x->n; i++) o[i] = x->d[i % x->n];
-        return;
-    }
-    if (x->v.t == V_ERR) strcpy(t, "ERROR");
-    else if (x->v.t == V_NA) strcpy(t, "NA");
-    else if (nf == 2) {
-        int16_t k = ntoi(&x->v.n);
-        if (k < 0) k = 0;
-        if (k > w) k = w;
-        memset(o, '*', k);
-        return;
-    } else fmtnum(t, &x->v.n, nf, w > 1 ? w - 1 : 1);
-    n = strlen(t);
-    if (n > w) n = w;
-    memcpy(o + (al == 1 ? 0 : w - n), t, n);
-}
+/* el texto de la celda, exactamente w caracteres (en zcalc_a.s) */
+void cellstr(char *o, uint8_t c, uint8_t r, uint8_t w) __sdcccall(0);
 static uint8_t vpos(uint8_t c, uint8_t r, uint8_t *i, uint8_t *j)
 {
     for (*i = 0; *i < nvc && vcol[*i] != c; (*i)++) ;
@@ -1100,7 +468,7 @@ static void drawcell(uint8_t c, uint8_t r, uint8_t hi)
     static uint8_t i;
     static uint8_t j;
     if (!vpos(c, r, &i, &j)) return;
-    gotoxy(vx[i], GTOP + j);
+    gotoxy(vx[i], gtop + j);
     cellstr(sb, c, r, CW(c));
     if (hi) pstr(INV);
     pstr(sb);
@@ -1112,7 +480,7 @@ static void drawhdr(void)
     static uint8_t w;
     static uint8_t l;
     static char b[4];
-    gotoxy(1, 3);
+    gotoxy(1, gtop - 1);
     pstr(INV "    ");
     for (i = 0; i < nvc; i++) {
         w = CW(vcol[i]);
@@ -1129,18 +497,32 @@ static void drawgrid(void)
     static uint8_t j;
     layout();
     drawhdr();
-    for (j = 0; j < GROWS; j++) {
-        gotoxy(1, GTOP + j);
+    for (j = 0; j < grows; j++) {
+        gotoxy(1, gtop + j);
         if (j >= nvr) { pstr(EOL); continue; }
         pf(INV "%3u " NORM, vrow[j]);
         for (i = 0; i < nvc; i++) {
             cellstr(sb, vcol[i], vrow[j], CW(vcol[i]));
-            if (vcol[i] == cc && vrow[j] == cr) { pstr(INV); pstr(sb); pstr(NORM); }
+            if (vcol[i] == cc && vrow[j] == cr && !nohl) { pstr(INV); pstr(sb); pstr(NORM); }
             else pstr(sb);
         }
         pstr(EOL);
     }
     dirty = 0;
+}
+/* cambia la ventana activa por la otra */
+static void swappane(void)
+{
+    static uint8_t t[6];
+    t[0] = fr; t[1] = fc; t[2] = cc; t[3] = cr; t[4] = gtop; t[5] = grows;
+    fr = opn[0]; fc = opn[1]; cc = opn[2]; cr = opn[3]; gtop = opn[4]; grows = opn[5];
+    memcpy(opn, t, 6);
+}
+/* las dos ventanas (la otra sin cursor) */
+static void drawall(void)
+{
+    if (win) { swappane(); nohl = 1; layout(); drawgrid(); nohl = 0; swappane(); layout(); }
+    drawgrid();
 }
 static const char *fmtname(uint8_t f, char *o)
 {
@@ -1154,6 +536,8 @@ static const char *fmtname(uint8_t f, char *o)
     else if (nf == 2) o[n++] = '*';
     else if (nf == 3) o[n++] = 'I';
     else if (nf == 5) o[n++] = '$';
+    else if (nf == 13) o[n++] = '/';
+    else if (nf == 14) o[n++] = ':';
     else if (nf) o[n++] = '0' + nf - 3;
     if (al) o[n++] = al == 1 ? 'L' : 'R';
     o[n] = 0;
@@ -1171,7 +555,8 @@ static void drawstat(void)
     if (x) {
         fmtname(x->f, b);
         if (*b) pf(" /F%s", b);
-        pstr(x->k == K_FRM ? " (V) " : x->k == K_NUM ? " (V) " : " (L) ");
+        if (x->f & 0x40) pstr(" locked");
+        pstr(KIND(x) >= K_NUM ? " (V) " : " (L) ");
         celltext(x, sb, 58);
         pstr(sb);
     }
@@ -1379,14 +764,16 @@ static void goto_(void)
 }
 static uint8_t fmtkey(uint8_t k, uint8_t f)
 {
-    if (k == 'D') return 0;
+    if (k == 'D') return f & 0x40;      /* el bloqueo se queda */
     if (k == 'G') return (f & 0xF0) | 1;
     if (k == 'I') return (f & 0xF0) | 3;
     if (k == '$') return (f & 0xF0) | 5;
     if (k == '*') return (f & 0xF0) | 2;
     if (k >= '0' && k <= '9') return (f & 0xF0) | (k - '0' + 3);
-    if (k == 'L') return (f & 0x0F) | 0x10;
-    if (k == 'R') return (f & 0x0F) | 0x20;
+    if (k == '/') return (f & 0xF0) | 13;   /* fecha dd/mm/aa */
+    if (k == ':') return (f & 0xF0) | 14;   /* hora hh:mm */
+    if (k == 'L') return (f & 0xCF) | 0x10;
+    if (k == 'R') return (f & 0xCF) | 0x20;
     return 0xFF;
 }
 static uint8_t askw(uint8_t def)
@@ -1406,14 +793,14 @@ static void cmd_format(void)
     static uint8_t f;
     static uint8_t w;
     static cell *x;
-    k = ask("Format: D(efault) G I(nteger) $ 0-9 (decimals) *(graph) L(eft) R(ight) W(idth)");
+    k = ask("Format: D(efault) G I $ 0-9 *(graph) /(date) :(time) L R W(idth)");
     if (k == 'W') { if ((w = askw(CW(cc)))) { cw[cc] = w == gw ? 0 : w; modified = 1; } return; }
     x = find(cc, cr);
     f = fmtkey(k, x ? x->f : 0);
     if (f == 0xFF) return;
     if (!x) { if (!(x = newcell(cc, cr, K_LAB, 0))) { msg("Memory full"); return; } }
     x->f = f;
-    if (x->k == K_LAB && !x->n && !f) delcell(cc, cr);
+    if (KIND(x) == K_LAB && !x->n && !f) delcell(cc, cr);
     modified = 1;
 }
 static void cmd_global(void)
@@ -1486,14 +873,14 @@ static void cmd_move(void)
     FOR_CELLS(x) {
         uint8_t ins = x->c >= c1 && x->c <= c2 && x->r >= r1 && x->r <= r2;
         int16_t nc = x->c + mdc, nr = x->r + mdr;
-        if (ins) { x->st = 1; if (nc < 1 || nc > NC || nr < 1 || nr > NR) x->c = 0; }
-        else x->st = 0;
+        if (ins) { x->fl |= F_MARK; if (nc < 1 || nc > NC || nr < 1 || nr > NR) x->c = 0; }
+        else x->fl &= ~F_MARK;
     }
     FOR_CELLS(x)
-        if (!x->st && x->c >= c1 + mdc && x->c <= c2 + mdc && x->r >= r1 + mdr && x->r <= r2 + mdr) x->c = 0;
+        if (!(x->fl & F_MARK) && x->c >= c1 + mdc && x->c <= c2 + mdc && x->r >= r1 + mdr && x->r <= r2 + mdr) x->c = 0;
     FOR_CELLS(x)
-        if (x->st && x->c) { x->c += mdc; x->r += mdr; }
-    FOR_CELLS(x) x->st = 0;
+        if ((x->fl & F_MARK) && x->c) { x->c += mdc; x->r += mdr; }
+    FOR_CELLS(x) x->fl &= ~F_MARK;
     (void)c; (void)r;
     rehash();
     modified = dirty = 1;
@@ -1601,7 +988,6 @@ static uint8_t loadfile(const char *name)
                     if (n == 2) { bad = 2; break; }
                     if (n) bad = 1;
                     else if ((x = find(c, r))) x->f = fl;
-                    if (!*p && !n) { if ((x = find(c, r))) { x->k = K_LAB; x->n = 0; } }
                 } else bad = 1;
             }
         }
@@ -1706,13 +1092,13 @@ static void csv(void)
         for (c = 1; c <= mc; c++) {
             if (c > 1) oc(',');
             x = find(c, r);
-            if (!x || x->k == K_REP) continue;
-            if (x->k == K_LAB) {
+            if (!x || KIND(x) == K_REP) continue;
+            if (KIND(x) == K_LAB) {
                 oc('"');
                 for (i = 0; i < x->n; i++) { if (x->d[i] == '"') oc('"'); oc(x->d[i]); }
                 oc('"');
-            } else if (x->v.t) os(x->v.t == V_ERR ? "#ERROR" : "#NA");
-            else { if (!nplain(sb, &x->v.n, -1, 30)) nsci(sb, &x->v.n, 22); os(sb); }
+            } else if (VT(x)) os(VT(x) == V_ERR ? "#ERROR" : "#NA");
+            else { if (!nplain(sb, NUMP(x), -1, 30)) nsci(sb, NUMP(x), 22); os(sb); }
         }
         os("\r\n");
     }
@@ -1754,22 +1140,24 @@ static void help(void)
 {
     pstr(CLS SHOW
         "ZCALC " VERSION "                                                   (C) OLIVEROS 2026\n\n"
-        " Arrows (or ^E ^X ^S ^D) move; PgUp/PgDn (^R ^C) 20 rows; Home goes to A1.\n"
+        " Arrows (^E ^X ^S ^D) move; PgUp/PgDn (^R ^C) 20 rows; Home goes to A1.\n"
         " Type a number or formula (starting with a digit . + - ( @ =) or a label\n"
-        " (anything else; \" starts a label that looks like a number). Enter or an\n"
-        " arrow stores it; ESC cancels. In a formula, an arrow after an operator\n"
-        " points at cells. > goes to a cell, ! recalculates, ^L redraws.\n\n"
+        " (\" starts a label that looks like a number). Enter or an arrow stores it;\n"
+        " ESC cancels; an arrow after an operator points at cells.\n"
+        " > go to a cell  ! recalc  ^L redraw  ^U undo  ^F find  ; other window\n\n"
         " Formulas: + - * / ^  = <> < > <= >=  A1 $A$1 A1:B5\n"
-        "   @SUM @AVG @MIN @MAX @COUNT (lists and ranges)  @LOOKUP(x,A1:A9)\n"
-        "   @ABS @INT @ROUND(x,n) @SQRT @MOD(a,b) @IF(c,a,b) @AND @OR @NOT\n"
-        "   @PI @NA @ERROR @ISNA @ISERROR\n\n"
+        "  @SUM @AVG @MIN @MAX @COUNT @LOOKUP(x,A1:A9) @ABS @INT @ROUND(x,n) @SQRT\n"
+        "  @MOD(a,b) @IF(c,a,b) @AND @OR @NOT @PI @NA @ERROR @ISNA @ISERROR\n"
+        "  @SIN @COS @TAN @ATAN @LN @LOG @EXP  @PMT(rate,n,pv) @PV(rate,n,pmt)\n"
+        "  @FV(rate,n,pmt) @NPV(rate,list) @IRR(guess,list) @DATE(y,m,d) @TODAY\n"
+        "  @NOW @YEAR @MONTH @DAY\n\n"
         " /B blank cell     /C clear sheet       /D delete row or column\n"
-        " /E edit cell      /F format, width     /G global width, format, recalc\n"
-        " /I insert row/col /M move cells        /P print (printer or file)\n"
-        " /R replicate      /S load (.ZC, .CSV), save, CSV, quit   /T titles\n"
-        " /- repeat a label (/-= draws a line)   /A about   /Q quit\n\n"
-        " Numbers have 9 digits and are decimal (money adds up exactly).\n\n"
-        " Press any key.");
+        " /E edit cell      /F format (/ date, : time), width   /G global settings\n"
+        " /I insert row/col /L lock/unlock cells /M move cells   /O sort rows\n"
+        " /P print          /R replicate         /S load, save, CSV, quit\n"
+        " /T titles         /W windows           /- repeat a label  /A about\n"
+        " Numbers have 9 digits and are decimal (money adds up exactly).  "
+"Press any key.");
     getk();
     pstr(HIDE CLS);
     dirty = 1;
@@ -1778,17 +1166,13 @@ static void help(void)
 /* /A: acerca de ZCALC */
 static void about(void)
 {
-    pstr(CLS);
-    gotoxy(20, 8);  pstr(INV "                                        " NORM);
-    gotoxy(20, 9);  pstr(INV "  ZCALC " VERSION "                             " NORM);
-    gotoxy(20, 10); pstr(INV "  Spreadsheet for CP/M 2.2, CP/M 3      " NORM);
-    gotoxy(20, 11); pstr(INV "  and MP/M II on the Z80-Retro          " NORM);
-    gotoxy(20, 12); pstr(INV "                                        " NORM);
-    gotoxy(20, 13); pstr(INV "  (C) OLIVEROS 2026                     " NORM);
-    gotoxy(20, 14); pstr(INV "                                        " NORM);
-    gotoxy(20, 15); pf(INV "  %5u bytes free for cells           " NORM, hfree);
-    gotoxy(20, 16); pstr(INV "                                        " NORM);
-    gotoxy(20, 18); pstr("Press any key.");
+    pstr(CLS INV
+        ESC "[9;20H  ZCALC " VERSION "                             "
+        ESC "[10;20H  Spreadsheet for CP/M 2.2, CP/M 3      "
+        ESC "[11;20H  and MP/M II on the Z80-Retro          "
+        ESC "[13;20H  (C) OLIVEROS 2026                     "
+        ESC "[15;20H  ");
+    pf("%5u bytes free for cells           " NORM ESC "[18;20HPress any key.", hfree);
     getk();
     pstr(CLS);
     dirty = 1;
@@ -1800,6 +1184,71 @@ static uint8_t quit(void)
     return 1;
 }
 
+/* celda bloqueada: avisa y da 1 */
+static uint8_t locked(void)
+{
+    static cell *x;
+    x = find(cc, cr);
+    if (x && (x->f & 0x40)) { msg("Locked cell"); return 1; }
+    return 0;
+}
+/* deshacer: lo que habia en una celda antes del ultimo cambio */
+static char ub[MAXE + 2], ub2[MAXE + 2];
+static uint8_t uc, ur, uf, uhas;
+static void usave(void)
+{
+    static cell *x;
+    x = find(cc, cr);
+    uc = cc; ur = cr; uf = x ? x->f : 0; uhas = 1;
+    celltext(x, ub, MAXE);
+}
+static void undo(void)
+{
+    static cell *x;
+    static uint8_t f, lab;
+    if (!uhas) { msg("Nothing to undo"); return; }
+    cc = uc; cr = ur;
+    x = find(cc, cr);
+    f = x ? x->f : 0;
+    celltext(x, ub2, MAXE);              /* para rehacer con otro ^U */
+    lab = ub[0] == '"' ? 1 : ub[0] == '\\' ? 2 : 0;
+    if (!ub[0]) delcell(cc, cr);
+    else if (setcell(cc, cr, ub + (lab != 0), lab)) { msg("Memory full"); return; }
+    if (ub[0] && (x = find(cc, cr))) x->f = uf;
+    strcpy(ub, ub2); uf = f;
+    modified = dirty = 1;
+}
+/* buscar un texto (sin importar mayusculas) desde el cursor */
+static char fb_[32];
+static uint8_t hasstr(const char *t, const char *w)
+{
+    static const char *p, *q;
+    for (; *t; t++) {
+        for (p = t, q = w; *q && ((*p & 0xDF) == (*q & 0xDF) || *p == *q); p++, q++) ;
+        if (!*q) return 1;
+    }
+    return 0;
+}
+static void findtxt(void)
+{
+    static cell *x, *best, *first;
+    static uint16_t k, kb, kf, kc;
+    if (!input("Find: ", fb_) || !eb[0]) return;
+    strncpy(fb_, eb, 31);
+    best = first = 0; kb = kf = 0xFFFF;
+    kc = (uint16_t)cr << 6 | cc;
+    FOR_CELLS(x) {
+        celltext(x, sb, 86);
+        if (!hasstr(sb, fb_)) continue;
+        k = (uint16_t)x->r << 6 | x->c;
+        if (k > kc && k < kb) { kb = k; best = x; }
+        if (k < kf) { kf = k; first = x; }
+    }
+    if (!best) best = first;
+    if (!best) { msg("Not found"); return; }
+    cc = best->c; cr = best->r;
+}
+
 static void entry(uint8_t k)
 {
     static uint8_t isval;
@@ -1808,9 +1257,11 @@ static void entry(uint8_t k)
     isval = strchr("0123456789.+-(@=$", k) != 0;
     if (k == '"') eb[0] = 0;
     else { eb[0] = k; eb[1] = 0; }
+    if (locked()) return;
     for (;;) {
         t = editline(isval ? "Value: " : "Label: ", EL_MOVE | (isval ? EL_POINT : 0));
         if (t == 27) return;
+        usave();
         e = setcell(cc, cr, eb, !isval);
         if (!e) break;
         msg(e == 2 ? "Memory full" : "Error in formula");
@@ -1824,11 +1275,13 @@ static void edit(void)
     static uint8_t t;
     static uint8_t e;
     static uint8_t lab;
+    if (locked()) return;
     x = find(cc, cr);
     celltext(x, eb, MAXE);
     for (;;) {
         t = editline("Edit: ", EL_POINT);
         if (t == 27) return;
+        usave();
         lab = eb[0] == '"' ? 1 : eb[0] == '\\' ? 2 : 0;
         if (!eb[0] && x) { delcell(cc, cr); modified = dirty = 1; return; }
         e = setcell(cc, cr, eb + (lab != 0), lab);
@@ -1838,13 +1291,105 @@ static void edit(void)
     }
 }
 
+/* /L: bloquear o desbloquear un rango */
+static void cmd_lock(void)
+{
+    static uint8_t k, c1, r1, c2, r2, c, r;
+    static cell *x;
+    k = ask("Lock: L(ock) U(nlock)");
+    if (k != 'L' && k != 'U') return;
+    curref(sb);
+    if (!input("Range: ", sb) || !prange(eb, &c1, &r1, &c2, &r2)) return;
+    for (r = r1; r <= r2 && r >= r1; r++)
+        for (c = c1; c <= c2; c++) {
+            x = find(c, r);
+            if (k == 'L') {
+                if (!x && !(x = newcell(c, r, K_LAB, 0))) { msg("Memory full"); return; }
+                x->f |= 0x40;
+            } else if (x) {
+                x->f &= ~0x40;
+                if (KIND(x) == K_LAB && !x->n && !x->f) delcell(c, r);
+            }
+        }
+    modified = dirty = 1;
+}
+/* /O: ordenar las filas de un rango por una columna */
+static uint8_t *srow, *smap, skc, sdesc;   /* en el heap mientras se ordena */
+/* compara las claves de las filas a y b: <0, 0, >0 */
+static int8_t skey(uint8_t a, uint8_t b)
+{
+    static cell *x, *y;
+    static uint8_t ka, kb;
+    static val va, vb;
+    x = find(skc, a); y = find(skc, b);
+    ka = !x ? 3 : KIND(x) >= K_NUM ? (VT(x) ? 1 : 0) : 2;   /* numero, error, texto, vacia */
+    kb = !y ? 3 : KIND(y) >= K_NUM ? (VT(y) ? 1 : 0) : 2;
+    if (ka != kb) return ka < kb ? -1 : 1;
+    if (ka == 0) return ncmp(NUMP(x), NUMP(y));
+    if (ka == 2) {
+        celltext(x, sb, 40); celltext(y, eb, 40);
+        for (ka = 0; sb[ka] && (sb[ka] & 0xDF) == (eb[ka] & 0xDF); ka++) ;
+        return (sb[ka] & 0xDF) < (eb[ka] & 0xDF) ? -1 : (sb[ka] & 0xDF) > (eb[ka] & 0xDF);
+    }
+    return 0;
+}
+static void cmd_sort(void)
+{
+    static uint8_t c1, r1, c2, r2, mc, mr, i, j, t, n;
+    static cell *x;
+    static int8_t s;
+    if (!usedmax(&mc, &mr)) return;
+    strcpy(sb, "A1:"); refname(sb + 3, mc, mr, 0);
+    if (!input("Sort rows: ", sb) || !prange(eb, &c1, &r1, &c2, &r2)) return;
+    colname(sb, cc);
+    if (!input("By column: ", sb)) return;
+    strcat(eb, "1");
+    if (!isarg(eb, &skc, &t)) return;
+    sdesc = ask("A(scending) D(escending)") == 'D';
+    n = r2 - r1 + 1;
+    if (!(srow = zalloc(2 * NR))) { msg("Memory full"); return; }
+    smap = srow + NR;
+    for (i = 0; i < n; i++) srow[i] = r1 + i;
+    for (i = 1; i < n; i++)                  /* por insercion: los iguales no cambian de orden */
+        for (j = i; j > 0; j--) {
+            s = skey(srow[j - 1], srow[j]);
+            if (sdesc) s = -s;
+            if (s <= 0) break;
+            t = srow[j]; srow[j] = srow[j - 1]; srow[j - 1] = t;
+        }
+    for (i = 0; i < n; i++) smap[srow[i] - r1] = i;   /* fila vieja -> lugar nuevo */
+    FOR_CELLS(x)
+        if (x->c >= c1 && x->c <= c2 && x->r >= r1 && x->r <= r2) {
+            t = r1 + smap[x->r - r1];
+            if (KIND(x) == K_FRM) shiftform(TOK(x), 0, (int16_t)t - x->r);
+            x->r = t;
+        }
+    zfree(srow);
+    rehash();
+    modified = dirty = 1;
+}
+
 static uint8_t command(void)
 {
     static uint8_t k;
     static uint8_t k2;
-    k = ask("Command: A B C D E F G I M P R S T - Q ?");
+    k = ask("Command: A B C D E F G I L M O P R S T W - Q ?");
     switch (k) {
-    case 'B': delcell(cc, cr); modified = dirty = 1; break;
+    case 'B': if (!locked()) { usave(); delcell(cc, cr); modified = dirty = 1; } break;
+    case 'L': cmd_lock(); break;
+    case 'O': cmd_sort(); break;
+    case 'W':
+        k2 = ask("Window: H(orizontal split) 1(one window)");
+        if (k2 == 'H' && !win) {
+            for (k = 0; k < nvr && vrow[k] != cr; k++) ;
+            if (k < 2 || k + 3 > grows) { msg("Move the cursor to the middle of the screen"); break; }
+            opn[0] = fr; opn[1] = fc; opn[2] = cc; opn[3] = cr; opn[4] = gtop + k + 1; opn[5] = grows - k - 1;
+            grows = k; win = 1; dirty = 1;
+        } else if (k2 == '1' && win) {
+            if (gtop != GTOP) swappane();
+            grows = GROWS; win = 0; dirty = 1;
+        }
+        break;
     case 'C':
         if (ask("Clear the whole sheet? (Y/N)") == 'Y') {
             clearall(); memset(cw, 0, sizeof cw); gw = 9; gnf = 1; tcn = trn = 0; fc = fr = cc = cr = 1;
@@ -1871,14 +1416,15 @@ static uint8_t command(void)
         break;
     case 'T':
         k2 = ask("Titles: H(orizontal) V(ertical) B(oth) N(one)");
-        if (k2 == 'H' || k2 == 'B') trn = cr - 1 < GROWS - 2 ? cr - 1 : 0;
+        if (k2 == 'H' || k2 == 'B') trn = cr - 1 < grows - 2 ? cr - 1 : 0;
         if (k2 == 'V' || k2 == 'B') tcn = cc - 1 < 4 ? cc - 1 : 0;
         if (k2 == 'N') tcn = trn = 0;
         fr = trn + 1; fc = tcn + 1;
         dirty = 1;
         break;
     case '-':
-        if (input("Repeat: ", "") && eb[0]) {
+        if (!locked() && input("Repeat: ", "") && eb[0]) {
+            usave();
             if (setcell(cc, cr, eb, 2)) msg("Memory full");
         }
         break;
@@ -1911,7 +1457,7 @@ void main(void)
     for (;;) {
         if (scrollto() || dirty) {
             if (autoc && dirty) recalc();
-            drawgrid();
+            drawall();
         }
         drawstat();
         oflush();
@@ -1928,7 +1474,10 @@ void main(void)
         case '>': goto_(); break;
         case '!': recalc(); dirty = 1; break;
         case 12: pstr(CLS); dirty = 1; break;
-        case KDEL: delcell(cc, cr); modified = dirty = 1; break;
+        case KDEL: if (!locked()) { usave(); delcell(cc, cr); modified = dirty = 1; } break;
+        case 21: undo(); break;                     /* ^U */
+        case 6: findtxt(); break;                   /* ^F */
+        case ';': if (win) { swappane(); dirty = 1; } break;
         case '/':
             if (command()) { pstr(SHOW CLS); return; }
             break;

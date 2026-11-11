@@ -8,7 +8,9 @@ sdasz80 -g -o obj/crt0.rel crt0.s
 sdcc $CF -c cpm.c -o obj/cpm.rel
 progs="$@"; [ -z "$progs" ] && progs=$(ls *.c | grep -v '^cpm.c$\|^filtro.c$' | sed 's/\.c$//')
 for p in $progs; do
-  sdcc $CF -c $p.c -o obj/$p.rel
+  xf=$(sed -n 's/^\/\* mk: \(.*\) \*\/$/\1/p' $p.c)   # opciones propias: /* mk: ... */
+  [ -n "$FAST" ] && xf=""                              # FAST=1: sin ellas (prueba rapida)
+  sdcc $CF $xf -c $p.c -o obj/$p.rel
   ex=""; if [ -f ${p}_a.s ]; then sdasz80 -g -o obj/${p}_a.rel ${p}_a.s; ex=obj/${p}_a.rel; fi
   if grep -q crc32.h $p.c; then sdasz80 -g -o obj/crc32_a.rel crc32_a.s; ex="$ex obj/crc32_a.rel"; fi
   sdcc $CF --no-std-crt0 --code-loc 0x0110 --data-loc 0 -o obj/$p.ihx obj/crt0.rel obj/$p.rel $ex obj/cpm.rel
