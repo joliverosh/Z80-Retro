@@ -1670,13 +1670,14 @@ PP3:    LD      A,B
 PP4:    LD      C,A             ; bancos = paginas / 3, hasta MAXBNK: la RAM es
                                 ; primero para MP/M; la cache y G: se llevan lo que sobre
         LD      B,0
+        LD      HL,BNKMX        ; MAXBNK, o BANKS= de A:MPM.CFG
 PP5:    LD      A,C
         SUB     3
         JR      C,PP6
         LD      C,A
         INC     B
         LD      A,B
-        CP      MAXBNK
+        CP      (HL)
         JR      NZ,PP5
 PP6:    LD      A,B
         OR      A
@@ -1836,6 +1837,7 @@ RPM:    DEFB    0
 RPV     EQU     B0MEM+1300h     ; (en la memoria baja del banco 0)
 
 NBNKS:  DEFB    MAXBNK
+BNKMX:  DEFB    MAXBNK          ; tope de bancos (BANKS= de A:MPM.CFG)
 NEXT:   DEFB    0
 POOLN:  DEFB    0
 POOLP:  DEFW    POOL
@@ -3823,6 +3825,7 @@ CFR2:   LD      (HL),1Ah        ; fin
 ; CFGPRS: lee la configuracion de CFGBUF (despues del mapa de ZIOS). Lineas:
 ;   LST=B | LST=archivo        STATUS=ON | STATUS=OFF
 ;   BAUD A=9600                DRIVE C=SD0:12 | RAM | FLASH | OFF
+;   CONSOLE4=B | OFF | VIRTUAL BANKS=n (1-7)
 ; Lo que empieza con ; o no se entiende se salta.
 CFGPRS: LD      A,(CFOK)
         OR      A
@@ -3851,6 +3854,9 @@ CP0:    CALL    SKIPSP
         LD      DE,KCON4
         CALL    KWMAT
         JR      Z,DOCON4
+        LD      DE,KBNK
+        CALL    KWMAT
+        JR      Z,DOBNK
 CPNL:   LD      A,(HL)          ; al final de la linea
         CP      1Ah
         RET     Z
@@ -3858,7 +3864,7 @@ CPNL:   LD      A,(HL)          ; al final de la linea
         RET     Z
         INC     HL
         CP      10
-        JR      NZ,CPNL
+        JP      NZ,CPNL
         JR      CP0
 CPNX:   INC     HL
         JR      CP0
@@ -3874,7 +3880,19 @@ DOLST:  LD      A,(HL)          ; LST=B: SIO B; otra cosa: un archivo
         JR      C,DOL2
 DOL1:   LD      A,1
 DOL2:   LD      (LSTMD),A
-        JR      CPNL
+        JP      CPNL
+DOBNK:  CALL    DECNUM          ; BANKS=n (1-7): bancos de usuario como maximo;
+        JP      NZ,CPNL         ; las paginas que no se usan van a la cache y a G:
+        LD      A,D
+        OR      A
+        JP      NZ,CPNL
+        LD      A,E
+        DEC     A
+        CP      MAXBNK
+        JP      NC,CPNL
+        INC     A
+        LD      (BNKMX),A
+        JP      CPNL
 DOCON4: LD      DE,KOFF         ; CONSOLE4=B | OFF | VIRTUAL
         CALL    KWMAT
         LD      A,1
@@ -3885,27 +3903,27 @@ DOCON4: LD      DE,KOFF         ; CONSOLE4=B | OFF | VIRTUAL
         JR      Z,DOC41
         XOR     A
 DOC41:  LD      (SIOBM),A
-        JR      CPNL
+        JP      CPNL
 DOSTAT: LD      DE,KON
         CALL    KWMAT
         LD      A,0
         JR      NZ,DOS1
         INC     A
 DOS1:   LD      (STATON),A
-        JR      CPNL
+        JP      CPNL
 ; BAUD A=9600
 DOBAUD: CALL    SKIPSP
         LD      A,(HL)
         AND     5Fh
         SUB     'A'
         CP      2
-        JR      NC,CPNL
+        JP      NC,CPNL
         LD      (CFDRV),A       ; (el canal)
         INC     HL
         CALL    SKIPSP
         LD      A,(HL)
         CP      '='
-        JR      NZ,CPNL
+        JP      NZ,CPNL
         INC     HL
         CALL    SKIPSP
         PUSH    HL
@@ -4122,6 +4140,7 @@ KSTAT:  DEFB    'STATUS=',0
 KBAUD:  DEFB    'BAUD ',0
 KDRV:   DEFB    'DRIVE ',0
 KCON4:  DEFB    'CONSOLE4=',0
+KBNK:   DEFB    'BANKS=',0
 KVIRT:  DEFB    'VIRTUAL',0
 KON:    DEFB    'ON',0
 KOFF:   DEFB    'OFF',0
