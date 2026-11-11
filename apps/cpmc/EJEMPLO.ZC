@@ -1,0 +1,34 @@
+ZCALC 1
+G 9 01 A
+W A 12
+W B 11
+A1|00|"Presupuesto mensual
+A3|00|"Concepto
+B3|20|"Monto
+C3|20|"%
+A4|00|"Arriendo
+B4|03|1500000
+C4|04|+B4/$B$10*100
+A5|00|"Mercado
+B5|03|850000
+C5|04|+B5/$B$10*100
+A6|00|"Servicios
+B6|03|320000
+C6|04|+B6/$B$10*100
+A7|00|"Transporte
+B7|03|400000
+C7|04|+B7/$B$10*100
+A8|00|"Otros
+B8|03|250000
+C8|04|+B8/$B$10*100
+A9|00|\-
+B9|00|\-
+C9|00|\-
+A10|00|"Total
+B10|03|@SUM(B4:B8)
+C10|04|@SUM(C4:C8)
+A11|00|"Promedio
+B11|03|@AVG(B4:B8)
+A12|00|"Mayor
+B12|03|@MAX(B4:B8)
+
