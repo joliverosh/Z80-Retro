@@ -48,8 +48,9 @@ SPICS   EQU     64h             ; seleccion de la tarjeta
 CSOFF   EQU     01h
 ZIOS    EQU     0FE00h          ; entrada al API de ZIOS desde la aplicacion
 
-VQ      EQU     0FE00h          ; caracteres de la consola que se ve que faltan pasar a
-                                ; su pantalla (32)
+VQ      EQU     0FFD5h          ; caracteres de la consola que se ve que faltan pasar a
+                                ; su pantalla (VQMAX, hasta FFDA)
+ITXF    EQU     0FE00h          ; el camino corto del transmisor de la SIO A (FE00-FE3F)
 RXB     EQU     0FE40h          ; bufer circular de la SIO B (consola 4)
 DIRBF   EQU     0FE80h          ; bufer de directorio (en la comun: READ copia con el banco del usuario puesto)
 BOUNCE  EQU     0FF00h          ; 64 bytes de paso entre BUF y el DMA del programa
@@ -360,6 +361,12 @@ SI12:   DEC     B
         LD      DE,VSIO
         LD      BC,24
         LDIR
+        LD      HL,ITXFS        ; el camino corto del transmisor de la SIO A, a
+        LD      DE,ITXF         ; FE00 (ZIOS ya no esta)
+        LD      BC,ITXFE-ITXFS
+        LDIR
+        LD      HL,ITXF
+        LD      (VSIO+8),HL
         LD      A,0FFh
         LD      I,A
         IM      2
@@ -426,6 +433,7 @@ SI15E:  CALL    TODADR          ; donde XDOS tiene el proceso que corre
         LD      DE,5
         ADD     HL,DE
         LD      (RLRA),HL
+        LD      (VCRLR+1),HL
         LD      A,(STATON)      ; con linea de estado: redibujar (fija las filas
         OR      A               ; que se desplazan)
         JR      Z,SI15F
@@ -3126,6 +3134,52 @@ ZRB1:   LD      A,(RAWA)
         XOR     A
         RET
 
+;==========================================================================
+; ITXF: transmisor vacio de la SIO A, camino corto (unos 220 ciclos en vez de
+; 500). Se copia a FE00 al arrancar, porque la memoria comun del SPR esta
+; llena. Con alguien esperando lugar, o con el bufer vacio y algo por generar
+; (redibujo, linea de estado), sigue el camino de siempre (ITXA).
+ITXFS:
+        .phase  ITXF
+        PUSH    AF
+        PUSH    HL
+        LD      A,(TXA+3)       ; alguien espera lugar: el camino de siempre
+        OR      A
+        JR      NZ,ITXF9
+        LD      HL,(TXA)        ; L = cabeza, H = cola
+        LD      A,L
+        CP      H
+        JR      Z,ITXF8         ; vacio
+        INC     A
+        AND     TXMSK
+        LD      (TXA),A
+        LD      A,L             ; bufer[cabeza] (no cruza de pagina)
+        ADD     A,(TXA+6) AND 0FFh
+        LD      L,A
+        LD      H,TXA SHR 8
+        LD      A,(HL)
+        OUT     (SIOAD),A
+ITXF7:  POP     HL
+        POP     AF
+        EI
+        RETI
+ITXF8:  LD      A,(GENACT)      ; vacio y sin redibujo ni linea de estado
+        LD      HL,STATDUE      ; pendientes: el transmisor se para
+        OR      (HL)
+        JR      NZ,ITXF9
+        LD      (TXA+2),A
+        LD      A,28h           ; reponer "Tx int pending"
+        OUT     (SIOAC),A
+        JR      ITXF7
+ITXF9:  POP     HL
+        POP     AF
+        JP      ITXA
+        .dephase
+ITXFE:
+        IF      ITXF+ITXFE-ITXFS > RXB
+        .error  ITXF no cabe antes de RXB
+        ENDIF
+
 ; RAWPUT / RAWGET: el anillo del modo crudo (256 bytes). RAWGET: A = el byte,
 ; carry si no hay.
 RAWCLR: LD      HL,0
@@ -5074,12 +5128,8 @@ VCOUT:  LD      A,I
 VCO:    LD      A,(ACTVC)
         CP      D
         JR      NZ,VCBG
-        LD      HL,(RLRA)       ; quien escribe (para la linea de estado)
-        LD      A,(HL)
-        INC     HL
-        LD      H,(HL)
-        LD      L,A
-        LD      (LASTPD),HL
+VCRLR:  LD      HL,(0)          ; quien escribe (para la linea de estado): el
+        LD      (LASTPD),HL     ; arranque pone aqui donde esta el que corre
         LD      A,(VIEWING)     ; se miraba hacia atras: volver al dia
         OR      A
         JR      NZ,VCSN
@@ -5095,13 +5145,28 @@ VCO:    LD      A,(ACTVC)
         LD      L,A
         LD      H,VQ SHR 8
         LD      (HL),C
-        LD      HL,TXA
-        CALL    TXTRY
-        JR      Z,VC1
+        LD      A,(TXA+2)       ; al bufer de la SIO A sin TXTRY (es lo de
+        OR      A               ; cada caracter); parada: TXTRY la arranca
+        JR      Z,VCT0
+        LD      HL,(TXA)        ; L = cabeza, H = cola
+        LD      A,H
+        INC     A
+        AND     TXMSK
+        CP      L
+        JR      Z,VC1           ; lleno
+        LD      (TXA+1),A
+        LD      A,H
+        ADD     A,(TXA+6) AND 0FFh
+        LD      L,A
+        LD      H,TXA SHR 8
+        LD      (HL),C
 VCX:    POP     AF
         RET     PO
         EI
         RET
+VCT0:   LD      HL,TXA
+        CALL    TXTRY
+        JR      VCX
 VCBG:   LD      HL,VTPUT        ; una de atras: solo a su pantalla
         CALL    BKCALL
         JR      VCX

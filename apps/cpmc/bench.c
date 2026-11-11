@@ -76,10 +76,10 @@ void main(void)
 
     pstr("  Console output          ");
     start();
-    for (i = 0; i < 20; i++) { pstr("\r"); for (n = 0; n < 50; n++) putch('*'); }
+    for (i = 0; i < 100; i++) { pstr("\r"); for (n = 0; n < 50; n++) putch('*'); }
     t = stop();
     pstr("\r" ESC "[K  Console output          ");
-    dec1(rate(1020, t)); pstr(" chars/s\n");
+    dec1(rate(5100, t)); pstr(" chars/s\n");
 
     if (!a) a = (char *)"BENCH.$$$";
     else {

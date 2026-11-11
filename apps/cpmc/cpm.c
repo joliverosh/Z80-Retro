@@ -69,19 +69,40 @@ void oflush(void)
     if (n) zios(46, 0, n, (uint16_t)ob);
 }
 
-void putch(char c)
+static void putchs(char c)          /* sin decidir, o por el BDOS */
 {
-    if (omode == 1) {
-        ob[obn++] = c;
-        if (obn == OBSZ) oflush();
-        return;
-    }
     if (!omode) {
         omode = 2;
         if (ismpm() && zios(46, 0, 0, 0) == 0) { omode = 1; putch(c); return; }
     }
     if ((uint8_t)c >= 0xFE) bdos(2, (uint8_t)c);
     else bdos(6, (uint8_t)c);
+}
+
+/* putch: lo de cada caracter, en asm (unos 90 ciclos en vez de 300) */
+void putch(char c) __naked
+{
+    (void)c;
+    __asm
+        ld      c,a
+        ld      a,(_omode)
+        dec     a
+        jr      z,putch1
+        ld      a,c
+        jp      _putchs
+putch1:
+        ld      hl,#_obn
+        ld      a,(hl)
+        inc     (hl)
+        ld      e,a
+        ld      d,#0
+        ld      hl,#_ob
+        add     hl,de
+        ld      (hl),c
+        cp      #OBSZ-1
+        ret     nz
+        jp      _oflush
+    __endasm;
 }
 
 void pstr(const char *s)
