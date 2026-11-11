@@ -1,4 +1,4 @@
-; zcalc_a.s - aritmetica de ZCALC 1.1 (sdcccall 0: todo en la pila)
+; zcalc_a.s - aritmetica de ZCALC 1.2 (sdcccall 0: todo en la pila)
 ; q es un numero de 8 bytes, el byte bajo primero.
         .module zcalc_a
         .area   _DATA
@@ -1454,19 +1454,25 @@ TK_LE   = 5
 TK_GE   = 6
 TK_NE   = 7
 TK_I8   = 8
+TK_STR  = 9                     ; texto: n y n letras
+TK_NM   = 10                    ; nombre: id (sigue a la referencia o el rango que nombra)
+NMSZ    = 15                    ; nms[]: nombre (9) y la referencia (6) en zcalc.c
 NCOL    = 63
 NROW    = 254
-NFN     = 38                    ; funciones (igual que en zcalc.c)
+NFN     = 55                    ; funciones (igual que en zcalc.c)
 F_AVG   = 1
 
         .area   _DATA
 tko:    .ds     2
 tks:    .ds     2
-tnm:    .ds     8
+tnm:    .ds     10
+_dknm:: .ds     1               ; dtok: id + 1 del nombre que sale como coordenadas
 tx:     .ds     5
 rc1:    .ds     2
 rf1:    .ds     1
 dkm:    .ds     1
+dkx:    .ds     1
+tsl:    .ds     2
 
         .area   _CODE
 ; nombres de las funciones en el orden de zcalc.c; despues los otros nombres
@@ -1546,10 +1552,44 @@ fntab:  .ascii  "SUM"
         .db     0
         .ascii  "LOG"
         .db     0
+        .ascii  "LEFT"
+        .db     0
+        .ascii  "RIGHT"
+        .db     0
+        .ascii  "MID"
+        .db     0
+        .ascii  "LEN"
+        .db     0
+        .ascii  "UPPER"
+        .db     0
+        .ascii  "LOWER"
+        .db     0
+        .ascii  "PROPER"
+        .db     0
+        .ascii  "TRIM"
+        .db     0
+        .ascii  "VALUE"
+        .db     0
+        .ascii  "STRING"
+        .db     0
+        .ascii  "FIND"
+        .db     0
+        .ascii  "REPEAT"
+        .db     0
+        .ascii  "CHAR"
+        .db     0
+        .ascii  "CODE"
+        .db     0
+        .ascii  "EXACT"
+        .db     0
+        .ascii  "ISSTR"
+        .db     0
+        .ascii  "ISNUM"
+        .db     0
         .ascii  "AVERAGE"       ; = AVG
         .db     0
         .db     0
-opch:   .ascii  "+-*/^(),=<>"
+opch:   .ascii  "+-*/^(),=<>&"
 
 ; isupa / isdga: carry si A no es A-Z / 0-9
 isupa:  cp      #'A'
@@ -1842,7 +1882,9 @@ tk1:    ld      a,0(ix)
         jr      nz,tk2
         inc     ix
         jr      tk1
-tk2:    call    isdga
+tk2:    cp      #'"'
+        jp      z,tkstr
+        call    isdga
         jp      nc,tknum
         cp      #'.'
         jr      nz,tk3
@@ -1949,9 +1991,13 @@ tkfn:   ld      hl,#tnm
         ld      b,#0
 tf1:    ld      a,0(ix)
         call    isupa
-        jr      c,tf2
-        ld      a,b
-        cp      #7
+        jr      nc,tf1a
+        call    isdga
+        jr      nc,tf1a
+        cp      #'_'
+        jr      nz,tf2
+tf1a:   ld      a,b
+        cp      #8
         jp      nc,tkerr
         ld      a,0(ix)
         ld      (hl),a
@@ -1964,7 +2010,7 @@ tf2:    ld      (hl),#0
         ld      c,#0
 tf3:    ld      a,(de)
         or      a
-        jp      z,tkerr
+        jp      z,tknam
         ld      hl,#tnm
         push    de
 tf4:    ld      a,(de)
@@ -2017,12 +2063,12 @@ to1:    ld      a,b
         jp      tk1
 to3:    ld      a,0(ix)
         ld      hl,#opch
-        ld      b,#11
+        ld      b,#12
 to4:    cp      (hl)
         jr      z,to5
         inc     hl
         djnz    to4
-        jr      tkerr
+        jp      tkerr
 to5:    call    tput
         inc     ix
         jp      tk1
@@ -2038,7 +2084,7 @@ tknum:  push    ix
         pop     ix
         ld      a,(_nerr)
         or      a
-        jr      nz,tkerr
+        jp      nz,tkerr
         ld      hl,(tx+2)       ; entero de 0 a 255: TK_I8
         ld      a,h
         or      l
@@ -2077,6 +2123,72 @@ tkn3:   ld      a,(hl)
         inc     hl
         djnz    tkn3
         jp      tk1
+tknam:  ld      hl,#_nms        ; un nombre de rango
+        ld      c,#0
+tnm1:   ld      a,(_nnm)
+        cp      c
+        jp      z,tkerr
+        push    hl
+        ld      de,#tnm
+tnm2:   ld      a,(de)
+        cp      (hl)
+        jr      nz,tnm3
+        inc     de
+        inc     hl
+        or      a
+        jr      nz,tnm2
+        pop     hl
+        ld      de,#9           ; la referencia y el id
+        add     hl,de
+        ld      b,#3
+        ld      a,(hl)
+        cp      #TK_REF
+        jr      z,tnm4
+        ld      b,#5
+tnm4:   ld      a,(hl)
+        call    tput
+        inc     hl
+        djnz    tnm4
+        ld      a,#TK_NM
+        call    tput
+        ld      a,c
+        call    tput
+        jp      tk1
+tnm3:   pop     hl
+        ld      de,#NMSZ
+        add     hl,de
+        inc     c
+        jr      tnm1
+tkstr:  ld      a,#TK_STR       ; "texto" ("" es una comilla)
+        call    tput
+        ld      hl,(tko)
+        ld      (tsl),hl
+        call    tput
+        ld      c,#0
+        inc     ix
+ts1:    ld      a,0(ix)
+        or      a
+        jp      z,tkerr
+        inc     ix
+        cp      #'"'
+        jr      nz,ts2
+        ld      a,0(ix)
+        cp      #'"'
+        jr      nz,ts3
+        inc     ix
+ts2:    call    tput
+        inc     c
+        ld      hl,(tko)
+        ld      de,(tks)
+        or      a
+        sbc     hl,de
+        ld      a,l
+        cp      #155
+        jp      nc,tkerr
+        jr      ts1
+ts3:    ld      hl,(tsl)
+        ld      (hl),c
+        jp      tk1
 tkend:  xor     a
         call    tput
         ld      hl,(tko)
@@ -2110,6 +2222,7 @@ _dtok::
         ld      (tko),de
         ld      (tks),de
         ld      a,(hl)
+        ld      (dkx),a
         sub     #24
         jr      nc,dk0
         xor     a
@@ -2136,6 +2249,8 @@ dk1:    ld      a,0(ix)
         jp      z,dkrng
         cp      #TK_FN
         jp      z,dkfn
+        cp      #TK_STR
+        jp      z,dkstr
         ld      bc,#'<'+'='*256
         cp      #TK_LE
         jr      z,dk2
@@ -2189,12 +2304,69 @@ dki8:   ld      iy,(tko)
         inc     ix
         inc     ix
         jp      dk1
-dkref:  call    dref1
+dkref:  ld      a,3(ix)
+        cp      #TK_NM
+        jr      nz,dkr0
+        ld      de,#3
+        jr      dknm
+dkr0:   call    dref1
         inc     ix
         inc     ix
         inc     ix
         jp      dk1
-dkrng:  call    dref1
+dknm:   push    ix              ; DE = largo de la referencia
+        add     ix,de
+        ld      a,1(ix)         ; el id
+        pop     ix
+        ld      l,a
+        inc     a
+        ld      h,#0
+        push    hl
+        ld      hl,#_dknm       ; dknm = id + 1: las coordenadas en vez del nombre
+        cp      (hl)
+        pop     hl
+        jr      z,dknm0
+        ld      b,h
+        ld      c,l
+        add     hl,hl
+        add     hl,hl
+        add     hl,hl
+        add     hl,hl
+        or      a
+        sbc     hl,bc           ; id * 15
+        ld      bc,#_nms
+        add     hl,bc
+dknm3:  ld      a,(hl)
+        or      a
+        jr      z,dknm2
+        call    tput
+        inc     hl
+        jr      dknm3
+dknm0:  push    de
+        ld      a,0(ix)
+        cp      #TK_REF
+        jr      z,dknm0b
+        call    dref1
+        ld      a,#':'
+        call    tput
+        inc     ix
+        inc     ix
+        call    dref1
+        dec     ix
+        dec     ix
+        jr      dknm0a
+dknm0b: call    dref1
+dknm0a: pop     de
+dknm2:  add     ix,de
+        inc     ix
+        inc     ix
+        jp      dk1
+dkrng:  ld      a,5(ix)
+        cp      #TK_NM
+        jr      nz,dkrg0
+        ld      de,#5
+        jp      dknm
+dkrg0:  call    dref1
         ld      a,1(ix)
         and     #63
         jr      z,dkr1
@@ -2244,6 +2416,41 @@ dkf3:   ld      a,(hl)
 dkf4:   inc     ix
         inc     ix
         jp      dk1
+dkstr:  ld      a,#'"'
+        call    tput
+        ld      b,1(ix)
+        push    ix
+        pop     hl
+        inc     hl
+        inc     hl
+        ld      a,b
+        or      a
+        jr      z,dks3
+dks1:   push    hl
+        ld      hl,(tko)
+        ld      de,(tks)
+        or      a
+        sbc     hl,de
+        ld      a,(dkx)
+        sub     #3
+        cp      l
+        pop     hl
+        jr      c,dks3
+        jr      z,dks3
+        ld      a,(hl)
+        cp      #'"'
+        call    z,tput
+        call    tput
+        inc     hl
+        djnz    dks1
+dks3:   ld      a,#'"'
+        call    tput
+        ld      e,1(ix)
+        ld      d,#0
+        inc     de
+        inc     de
+        add     ix,de
+        jp      dk1
 dkend:  xor     a
         ld      hl,(tko)
         ld      (hl),a
@@ -2260,6 +2467,7 @@ dkend:  xor     a
 ; valor en +7, generacion en +12, formula en +13.
 V_ERR   = 1
 V_NA    = 2
+V_STR   = 3                     ; texto: puntero (1-2) y largo (3)
 K_NUM   = 3
 K_FRM   = 4
 F_COUNT = 4
@@ -2283,7 +2491,10 @@ F_NPV   = 23
 F_IRR   = 24
 F_TODAY = 26
 F_NOW   = 27
-F_CF    = 20                    ; de aqui en adelante, cfunc en zcalc.c
+F_CF    = 20                    ; de aqui en adelante, cfunc
+F_LEFT  = 38                    ; de aqui en adelante, las de texto (fstr)
+F_ISSTR = 53
+F_ISNUM = 54
 
         .area   _DATA
 _tp::   .ds     2               ; lo que sigue en la formula
@@ -2304,8 +2515,11 @@ cmps:   .ds     5
 fmint:  .db     1,  1,  1,  1,  1,  2,  1,  1,  2,  1,  2,  3, 1,  1, 1,  0, 0, 0,  1,   1
 ;               PMT PV FV NPV IRR DATE TODAY NOW YEAR MONTH DAY SIN COS TAN ATAN LN EXP LOG
         .db     3,  3, 3, 2,  2,  3,   0,    0,  1,   1,    1,  1,  1,  1,  1,   1, 1,  1
+;               LEFT RIGHT MID LEN UPPER LOWER PROPER TRIM VALUE STRING FIND REPEAT CHAR CODE EXACT ISSTR ISNUM
+        .db     2,   2,    3,  1,  1,    1,    1,     1,   1,    1,     2,   2,     1,   1,   2,    1,    1
 fmaxt:  .db     9,  9,  9,  9,  9,  2,  1,  1,  2,  1,  2,  3, 9,  9, 1,  0, 0, 0,  1,   1
         .db     3,  3, 3, 9,  9,  3,   0,    0,  1,   1,    1,  1,  1,  1,  1,   1, 1,  1
+        .db     2,   2,    3,  1,  1,    1,    1,     1,   1,    2,     3,   2,     1,   1,   2,    1,    1
 
 ; xop: la rutina en DE (_naddi, _nmuli, _ndivi) con oparg
 xop:    push    ix
@@ -2436,7 +2650,29 @@ _find::
 
 ; evbin: (ix) = (ix) op (iy); A = op
 evbin:  ld      c,a
+        cp      #'&'
+        jp      z,evcat
         ld      a,0(ix)
+        cp      #V_STR
+        jr      nz,ebs1
+        ld      a,0(iy)
+        cp      #V_STR
+        jr      nz,ebs0
+        ld      a,c             ; dos textos: se comparan
+        call    iscmp
+        jp      z,evscmp
+ebs0:   call    zerov           ; un texto en una cuenta vale 0
+ebs1:   ld      a,0(iy)
+        cp      #V_STR
+        jr      nz,ebs2
+        xor     a
+        ld      0(iy),a
+        ld      1(iy),a
+        ld      2(iy),a
+        ld      3(iy),a
+        ld      4(iy),a
+        ld      5(iy),a
+ebs2:   ld      a,0(ix)
         or      0(iy)
         jr      z,eb1
         ld      a,0(ix)
@@ -2479,7 +2715,7 @@ eb1:    xor     a
         pop     bc
         ld      hl,(oparg)
         call    nsign
-        ld      d,a
+ecmp:   ld      d,a
         ld      a,c
         cp      #'='
         jr      nz,ec2
@@ -2568,7 +2804,7 @@ rhs:    push    iy
 jpde:   push    de
         ret
 
-ev_expr: call   ev_sum
+ev_expr: call   ev_cat
         ld      hl,(_tp)
         ld      a,(hl)
         cp      #'='
@@ -2585,8 +2821,18 @@ ev_expr: call   ev_sum
         ret     nz
 ex1:    inc     hl
         ld      (_tp),hl
-        ld      de,#ev_sum
+        ld      de,#ev_cat
         jp      rhs
+ev_cat: call    ev_sum          ; & une textos
+ecat1:  ld      hl,(_tp)
+        ld      a,(hl)
+        cp      #'&'
+        ret     nz
+        inc     hl
+        ld      (_tp),hl
+        ld      de,#ev_sum
+        call    rhs
+        jr      ecat1
 ev_sum: call    ev_term
 es1:    ld      hl,(_tp)
         ld      a,(hl)
@@ -2650,13 +2896,25 @@ ev_prim: call   zerov
         ld      (_tp),hl
         ret
 ep1:    cp      #TK_I8
-        jr      nz,ep2
+        jr      nz,ep1s
         ld      a,(hl)
         inc     hl
         ld      (_tp),hl
         ld      l,a
         ld      h,#0
         jp      setvi
+ep1s:   cp      #TK_STR
+        jr      nz,ep2
+        ld      0(ix),#V_STR
+        ld      c,(hl)
+        inc     hl
+        ld      1(ix),l
+        ld      2(ix),h
+        ld      3(ix),c
+        ld      b,#0
+        add     hl,bc
+        ld      (_tp),hl
+        ret
 ep2:    cp      #TK_REF
         jr      nz,ep3
         ld      a,(hl)
@@ -2665,6 +2923,7 @@ ep2:    cp      #TK_REF
         inc     hl
         ld      b,(hl)
         inc     hl
+        call    sknm
         ld      (_tp),hl
         jr      refval
 ep3:    cp      #TK_FN
@@ -2696,6 +2955,13 @@ ep6:    or      a
         ld      (_tp),hl
         jp      synx
 
+; sknm: salta el nombre que sigue a una referencia o un rango (HL)
+sknm:   ld      a,(hl)
+        cp      #TK_NM
+        ret     nz
+        inc     hl
+        inc     hl
+        ret
 ; refval: C columna (0 = #REF), B fila -> (ix)
 refval: ld      a,c
         or      a
@@ -2717,7 +2983,18 @@ cellv:  ld      a,h
         and     #7
         cp      #K_NUM
         jr      nc,cv1
-        xor     a
+        dec     a               ; texto: el valor es el texto (sin valor para las listas)
+        jr      nz,cv0
+        ld      0(ix),#V_STR
+        push    iy
+        pop     hl
+        ld      de,#7
+        add     hl,de
+        ld      1(ix),l
+        ld      2(ix),h
+        ld      a,6(iy)
+        ld      3(ix),a
+cv0:    xor     a
         pop     iy
         ret
 cv1:    cp      #K_FRM
@@ -2769,6 +3046,8 @@ ec1x:   ld      a,(_depth)
 ec3x:   inc     a
         ld      (_depth),a
         set     3,4(iy)
+        ld      hl,(spp)
+        push    hl
         ld      hl,(_tp)
         push    hl
         push    iy
@@ -2794,7 +3073,10 @@ ec3x:   inc     a
         or      a
         jr      z,ec4x
         ld      (hl),#V_ERR
-ec4x:   ld      a,(hl)
+ec4x:   push    hl
+        call    stval
+        pop     hl
+        ld      a,(hl)
         rlca
         rlca
         rlca
@@ -2823,6 +3105,8 @@ ec4x:   ld      a,(hl)
         ld      sp,hl
         pop     hl
         ld      (_tp),hl
+        pop     hl
+        ld      (spp),hl
         ld      hl,#_depth
         dec     (hl)
         ret
@@ -2841,6 +3125,8 @@ _expr::
         pop     ix
         xor     a
         ld      (pdep),a
+        ld      hl,#spool
+        ld      (spp),hl
         call    ev_expr
         pop     iy
         pop     ix
@@ -2901,6 +3187,8 @@ rc1x:   xor     a
 rc2x:   xor     a
         ld      (_depth),a
         ld      (pdep),a
+        ld      hl,#spool
+        ld      (spp),hl
         ld      de,#evcell
         call    forall
         ld      a,(_again)
@@ -3034,6 +3322,7 @@ fa1:    ld      hl,(_tp)
         inc     hl
         ld      e,(hl)
         inc     hl
+        call    sknm
         ld      (_tp),hl
         ld      a,c
         or      a
@@ -3157,7 +3446,10 @@ feedc:  push    ix
         or      a
         ret     z
 ; feed: tmp (iy+9) a la lista
-feed:   ld      a,8(iy)
+feed:   ld      a,9(iy)
+        cp      #V_STR
+        ret     z
+        ld      a,8(iy)
         cp      #F_COUNT
         jp      z,inccnt        ; COUNT cuenta tambien ERROR y NA
         ld      a,9(iy)
@@ -3279,6 +3571,7 @@ flook:  push    iy
         ld      a,(hl)
         ld      15(iy),a
         inc     hl
+        call    sknm
         ld      (_tp),hl
         ld      0(ix),#V_NA
         ld      a,(_chk)
@@ -3294,7 +3587,10 @@ lk1:    ld      a,12(iy)
 lk1a:   ld      a,0(iy)
         or      a
         jr      z,lk2
-        ld      0(ix),a
+        cp      #V_STR
+        jr      nz,lk1b
+        ld      a,#V_NA
+lk1b:   ld      0(ix),a
         jp      lend
 lk2:    ld      a,12(iy)
         ld      19(iy),a
@@ -3438,6 +3734,8 @@ fs2:    ld      e,19(iy)
         cp      18(iy)
         jp      c,fssyn
         ld      a,19(iy)
+        cp      #F_LEFT
+        jp      nc,fstr
         cp      #F_ISNA
         jr      nz,fs2a
         ld      a,0(iy)
@@ -3479,7 +3777,10 @@ fs2c:   ld      b,18(iy)        ; errores de los argumentos: ERROR gana a NA
 fs2d:   ld      a,(hl)
         or      a
         jr      z,fs2f
-        cp      #V_ERR
+        cp      #V_STR          ; un texto donde va un numero: ERROR
+        jr      nz,fs2d1
+        ld      a,#V_ERR
+fs2d1:  cp      #V_ERR
         jr      z,fs2e
         ld      c,a
 fs2f:   ld      de,#6
@@ -3693,6 +3994,7 @@ np1:    ld      hl,(_tp)
         ld      a,(hl)
         ld      14(iy),a
         inc     hl
+        call    sknm
         ld      (_tp),hl
         ld      a,c
         or      a
@@ -3772,6 +4074,8 @@ npend:  ld      hl,#18
 npadd:  ld      a,6(iy)
         or      a
         jr      z,npa1
+        cp      #V_STR
+        ret     z
         cp      #V_ERR
         jr      z,npa0
         ld      a,16(iy)
@@ -4109,6 +4413,8 @@ cs7:    ld      a,4(iy)         ; valor
         rrca
         and     #3
         jr      z,cs8
+        cp      #V_STR
+        jp      z,cstr
         ld      hl,#serr
         cp      #V_ERR
         jr      z,cs7a
@@ -4224,6 +4530,32 @@ cs9d:   ld      hl,#ctb
 csend:  pop     iy
         pop     ix
         ret
+cstr:   ld      a,9(iy)         ; formula que da texto
+        ld      c,a
+        ld      a,(cxw)
+        cp      c
+        jr      nc,cst1
+        ld      c,a
+cst1:   ld      de,(cxo)
+        ld      a,5(iy)
+        and     #0x30
+        cp      #0x20
+        jr      nz,cst2
+        ld      a,(cxw)
+        sub     c
+        add     a,e
+        ld      e,a
+        adc     a,d
+        sub     e
+        ld      d,a
+cst2:   ld      a,c
+        or      a
+        jp      z,csend
+        ld      l,7(iy)
+        ld      h,8(iy)
+        ld      b,#0
+        ldir
+        jp      csend
 serr:   .ascii  "ERROR"
         .db     0
 sna:    .ascii  "NA"
@@ -4287,13 +4619,22 @@ wk1:    ld      a,0(ix)
         jr      z,wkn
         cp      #TK_FN
         jr      z,wkn
+        cp      #TK_NM
+        jr      z,wkn
         cp      #TK_REF
         jr      z,wkref
         cp      #TK_RNG
         jr      z,wkrng
+        cp      #TK_STR
+        jr      z,wkstr
         ld      de,#1
 wkn:    add     ix,de
         jr      wk1
+wkstr:  ld      e,1(ix)
+        ld      d,#0
+        inc     de
+        inc     de
+        jr      wkn
 wkref:  ld      a,1(ix)
         and     #63
         jr      z,wkr2
@@ -5717,3 +6058,986 @@ cflog:  call    cfln
         ret     nz
         ld      hl,#vlog
         jp      vmrun
+
+; la marca de esta version, que tambien lleva ZCALC.OVL
+_ovlmark::
+        .dw     l__CODE, s__HEAP
+
+; ------------------------------------------------------------------ textos
+; Un val de texto (V_STR) apunta a las letras: de una celda de texto, de la formula
+; ("..."), del lugar de su formula (un bloque del heap) o de spool, donde van los
+; textos que se arman al calcular. spool se vacia en cada expr y se recupera al
+; terminar cada celda (evcell).
+SPSZ    = 400
+        .area   _DATA
+spool:  .ds     SPSZ
+spend:
+spp:    .ds     2
+tsp0:    .ds     2               ; el texto del argumento 0
+tsl0:    .ds     1
+tsp1:    .ds     2               ; y el del 1
+tsl1:    .ds     1
+sfl:    .ds     1
+sdst:   .ds     2
+
+        .area   _CODE
+; salloc: HL = lugar para BC letras en spool; carry si no hay
+salloc: ld      hl,(spp)
+        push    hl
+        add     hl,bc
+        ex      de,hl
+        ld      hl,#spend
+        or      a
+        sbc     hl,de
+        pop     hl
+        ret     c
+        ld      (spp),de
+        ret
+; tostr: HL = val -> DE letras, B largo (un numero se escribe en spool); carry si no hay lugar
+tostr:  ld      a,(hl)
+        cp      #V_STR
+        jr      nz,tsn
+        inc     hl
+        ld      e,(hl)
+        inc     hl
+        ld      d,(hl)
+        inc     hl
+        ld      b,(hl)
+        or      a
+        ret
+tsn:    inc     hl
+        ld      de,#fx
+        ld      bc,#5
+        ldir
+        ld      bc,#24
+        call    salloc
+        ret     c
+        ld      (fo),hl
+        push    hl
+        ld      a,#0xFF
+        ld      (fdec),a
+        ld      a,#22
+        ld      (fmax),a
+        push    ix
+        push    iy
+        call    plain
+        or      a
+        jr      nz,tsn1
+        call    sci
+tsn1:   pop     iy
+        pop     ix
+        pop     de
+        ld      b,a
+        ld      l,a
+        ld      h,#0
+        add     hl,de
+        ld      (spp),hl
+        or      a
+        ret
+; iscmp: Z si A es una comparacion
+iscmp:  cp      #'='
+        ret     z
+        cp      #'<'
+        ret     z
+        cp      #'>'
+        ret     z
+        cp      #TK_LE
+        ret     z
+        cp      #TK_GE
+        ret     z
+        cp      #TK_NE
+        ret
+; upc: A en mayuscula
+upc:    cp      #'a'
+        ret     c
+        cp      #'z'+1
+        ret     nc
+        sub     #32
+        ret
+; lwc: A en minuscula
+lwc:    cp      #'A'
+        ret     c
+        cp      #'Z'+1
+        ret     nc
+        add     a,#32
+        ret
+; evscmp: compara los textos (ix) y (iy) sin mirar mayusculas; C = la comparacion
+evscmp: push    bc
+        ld      e,1(ix)
+        ld      d,2(ix)
+        ld      l,1(iy)
+        ld      h,2(iy)
+        ld      b,3(ix)
+        ld      c,3(iy)
+evs1:   ld      a,b
+        or      a
+        jr      z,evs4
+        ld      a,c
+        or      a
+        jr      z,evsp          ; a es mas largo
+        ld      a,(hl)
+        call    upc
+        push    af
+        ld      a,(de)
+        call    upc
+        pop     af
+        push    hl
+        ld      l,a
+        ld      a,(de)
+        call    upc
+        cp      l
+        pop     hl
+        jr      c,evsn
+        jr      nz,evsp
+        inc     de
+        inc     hl
+        dec     b
+        dec     c
+        jr      evs1
+evs4:   ld      a,c
+        or      a
+        jr      nz,evsn
+        xor     a
+        jr      evs9
+evsp:   ld      a,#1
+        jr      evs9
+evsn:   ld      a,#2
+evs9:   pop     bc
+        jp      ecmp
+; evcat: (ix) = (ix) & (iy)
+evcat:  ld      a,0(ix)
+        cp      #V_ERR
+        jr      z,evce
+        ld      a,0(iy)
+        cp      #V_ERR
+        jr      z,evce
+        ld      a,0(ix)
+        cp      #V_NA
+        ret     z
+        ld      a,0(iy)
+        cp      #V_NA
+        jr      z,evcn
+        push    ix
+        pop     hl
+        call    tostr
+        jr      c,evce
+        ld      (tsp0),de
+        ld      a,b
+        ld      (tsl0),a
+        push    iy
+        pop     hl
+        call    tostr
+        jr      c,evce
+        ld      (tsp1),de
+        ld      a,b
+        ld      (tsl1),a
+        ld      a,(tsl0)
+        add     a,b
+        jr      c,evce
+        cp      #241
+        jr      nc,evce
+        ld      c,a
+        ld      b,#0
+        push    bc
+        call    salloc
+        pop     bc
+        jr      c,evce
+        ld      1(ix),l
+        ld      2(ix),h
+        ld      3(ix),c
+        ld      0(ix),#V_STR
+        ex      de,hl
+        ld      hl,(tsp0)
+        ld      a,(tsl0)
+        or      a
+        jr      z,evc1
+        ld      c,a
+        ld      b,#0
+        ldir
+evc1:   ld      hl,(tsp1)
+        ld      a,(tsl1)
+        or      a
+        ret     z
+        ld      c,a
+        ld      b,#0
+        ldir
+        ret
+evce:   ld      0(ix),#V_ERR
+        ret
+evcn:   ld      0(ix),#V_NA
+        ret
+
+; stval: guarda en la celda (iy) el texto del val en HL (libera el que tenia).
+; zalloc y zfree son de zcalc.c (y pueden cambiar ix e iy)
+stval:  ld      a,4(iy)
+        and     #0x30
+        cp      #0x30
+        jr      nz,stv1
+        ld      e,7(iy)
+        ld      d,8(iy)
+        xor     a
+        ld      7(iy),a
+        ld      8(iy),a
+        ld      a,d
+        or      e
+        jr      z,stv1
+        push    hl
+        push    iy
+        ex      de,hl
+        call    _zfree          ; (sdcccall 1: HL)
+        pop     iy
+        pop     hl
+stv1:   ld      a,(hl)
+        cp      #V_STR
+        ret     nz
+        push    hl
+        inc     hl
+        ld      e,(hl)
+        inc     hl
+        ld      d,(hl)
+        inc     hl
+        ld      c,(hl)
+        pop     hl
+        ld      a,c
+        or      a
+        jr      z,stv0
+        push    hl
+        push    de
+        push    bc
+        push    iy
+        ld      l,c
+        ld      h,#0
+        call    _zalloc         ; (sdcccall 1: HL -> DE)
+        ex      de,hl
+        pop     iy
+        pop     bc
+        pop     de
+        ld      a,h
+        or      l
+        jr      z,stverr
+        push    hl
+        ex      de,hl
+        ld      b,#0
+        ldir
+        pop     de
+        pop     hl
+        inc     hl
+        ld      (hl),e
+        inc     hl
+        ld      (hl),d
+        inc     hl
+        inc     hl
+        ld      (hl),#0
+        inc     hl
+        ld      (hl),#0
+        ret
+stverr: pop     hl
+        ld      (hl),#V_ERR
+        ret
+stv0:   inc     hl
+        ld      (hl),#0
+        inc     hl
+        ld      (hl),#0
+        ret
+
+; funciones de texto (marco de fscal: a0 a1 a2 en 0-17, n en 18, id en 19)
+fstr:   cp      #F_ISSTR
+        jr      nz,fst1
+        ld      a,0(iy)
+        cp      #V_STR
+        jp      fsbool
+fst1:   cp      #F_ISNUM
+        jr      nz,fst2
+        ld      a,0(iy)
+        or      a
+        jp      fsbool
+fst2:   ld      b,18(iy)        ; ERROR gana a NA
+        push    iy
+        pop     hl
+        ld      c,#0
+fst2a:  ld      a,(hl)
+        cp      #V_ERR
+        jr      z,fst2e
+        cp      #V_NA
+        jr      nz,fst2b
+        ld      c,a
+fst2b:  ld      de,#6
+        add     hl,de
+        djnz    fst2a
+        ld      a,c
+        or      a
+        jr      z,fst3
+fst2e:  ld      0(ix),a
+        jp      fsend
+fst3:   ld      a,19(iy)
+        sub     #F_LEFT
+        add     a,a
+        ld      e,a
+        ld      d,#0
+        ld      hl,#fstab
+        add     hl,de
+        ld      a,(hl)
+        inc     hl
+        ld      h,(hl)
+        ld      l,a
+        jp      (hl)
+fstab:  .dw     sleft,sright,smid,slen,supper,slower,sproper,strim,svalue,sstring
+        .dw     sfind,srepeat,schar,scode,sexact
+fserr:  ld      0(ix),#V_ERR
+        jp      fsend
+; sarg: HL = el argumento A
+sarg:   ld      l,a
+        add     a,a
+        add     a,l
+        add     a,a
+        ld      e,a
+        ld      d,#0
+        push    iy
+        pop     hl
+        add     hl,de
+        ret
+; sa0 / sa1: el texto del argumento 0 / 1 en tsp0 tsl0 / tsp1 tsl1 (salta a fserr si no hay lugar)
+sa0:     xor     a
+        call    sarg
+        call    tostr
+        jr      c,sxerr
+        ld      (tsp0),de
+        ld      a,b
+        ld      (tsl0),a
+        ret
+sa1:     ld      a,#1
+        call    sarg
+        call    tostr
+        jr      c,sxerr
+        ld      (tsp1),de
+        ld      a,b
+        ld      (tsl1),a
+        ret
+sxerr:  pop     hl
+        jr      fserr
+; iarg: HL = el entero del argumento A (salta a fserr si es texto)
+iarg:   call    sarg
+        ld      a,(hl)
+        or      a
+        jr      nz,sxerr
+        inc     hl
+        push    ix
+        push    iy
+        push    hl
+        call    _ntoi
+        pop     af
+        pop     iy
+        pop     ix
+        ret
+; cl8: A = HL entre 0 y 255
+cl8:    xor     a
+        bit     7,h
+        ret     nz
+        ld      a,h
+        or      a
+        ld      a,l
+        ret     z
+        ld      a,#255
+        ret
+; setstr: el resultado es el texto DE, largo B
+setstr: ld      0(ix),#V_STR
+        ld      1(ix),e
+        ld      2(ix),d
+        ld      3(ix),b
+        ld      4(ix),#0
+        ld      5(ix),#0
+        jp      fsend
+; ldsl: DE = tsp0, B = tsl0
+ldsl:   ld      de,(tsp0)
+        ld      a,(tsl0)
+        ld      b,a
+        ret
+sleft:  call    sa0
+        ld      a,#1
+        call    iarg
+        call    cl8
+        ld      c,a
+        call    ldsl
+        ld      a,c
+        cp      b
+        jr      nc,slf1
+        ld      b,a
+slf1:   jp      setstr
+sright: call    sa0
+        ld      a,#1
+        call    iarg
+        call    cl8
+        ld      c,a
+        call    ldsl
+        ld      a,c
+        cp      b
+        jr      nc,srt1
+        ld      a,b             ; desde len - n
+        sub     c
+        add     a,e
+        ld      e,a
+        adc     a,d
+        sub     e
+        ld      d,a
+        ld      b,c
+srt1:   jp      setstr
+smid:   call    sa0
+        ld      a,#1
+        call    iarg
+        call    cl8
+        or      a
+        jr      nz,sm1
+        inc     a
+sm1:    ld      (sfl),a         ; desde (1 = la primera)
+        ld      a,#2
+        call    iarg
+        call    cl8
+        ld      c,a
+        call    ldsl
+        ld      a,(sfl)
+        dec     a
+        cp      b
+        jr      c,sm2
+        ld      b,#0
+        jp      setstr
+sm2:    push    af
+        add     a,e
+        ld      e,a
+        adc     a,d
+        sub     e
+        ld      d,a
+        pop     af
+        neg
+        add     a,b             ; lo que queda
+        cp      c
+        jr      c,sm3
+        ld      a,c
+sm3:    ld      b,a
+        jp      setstr
+slen:   call    sa0
+        ld      a,(tsl0)
+        ld      l,a
+        ld      h,#0
+        call    setvi
+        jp      fsend
+; scopy: lugar en spool (sdst) para una copia del argumento 0
+scopy:  call    sa0
+        ld      a,(tsl0)
+        ld      c,a
+        ld      b,#0
+        call    salloc
+        jp      c,fserr
+        ex      de,hl
+        ld      hl,(tsp0)
+        ld      a,(tsl0)
+        ld      b,a
+        ld      (sdst),de
+        ret                     ; HL = de donde, DE = a donde, B = largo
+supper: call    scopy
+sup1:   ld      a,b
+        or      a
+        jr      z,scend
+        ld      a,(hl)
+        call    upc
+        ld      (de),a
+        inc     hl
+        inc     de
+        dec     b
+        jr      sup1
+scend:  ld      de,(sdst)
+        ld      a,(tsl0)
+        ld      b,a
+        jp      setstr
+slower: call    scopy
+slw1:   ld      a,b
+        or      a
+        jr      z,scend
+        ld      a,(hl)
+        call    lwc
+        ld      (de),a
+        inc     hl
+        inc     de
+        dec     b
+        jr      slw1
+sproper: call   scopy
+        ld      c,#1            ; la que sigue empieza palabra
+spr1:   ld      a,b
+        or      a
+        jr      z,scend
+        ld      a,(hl)
+        bit     0,c
+        jr      z,spr2
+        call    upc
+        jr      spr3
+spr2:   call    lwc
+spr3:   ld      (de),a
+        ld      c,#0
+        call    upc
+        call    isupa
+        jr      nc,spr4
+        call    isdga
+        jr      nc,spr4
+        ld      c,#1
+spr4:   inc     hl
+        inc     de
+        dec     b
+        jr      spr1
+strim:  call    scopy           ; sin espacios al principio, al final ni dobles
+        ld      c,#1            ; 1: lo anterior es un espacio (o el principio)
+strm1:  ld      a,b
+        or      a
+        jr      z,strm3
+        ld      a,(hl)
+        inc     hl
+        dec     b
+        cp      #' '
+        jr      nz,strm2
+        bit     0,c
+        jr      nz,strm1
+        ld      c,#1
+        ld      (de),a
+        inc     de
+        jr      strm1
+strm2:  ld      c,#0
+        ld      (de),a
+        inc     de
+        jr      strm1
+strm3:  ld      hl,(sdst)       ; el principio
+        ld      a,c             ; sin el espacio del final
+        or      a
+        jr      z,strm4
+        ld      a,e
+        cp      l
+        jr      nz,strm3a
+        ld      a,d
+        cp      h
+        jr      z,strm4
+strm3a: dec     de
+strm4:  ex      de,hl           ; HL = fin, DE = principio
+        or      a
+        sbc     hl,de
+        ld      b,l
+        jp      setstr
+svalue: call    sa0              ; el numero escrito en el texto
+        ld      a,(tsl0)
+        inc     a
+        ld      c,a
+        ld      b,#0
+        call    salloc
+        jp      c,fserr
+        push    hl
+        ex      de,hl
+        ld      hl,(tsp0)
+        ld      a,(tsl0)
+        or      a
+        jr      z,sv0
+        ld      c,a
+        ld      b,#0
+        ldir
+sv0:    xor     a
+        ld      (de),a
+        pop     hl
+sv1:    ld      a,(hl)          ; espacios y signo
+        cp      #' '
+        jr      nz,sv2
+        inc     hl
+        jr      sv1
+sv2:    ld      c,#0
+        cp      #'+'
+        jr      z,sv3
+        cp      #'-'
+        jr      nz,sv4
+        inc     c
+sv3:    inc     hl
+sv4:    ld      a,(hl)
+        call    isdga
+        jr      nc,sv5
+        cp      #'.'
+        jp      nz,fserr
+sv5:    push    bc
+        xor     a
+        ld      (_nerr),a
+        push    ix
+        pop     de
+        inc     de
+        push    ix
+        push    iy
+        push    de
+        push    hl
+        call    _pnum
+        pop     af
+        pop     af
+        pop     iy
+        pop     ix
+        pop     bc
+        ld      a,(_nerr)
+        or      a
+        jp      nz,fserr
+sv6:    ld      a,(hl)
+        cp      #' '
+        jr      nz,sv7
+        inc     hl
+        jr      sv6
+sv7:    or      a
+        jp      nz,fserr
+        ld      0(ix),#0
+        ld      a,c
+        or      a
+        call    nz,negv
+        jp      fsend
+sstring: ld     a,0(iy)         ; el numero como texto, con n decimales
+        or      a
+        jp      nz,fserr
+        xor     a
+        ld      (sfl),a
+        ld      a,18(iy)
+        cp      #2
+        jr      c,sst1
+        ld      a,#1
+        call    iarg
+        call    cl8
+        cp      #10
+        jr      c,sst0
+        ld      a,#9
+sst0:   ld      (sfl),a
+sst1:   push    ix              ; nround(fx, a0, n)
+        push    iy
+        ld      a,(sfl)
+        push    af
+        inc     sp
+        push    iy
+        pop     hl
+        inc     hl
+        push    hl
+        ld      hl,#fx
+        push    hl
+        call    _nround
+        pop     af
+        pop     af
+        inc     sp
+        pop     iy
+        pop     ix
+        ld      bc,#24
+        call    salloc
+        jp      c,fserr
+        ld      (fo),hl
+        push    hl
+        ld      a,(sfl)
+        ld      (fdec),a
+        ld      a,#22
+        ld      (fmax),a
+        push    ix
+        push    iy
+        call    plain
+        or      a
+        jr      nz,sst2
+        call    sci
+sst2:   pop     iy
+        pop     ix
+        pop     de
+        ld      b,a
+        ld      l,a
+        ld      h,#0
+        add     hl,de
+        ld      (spp),hl
+        jp      setstr
+sfind:  call    sa0              ; donde esta el texto 0 en el 1 (desde el 1 = la primera)
+        call    sa1
+        ld      c,#1
+        ld      a,18(iy)
+        cp      #3
+        jr      c,sf1
+        ld      a,#2
+        call    iarg
+        call    cl8
+        or      a
+        jp      z,fserr
+        ld      c,a
+sf1:    ld      a,(tsl1)         ; c = posicion (1...); hasta tsl1 - tsl0 + 1
+        ld      b,a
+        ld      a,(tsl0)
+        ld      e,a
+        ld      a,b
+        sub     e
+        jp      c,fserr
+        inc     a
+        ld      b,a             ; ultima posicion posible
+sf2:    ld      a,b
+        cp      c
+        jp      c,fserr
+        push    bc
+        ld      hl,(tsp1)
+        ld      e,c
+        dec     e
+        ld      d,#0
+        add     hl,de
+        ld      de,(tsp0)
+        ld      a,(tsl0)
+        or      a
+        jr      z,sf4
+        ld      b,a
+sf3:    ld      a,(de)
+        cp      (hl)
+        jr      nz,sf5
+        inc     de
+        inc     hl
+        djnz    sf3
+sf4:    pop     bc
+        ld      l,c
+        ld      h,#0
+        call    setvi
+        jp      fsend
+sf5:    pop     bc
+        inc     c
+        jr      sf2
+srepeat: call   sa0
+        ld      a,#1
+        call    iarg
+        call    cl8
+        ld      c,a             ; veces
+        ld      a,(tsl0)
+        ld      e,a
+        ld      d,#0
+        ld      hl,#0
+        ld      b,c
+        ld      a,b
+        or      a
+        jr      z,srp1
+srp0:   add     hl,de
+        djnz    srp0
+srp1:   ld      a,h
+        or      a
+        jp      nz,fserr
+        ld      a,l
+        cp      #241
+        jp      nc,fserr
+        push    hl
+        push    bc
+        ld      b,#0
+        ld      c,l
+        call    salloc
+        pop     bc
+        pop     de              ; e = largo total
+        jp      c,fserr
+        push    hl
+        push    de
+        ex      de,hl
+srp2:   ld      a,c
+        or      a
+        jr      z,srp3
+        ld      hl,(tsp0)
+        ld      a,(tsl0)
+        or      a
+        jr      z,srp3
+        push    bc
+        ld      c,a
+        ld      b,#0
+        ldir
+        pop     bc
+        dec     c
+        jr      srp2
+srp3:   pop     bc
+        ld      b,c
+        pop     de
+        jp      setstr
+schar:  xor     a
+        call    iarg
+        call    cl8
+        push    af
+        ld      bc,#1
+        call    salloc
+        pop     bc
+        jp      c,fserr
+        ld      (hl),b
+        ex      de,hl
+        ld      b,#1
+        jp      setstr
+scode:  call    sa0
+        ld      a,(tsl0)
+        or      a
+        jp      z,fserr
+        ld      hl,(tsp0)
+        ld      l,(hl)
+        ld      h,#0
+        call    setvi
+        jp      fsend
+sexact: call    sa0
+        call    sa1
+        ld      hl,#0
+        ld      a,(tsl0)
+        ld      b,a
+        ld      a,(tsl1)
+        cp      b
+        jr      nz,sex2
+        ld      de,(tsp0)
+        ld      hl,(tsp1)
+        or      a
+        jr      z,sex1
+sex0:   ld      a,(de)
+        cp      (hl)
+        jr      nz,sex1n
+        inc     de
+        inc     hl
+        djnz    sex0
+sex1:   ld      hl,#1
+        jr      sex2
+sex1n:  ld      hl,#0
+sex2:   call    setvi
+        jp      fsend
+
+; ------------------------------------------------------------------ para los .WKS
+        .area   _DATA
+bm:     .ds     8
+bd:     .ds     4
+bR:     .ds     4
+bq:     .ds     8
+bt:     .ds     4
+bnb:    .ds     1
+bi:     .ds     1
+bk:     .ds     1
+        .area   _CODE
+; uint8_t bx10(uint8_t *m): m (8 bytes) = m * 10; 1 si no cabe
+_bx10::
+        pop     bc
+        pop     hl
+        push    hl
+        push    bc
+        call    sh8             ; m * 2
+        jr      c,bx9
+        push    hl
+        ld      de,#bm
+        ld      bc,#8
+        ldir
+        ld      hl,#bm          ; bm = m * 8
+        call    sh8
+        jr      c,bx8
+        call    sh8
+        jr      c,bx8
+        pop     hl
+        ld      de,#bm          ; m = m * 2 + m * 8
+        ld      b,#8
+        or      a
+bx4:    ld      a,(de)
+        adc     a,(hl)
+        ld      (hl),a
+        inc     hl
+        inc     de
+        djnz    bx4
+        ld      l,#0
+        ret     nc
+bx9:    ld      l,#1
+        ret
+bx8:    pop     hl
+        jr      bx9
+; sh8: (hl) de 8 bytes un bit a la izquierda; carry el que sale (hl no cambia)
+sh8:    push    hl
+        ld      b,#8
+        or      a
+sh8a:   rl      (hl)
+        inc     hl
+        djnz    sh8a
+        pop     hl
+        ret
+; uint8_t bdiv(uint8_t *m, uint32_t d, uint8_t *q): los primeros 53 bits de m / d
+; (m de 8 bytes) en q (8 bytes; el de arriba es 1); devuelve cuantos pasos dio:
+; el ultimo bit vale 2^(64 - pasos)
+_bdiv::
+        ld      hl,#2
+        add     hl,sp
+        ld      e,(hl)
+        inc     hl
+        ld      d,(hl)
+        inc     hl
+        push    hl
+        ex      de,hl
+        ld      de,#bm
+        ld      bc,#8
+        ldir
+        pop     hl
+        ld      de,#bd
+        ld      bc,#4
+        ldir
+        ld      e,(hl)
+        inc     hl
+        ld      d,(hl)
+        push    de
+        xor     a
+        ld      hl,#bR
+        ld      b,#12
+bdv0:   ld      (hl),a          ; r = q = 0
+        inc     hl
+        djnz    bdv0
+        ld      (bnb),a
+        ld      (bi),a
+bdv1:   ld      a,(bnb)
+        cp      #53
+        jp      z,bdv9
+        ld      a,(bi)
+        cp      #180
+        jp      z,bdv9
+        inc     a
+        ld      (bi),a
+        ld      hl,#bm          ; m <<= 1 (sale el bit de arriba)
+        ld      b,#8
+        or      a
+bdv1a:  rl      (hl)
+        inc     hl
+        djnz    bdv1a
+        ld      hl,#bR          ; r = r << 1 | bit
+        ld      b,#4
+bdv1b:  rl      (hl)
+        inc     hl
+        djnz    bdv1b
+        ld      hl,#bR          ; bt = r - d
+        ld      de,#bd
+        ld      bc,#bt
+        ld      a,#4
+        ld      (bk),a
+        or      a
+bdv2:   ld      a,(de)
+        ld      (bc),a
+        ld      a,(hl)
+        push    hl
+        ld      h,b
+        ld      l,c
+        sbc     a,(hl)
+        ld      (hl),a
+        pop     hl
+        inc     hl
+        inc     de
+        inc     bc
+        push    af
+        ld      a,(bk)
+        dec     a
+        ld      (bk),a
+        jr      z,bdv2e
+        pop     af
+        jr      bdv2
+bdv2e:  pop     af
+        ccf                     ; carry = 1 si r >= d
+        jr      nc,bdv3
+        ld      hl,#bt
+        ld      de,#bR
+        ld      bc,#4
+        ldir
+        scf
+bdv3:   ld      a,(bnb)
+        jr      c,bdv4
+        or      a
+        jp      z,bdv1          ; todavia ceros adelante
+        or      a
+bdv4:   ld      hl,#bq          ; q = q << 1 | bit
+        ld      b,#8
+bdv4a:  rl      (hl)
+        inc     hl
+        djnz    bdv4a
+        ld      hl,#bnb
+        inc     (hl)
+        jp      bdv1
+bdv9:   pop     de
+        ld      hl,#bq
+        ld      bc,#8
+        ldir
+        ld      a,(bi)
+        ld      l,a
+        ret

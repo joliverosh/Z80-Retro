@@ -6,8 +6,9 @@ mkdir -p obj
 CF="-mz80 --std-sdcc11 ${XCF:---opt-code-size}"
 sdasz80 -g -o obj/crt0.rel crt0.s
 sdcc $CF -c cpm.c -o obj/cpm.rel
-progs="$@"; [ -z "$progs" ] && progs=$(ls *.c | grep -v '^cpm.c$\|^filtro.c$' | sed 's/\.c$//')
+progs="$@"; [ -z "$progs" ] && progs=$(ls *.c | grep -v '^cpm.c$\|^filtro.c$\|^zcov' | sed 's/\.c$//')
 for p in $progs; do
+  if [ -x mk$p.sh ]; then ./mk$p.sh; continue; fi   # los que tienen su propio armado (ZCALC)
   xf=$(sed -n 's/^\/\* mk: \(.*\) \*\/$/\1/p' $p.c)   # opciones propias: /* mk: ... */
   [ -n "$FAST" ] && xf=""                              # FAST=1: sin ellas (prueba rapida)
   sdcc $CF $xf -c $p.c -o obj/$p.rel
