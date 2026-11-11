@@ -1,4 +1,4 @@
-/* ZCALC - hoja de calculo para CP/M 2.2 y MP/M II (terminal ANSI de 80x24)
+/* ZCALC 1.0 - hoja de calculo para CP/M 2.2 y MP/M II (terminal ANSI de 80x24)
    ZCALC [archivo[.ZC]]
    63 columnas (A-BK) x 254 filas. Numeros decimales de 9 cifras: 0,1 y los
    centavos son exactos. Se maneja como las hojas de 1979: el cursor recorre la
@@ -9,6 +9,8 @@
    (C) OLIVEROS 2026 */
 #include <string.h>
 #include "cpm.h"
+
+#define VERSION "1.0"            /* tambien en zcalc_a.s y en LEEME.md */
 
 #define NC 63                    /* columnas */
 #define NR 254                   /* filas */
@@ -1690,7 +1692,7 @@ static void print(void)
 static void help(void)
 {
     pstr(CLS SHOW
-        "ZCALC 1.0                                                   (C) OLIVEROS 2026\n\n"
+        "ZCALC " VERSION "                                                   (C) OLIVEROS 2026\n\n"
         " Arrows (or ^E ^X ^S ^D) move; PgUp/PgDn (^R ^C) 20 rows; Home goes to A1.\n"
         " Type a number or formula (starting with a digit . + - ( @ =) or a label\n"
         " (anything else; \" starts a label that looks like a number). Enter or an\n"
@@ -1704,11 +1706,30 @@ static void help(void)
         " /E edit cell      /F format, width     /G global width, format, recalc\n"
         " /I insert row/col /M move cells        /P print (printer or file)\n"
         " /R replicate      /S load, save, CSV, quit   /T titles\n"
-        " /- repeat a label (/-= draws a line)   /Q quit\n\n"
+        " /- repeat a label (/-= draws a line)   /A about   /Q quit\n\n"
         " Numbers have 9 digits and are decimal (money adds up exactly).\n\n"
         " Press any key.");
     getk();
     pstr(HIDE CLS);
+    dirty = 1;
+}
+
+/* /A: acerca de ZCALC */
+static void about(void)
+{
+    pstr(CLS);
+    gotoxy(20, 8);  pstr(INV "                                        " NORM);
+    gotoxy(20, 9);  pstr(INV "  ZCALC " VERSION "                             " NORM);
+    gotoxy(20, 10); pstr(INV "  Spreadsheet for CP/M 2.2, CP/M 3      " NORM);
+    gotoxy(20, 11); pstr(INV "  and MP/M II on the Z80-Retro          " NORM);
+    gotoxy(20, 12); pstr(INV "                                        " NORM);
+    gotoxy(20, 13); pstr(INV "  (C) OLIVEROS 2026                     " NORM);
+    gotoxy(20, 14); pstr(INV "                                        " NORM);
+    gotoxy(20, 15); pf(INV "  %5u bytes free for cells           " NORM, hfree);
+    gotoxy(20, 16); pstr(INV "                                        " NORM);
+    gotoxy(20, 18); pstr("Press any key.");
+    getk();
+    pstr(CLS);
     dirty = 1;
 }
 
@@ -1760,7 +1781,7 @@ static uint8_t command(void)
 {
     static uint8_t k;
     static uint8_t k2;
-    k = ask("Command: B C D E F G I M P R S T - Q ?");
+    k = ask("Command: A B C D E F G I M P R S T - Q ?");
     switch (k) {
     case 'B': delcell(cc, cr); modified = dirty = 1; break;
     case 'C':
@@ -1802,6 +1823,7 @@ static uint8_t command(void)
         break;
     case 'Q': return quit();
     case '?': help(); break;
+    case 'A': about(); break;
     }
     return 0;
 }

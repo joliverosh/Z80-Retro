@@ -1,4 +1,4 @@
-; zcalc_a.s - aritmetica de 64 bits para ZCALC (sdcccall 0: todo en la pila)
+; zcalc_a.s - aritmetica de ZCALC 1.0 (sdcccall 0: todo en la pila)
 ; q es un numero de 8 bytes, el byte bajo primero.
         .module zcalc_a
         .area   _DATA
