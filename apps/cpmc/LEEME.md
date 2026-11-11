@@ -106,6 +106,7 @@ ZAS archivo[.Z80] [-L] [-H]
 - **Etiquetas:** en la columna 1, con o sin `:`, o con `:` en cualquier lugar. Si la palabra de la columna 1 es una instrucción o directiva y no lleva `:`, se toma como instrucción.
 - **Comprobado:** las 705 formas de instrucción del archivo de prueba salen igual que con `z80asm` en Linux, y seis programas del repositorio (`XFER`, `RTC`, `VC`, `BAUD`, `SETBOOT`, `LSTFILE`, escritos para zmac) salen byte a byte iguales. `XFER` (1179 líneas) se ensambla en unos 16 s a 7,19 MHz.
 - No tiene macros ni archivos relocalizables: para eso están `MAC`, `RMAC` y `LINK` de Digital Research (mnemónicos 8080). Ejemplo: `HOLA.Z80`.
+- Para depurar lo ensamblado: `ZDB` (`apps/zdb`), que desensambla con la misma sintaxis.
 
 ## Detalles
 
