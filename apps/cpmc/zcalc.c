@@ -1614,13 +1614,74 @@ static uint8_t loadfile(const char *name)
     dirty = 1;
     return bad ? bad + 1 : 0;
 }
+/* un campo de CSV es numero si es solo [signo] cifras [. cifras] [E [signo] cifras] */
+static uint8_t isnumtxt(const char *s)
+{
+    uint8_t d = 0;
+    if (*s == '-' || *s == '+') s++;
+    while (isdig(*s)) { s++; d++; }
+    if (*s == '.') { s++; while (isdig(*s)) { s++; d++; } }
+    if (!d) return 0;
+    if (*s == 'E' || *s == 'e') {
+        s++;
+        if (*s == '-' || *s == '+') s++;
+        if (!isdig(*s)) return 0;
+        while (isdig(*s)) s++;
+    }
+    return !*s;
+}
+/* lee un CSV con su esquina en el cursor: numeros como valores, lo demas texto.
+   0 bien, 1 no esta, 3 sin memoria */
+static uint8_t loadcsv(const char *name)
+{
+    static char l[130];
+    static uint8_t n, row, col, inq, qend, e, c, r;
+    static int ch;
+    if (!mkfcb(&inf, name) || fopen(&inf)) return 1;
+    inp = 128;
+    n = row = col = inq = qend = e = 0;
+    for (;;) {
+        ch = rdc();
+        if (ch == 26) ch = -1;
+        if (inq) {
+            if (ch == '"') {
+                if (qend) { if (n < 129) l[n++] = '"'; qend = 0; } else qend = 1;
+                continue;
+            }
+            if (!qend && ch >= 0) { if (n < 129) l[n++] = ch; continue; }
+            inq = qend = 0;
+        }
+        if (ch == '"' && !n) { inq = 1; continue; }
+        if (ch == '\r') continue;
+        if (ch == ',' || ch == '\n' || ch < 0) {
+            l[n] = 0;
+            c = cc + col; r = cr + row;
+            if (n && c >= cc && c <= NC && r >= cr && r <= NR) {
+                if (isnumtxt(l)) e = setcell(c, r, l, 0);
+                else e = setcell(c, r, l, 1);
+                if (e == 2) break;
+                e = 0;
+            }
+            n = 0;
+            if (ch == ',') col++;
+            else { col = 0; row++; }
+            if (ch < 0) break;
+            continue;
+        }
+        if (n < 129) l[n++] = ch;
+    }
+    fclose(&inf);
+    dirty = 1;
+    return e == 2 ? 3 : 0;
+}
 static void load(void)
 {
-    static uint8_t e;
-    if (modified && ask("Sheet not saved. Load anyway? (Y/N)") != 'Y') return;
-    if (!input("Load: ", fname_) || !eb[0]) return;
+    static uint8_t e, iscsv;
+    if (!input("Load (.ZC, or .CSV at the cursor): ", fname_) || !eb[0]) return;
     defext(eb, ".ZC");
-    e = loadfile(eb);
+    iscsv = strstr(eb, ".CSV") != 0;
+    if (!iscsv && modified && ask("Sheet not saved. Load anyway? (Y/N)") != 'Y') return;
+    e = iscsv ? loadcsv(eb) : loadfile(eb);
     if (e == 1) msg("File not found");
     else if (e == 2) msg("Some lines could not be read");
     else if (e == 3) msg("Memory full");
@@ -1705,7 +1766,7 @@ static void help(void)
         " /B blank cell     /C clear sheet       /D delete row or column\n"
         " /E edit cell      /F format, width     /G global width, format, recalc\n"
         " /I insert row/col /M move cells        /P print (printer or file)\n"
-        " /R replicate      /S load, save, CSV, quit   /T titles\n"
+        " /R replicate      /S load (.ZC, .CSV), save, CSV, quit   /T titles\n"
         " /- repeat a label (/-= draws a line)   /A about   /Q quit\n\n"
         " Numbers have 9 digits and are decimal (money adds up exactly).\n\n"
         " Press any key.");
