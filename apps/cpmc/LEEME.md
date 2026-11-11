@@ -16,6 +16,11 @@ Programas escritos en C con SDCC 4.2 y una biblioteca chica propia (`cpm.c`). Ca
 | `LIFE` | El juego de la vida de Conway, 78 × 22 | `LIFE` |
 | `TETRIS` | Flechas o WASD/IJKL; arriba gira, espacio la deja caer, P pausa, Q sale | `TETRIS` |
 | `SNAKE` | La víbora: come los `*` sin chocar | `SNAKE` |
+| `ROGUE` | El calabozo de Rogue: baja, pelea, encuentra el Amuleto de Yendor y vuelve a subir (ver abajo) | `ROGUE` |
+| `CHESS` | Ajedrez contra el computador (ver abajo) | `CHESS` |
+| `ZWRITE` | Procesador de texto con las teclas de WordStar; guarda Markdown (ver abajo) | `ZWRITE CARTA.MD` |
+| `ZDATA` | Base de datos de fichas sobre archivos `.DBF` de dBase III (ver abajo) | `ZDATA CLIENTES` |
+| `ZBAS` | BASIC estructurado (ver abajo) | `ZBAS`, `ZBAS EJEMPLO` |
 | `CAT` | Muestra archivos de texto seguidos, sin pausas | `CAT NOTAS.TXT`, `CAT *.ASM` |
 | `MORE` | Un archivo de texto por pantallas (espacio, RETURN, Q) | `MORE LEEME.TXT` |
 | `GREP` | Busca un patrón con el motor de grep-milla de Semilla (`.` `* + ?` `^ $` `[a-z]` `[^...]` `\c`); `-N` números de línea, `-V` las que no, `-C` cuántas, `-L` los archivos. Escrito en la línea no distingue mayúsculas; con `?` lo pide por teclado y sí las distingue | `GREP -N ^ORG *.ASM`, `GREP ? *.TXT` |
@@ -129,6 +134,73 @@ Son dos archivos: `ZCALC.COM` y `ZCALC.OVL`, que va en la misma unidad (o en la 
 - **Memoria:** con MP/M quedan unos 11 KB para celdas: unos 780 números o unas 400 fórmulas (un número ocupa 14 bytes, un texto 10 más sus letras, una fórmula de 20 a 35). Con CP/M hay unos 3 KB más.
 - **Por dentro:** las fórmulas se guardan compiladas (referencias de 3 bytes, números de 6, enteros chicos de 2) y se vuelven texto para mostrarlas y guardarlas. El recálculo sigue las referencias (cada celda se calcula una vez por recálculo y antes que las que dependen de ella). En ensamblador (`zcalc_a.s`) están la aritmética, el evaluador, la compilación de fórmulas y su vuelta a texto, el formato de los números y las funciones; las de finanzas, fechas y trigonometría son programas cortos de una pequeña calculadora de registros (16 registros, un byte o dos por instrucción), así ocupan poco. `@LN`, `@EXP` y las trigonométricas tardan menos de 0,3 s. Una cadena de 200 fórmulas encadenadas se recalcula y redibuja en unos 2 s. `mkzcalc.sh` arma los dos archivos (`mk.sh zcalc` lo llama): enlaza `ZCALC.COM` y después cada parte de `zcov*.c` (compilada con `--codeseg OVL --dataseg OVL`) en el lugar `ovlreg`, revisa que no cambie el programa principal ni traiga funciones de biblioteca que este no tenga, y junta las partes en `ZCALC.OVL` con una marca de la versión (`zcovh.s` les pone al principio el salto a `ovl_entry`). Se compila con `--max-allocs-per-node 200000` (unos 5 minutos; con `FAST=1`, sin esa opción). Los textos que se arman al calcular van en un lugar de 400 bytes que se vacía en cada celda; el texto que da una fórmula se guarda en un bloque del heap.
 
+## ZWRITE
+
+Procesador de texto para escribir cartas, informes y notas. Se maneja con las teclas de WordStar y guarda **Markdown**: el archivo es texto que se lee en cualquier parte (y `MD` lo abre), con `**negrita**`, `*cursiva*`, `#` títulos y listas. Los párrafos son líneas largas que la pantalla parte entre palabras.
+
+```
+ZWRITE archivo        ZWRITE -V archivo   (solo mirar la vista formateada)
+```
+
+- **Moverse:** el diamante `^E ^X ^S ^D` (o las flechas), `^A ^F` palabra anterior y siguiente, `^R ^C` pantalla arriba y abajo, `^W ^Z` corre la pantalla una fila. `^Q` y otra tecla: `S D` principio y fin de la línea, `E X` arriba y abajo de la pantalla, `R C` principio y fin del texto, `F` busca, `A` busca y reemplaza (opciones: `U` sin mirar mayúsculas, `G` en todo el texto, `N` sin preguntar), `Y` borra hasta el fin de la línea, `I` va a una línea; `^L` repite la búsqueda.
+- **Cambiar:** `^G` borra la letra, `^T` la palabra, `^Y` la línea; `^V` escribe encima o mete; `^N` parte la línea; `^U` deshace; `^P B` y `^P Y` ponen o quitan negrita y cursiva en la palabra; Enter sigue una lista.
+- **Bloques y archivos (`^K`):** `B` y `K` marcan el principio y el fin, `H` lo oculta o muestra, `C` lo copia al cursor, `V` lo mueve, `Y` lo borra, `W` lo escribe en un archivo, `R` lee un archivo en el cursor; `S` guarda y sigue, `D` o `X` guardan y salen, `Q` sale sin guardar (pregunta), `P` imprime.
+- **Ver e imprimir:** `^O D` muestra el texto formateado. `^K P` imprime en la impresora o en un `.PRN`: justificado, con páginas, el encabezado y el número de página abajo. Las órdenes de impresión van en comentarios que el Markdown no muestra: `<!-- .page -->` (página nueva), `<!-- .header texto -->`, `<!-- .width 65 -->`, `<!-- .margin 8 -->`, `<!-- .lines 60 -->`, `<!-- .nonumber -->`. En la impresora la negrita se hace pasando dos veces.
+- `^J` muestra la ayuda. La línea de estado dice la línea, la columna y los bytes libres.
+
+## ZDATA
+
+Base de datos de fichas sobre archivos `.DBF` de **dBase III**, que también abren Clipper, LibreOffice y Excel. Las fichas quedan en el disco y se leen de a una, así que el archivo puede ser más grande que la memoria.
+
+```
+ZDATA [archivo[.DBF]]
+```
+
+- **La tabla:** una ficha por fila y los campos en columnas. Flechas (o `^E ^X ^S ^D`) mueven, RePág/AvPág, Inicio/Fin van al primer y al último campo, `^R`/`^C` a la primera y la última ficha. Enter cambia el campo; `A` agrega una ficha; `F` la muestra entera en una pantalla (para editar campo por campo); `Supr` la marca para borrar (`*`) o la desmarca; `P` limpia el archivo de las marcadas.
+- **Buscar y filtrar:** `B` busca un texto en el campo del cursor y `^L` sigue buscando; `X` filtra con una condición `CAMPO op valor` (`= <> < > <= >=`, y `$` para "contiene"; los números se comparan como números y las fechas como fechas); `X` con Enter vacío quita el filtro.
+- **Ordenar:** `O` ordena el archivo por un campo, de menor a mayor o al revés.
+- **Informe:** `I` imprime las fichas que pasan el filtro, con los campos que caben, en la impresora o en un `.PRN`, de 80 o 132 columnas, con título, páginas y la suma de los campos numéricos.
+- **Crear:** `N` pide el nombre del archivo y después cada campo: el nombre, el tipo (`C` texto, `N` número, `D` fecha, `L` sí/no), el ancho y los decimales; hasta 32 campos.
+- `?` muestra la ayuda y `Q` sale. Los cambios se escriben en el disco al momento. `EJEMPLO.DBF` tiene doce clientes inventados.
+
+## ZBAS
+
+BASIC estructurado para CP/M 2.2, CP/M 3 y MP/M II: los programas se escriben sin números de línea (o con ellos), con bloques, `SUB` y `FUNCTION` con variables locales y recursión. Los números son los de ZCALC: decimales de 9 cifras, así que 0,1 + 0,2 da exactamente 0,3. Los mensajes van en inglés.
+
+```
+ZBAS                 el intérprete: se escriben las líneas, RUN, LIST, SAVE...
+ZBAS programa        carga programa.BAS, lo corre y vuelve a CP/M
+```
+
+Son dos archivos: `ZBAS.COM` y `ZBAS.OVL`, que va en la misma unidad (o en la actual, o en `A:`). En MP/M quedan **unos 12 KB** para el programa y sus datos.
+
+- **El intérprete:** una línea con número se guarda en el programa (o lo cambia; un número solo la borra); sin número se ejecuta en el momento. `RUN ["archivo"]`, `LIST [n][-m]`, `EDIT n` (la línea para cambiarla), `AUTO [n[,paso]]`, `DELETE n[-m]`, `RENUM [desde[,paso]]`, `NEW`, `LOAD "archivo"`, `SAVE "archivo"` (texto: se puede escribir con `MD`, `VI` o `ZWRITE`), `FILES`, `CONT` (sigue después de `STOP` o de `^C`/ESC), `TRON`/`TROFF`, `SYSTEM` (vuelve a CP/M). Un programa sin números de línea se numera solo al cargarlo y se guarda sin ellos si no hay `GOTO` a un número.
+- **Nombres:** largos, sin distinguir mayúsculas; `$` al final para los textos (`nombre$`). Etiquetas: un nombre con `:` al principio de la línea (`fin:`), para `GOTO`, `GOSUB` y `RESTORE`.
+- **Bloques:** `IF ... THEN ... ELSEIF ... ELSE ... END IF` (o en una línea: `IF x THEN PRINT x ELSE GOTO fin`), `FOR i = a TO b [STEP s] ... NEXT`, `WHILE ... WEND`, `DO [WHILE|UNTIL c] ... LOOP [WHILE|UNTIL c]`, `EXIT FOR|DO|WHILE|SUB|FUNCTION`, `SELECT CASE x` con `CASE 1, 3`, `CASE 5 TO 9`, `CASE IS > 10`, `CASE "pera"` y `CASE ELSE`, `END SELECT`.
+- **SUB y FUNCTION:** `SUB nombre(a, b$) ... END SUB` se llama con `CALL nombre(1, "x")` (o sin `CALL`); `FUNCTION nombre(n) ... END FUNCTION` da su valor asignándolo a su nombre o con `RETURN valor`. Los parámetros son locales; `LOCAL x, y$` hace locales otras variables. Con recursión.
+- **Más sentencias:** `PRINT` (`;` pega, `,` va a la columna siguiente de 14, `TAB(n)`, `SPC(n)`; los números llevan un espacio delante y otro detrás, como en todos los BASIC), `INPUT ["pregunta";] a, b$`, `LINE INPUT a$`, `LET`, `DIM a(10), m$(3, 4)` (hasta 3 dimensiones, desde 0; sin `DIM`, 10), `ERASE`, `READ`/`DATA`/`RESTORE [etiqueta]`, `GOTO`, `GOSUB`/`RETURN`, `ON n GOTO|GOSUB a, b, c`, `SWAP`, `RANDOMIZE`, `CLS`, `LOCATE fila, columna`, `COLOR n`, `SLEEP segundos`, `BEEP`, `STOP`, `END`, `REM` o `'`.
+- **Archivos:** `OPEN "archivo" FOR INPUT|OUTPUT|APPEND AS #n` (de 1 a 4), `PRINT #n, ...`, `INPUT #n, a, b$` (campos separados por comas), `LINE INPUT #n, a$`, `EOF(n)`, `CLOSE [#n]`, `KILL "archivo"`.
+- **Operadores:** `+ - * / ^` (potencia), `MOD`, `= <> < > <= >=` (verdadero es -1), `AND OR XOR NOT`, `+` también une textos.
+- **Funciones:** `ABS INT FIX SGN SQR SIN COS TAN ATN LOG LOG10 EXP RND PI ROUND(x,n) MIN(a,b) MAX(a,b)`; las finanzas de ZCALC `PMT(tasa,n,capital) PV FV`; fechas `DATE(año,mes,día) TODAY NOW YEAR MONTH DAY`, `DATE$` y `TIME$` (del reloj de MP/M o CP/M 3); textos `LEN LEFT$ RIGHT$ MID$(t,desde[,n]) INSTR([desde,]t,buscado) UCASE$ LCASE$ STR$ VAL CHR$ ASC SPACE$ STRING$(n,t) TRIM$ LTRIM$ RTRIM$ HEX$ FORMAT$(x,decimales)`; `INKEY$` (la tecla, sin esperar), `FRE` (memoria libre), `POS` (la columna).
+- **Ejemplo:** `EJEMPLO.BAS` (la tabla de un préstamo, las torres de Hanói, una `FUNCTION` recursiva, `SELECT CASE`, una matriz ordenada).
+- **Por dentro:** las líneas se guardan compiladas: las palabras en un byte, los números ya convertidos, los textos con su largo y cada nombre como el número de su variable, así al correr no se busca nada. Las variables de texto y las matrices van en un heap que se vacía al cambiar el programa. Lo que no hace falta para correr (compilar las líneas que se escriben, `LIST`, `EDIT`, `LOAD`, `SAVE`, `RENUM`, `FILES`, los mensajes de error) está en `ZBAS.OVL`, en tres partes de 2 a 6 KB: la que hace falta se carga arriba del heap, en una dirección múltiplo de 256 (se corrigen solo los bytes altos de sus direcciones), y queda ahí hasta que el programa necesita el lugar. `mkzbas.sh` arma los dos archivos: enlaza cada parte dos veces (en C000h y en C100h) y de la diferencia saca la lista de lo que hay que corregir, y revisa que el programa principal no cambie. La aritmética es la de ZCALC (`znum_a.s`, `znum.c`).
+
+## ROGUE
+
+El calabozo de Rogue en 80×24: cuartos, pasillos, monstruos (`A`–`Z`, de murciélagos a dragones), pociones y pergaminos que hay que probar para saber qué son, armas, armaduras y comida. Hay que bajar al piso 13 o más abajo, tomar el Amuleto de Yendor (`,`) y volver a subir con él. Cada partida es distinta.
+
+- **Teclas:** `h j k l y u b n` (o las flechas) mueven y en mayúscula corren; caminar hacia un monstruo es pelear; `>` baja la escalera y `<` sube (solo con el amuleto); `i` el inventario, `q` bebe, `r` lee, `e` come, `w` empuña un arma, `W` se pone una armadura, `T` se la quita, `d` suelta, `s` o `.` descansa, `^R` redibuja, `?` la ayuda, `Q` sale.
+- Abajo: el piso, el oro, los puntos de vida, la fuerza, la armadura y el nivel de experiencia; y si hay hambre. Los mensajes van arriba (`--More--` si hay varios).
+
+## CHESS
+
+Ajedrez contra el computador, con el tablero en colores.
+
+- **Jugadas:** las casillas de salida y llegada: `e2e4` (o `e2-e4`, `e4xd5`); para coronar algo que no sea dama, la pieza al final: `e7e8n`. Enroque: `O-O` y `O-O-O`. Las blancas en mayúsculas, las negras en minúsculas.
+- **Órdenes:** `new` (partida nueva), `undo` (deshace la última jugada de cada uno), `go` (el computador juega con el bando que mueve), `both` (dos personas), `level 1`–`6` (de 1 a 90 segundos por jugada), `flip` (gira el tablero), `help`, `quit`. ESC mientras piensa lo hace jugar con lo que tiene.
+- Conoce el enroque, la captura al paso, la coronación, el mate, el ahogado, la regla de las 50 jugadas y la falta de material.
+- **Por dentro:** tablero 0x88 con las listas de piezas de cada bando, búsqueda alfa-beta con profundización iterativa, extensión de los jaques y las capturas al final (las más valiosas con las menos valiosas primero); la evaluación es el material más tablas por casilla, sumada al mover. `attacked` (si una casilla está atacada) está en ensamblador (`chess_a.s`) con una tabla de 239 direcciones. A 7,37 MHz mira unas 350 posiciones por segundo: con el nivel 3 (8 s) ve tres jugadas. `perft N` (orden escondida) cuenta las posiciones a `N` jugadas desde la de ahora, para probar las reglas.
+
 ## Detalles
 
 - **Archivos de CP/M y tamaños exactos.** CP/M guarda los archivos en registros de 128 bytes y no sabe dónde terminan. `SHA256` y `ZIP` toman el archivo entero; con `-T` (texto) cortan en el primer `^Z`. Para comprobar en la Mac un archivo recibido por XMODEM, que llega con relleno, conviene `SHA256 -T` si es texto, o comparar con la suma del archivo rellenado.
@@ -143,6 +215,7 @@ Son dos archivos: `ZCALC.COM` y `ZCALC.OVL`, que va en la misma unidad (o en la 
 - `cpm.h` / `cpm.c`: BDOS y ZIOS (`RST 30h`), consola (`putch`, `pstr`, `pf` con `%d %u %ld %lu %x %X %s %c`, ancho y ceros), teclado sin esperar, archivos por FCB (secuencial, directo, comodines con `glob`, lectura de a un byte), la línea de órdenes, tics, la hora de MP/M, números al azar y ANSI. La salida a la consola se junta en un búfer de 128 bytes: bajo el MP/M de ZEPHYRUS sale de una vez con el servicio 46 del XIOS, sin pasar por el BDOS (`BENCH` da unos 4900 caracteres por segundo, contra 2660 por el BDOS; `putch` está en asm); en CP/M o con un MP/M sin ese servicio, cada carácter va por el BDOS 6. Para leer, `freadn(f, buf, n)` trae hasta 16 registros con una sola llamada al BDOS (BDOS 44 de MP/M II; en CP/M 2.2, de a uno) y devuelve cuántos leyó; `RD`/`rgetc` (y con ellos `CAT`, `GREP`, `MORE`, `WC` y los filtros de Semilla) leen de a 1 KB, y `CMP`, `SHA256`, `MD` y `VI` también. Para escribir, `fwriten(f, buf, n)` hace lo mismo (0 = bien): la usan la salida de los filtros (`>archivo`), `UNZIP`, `MD` y `VI`. `rgetc` y `putch` están en asm (unos 160 y 90 ciclos por byte). `BENCH` mide las dos formas, de a 128 bytes y de a 1 KB, al leer y al escribir. El búfer se vacía antes de cualquier llamada al BDOS (leer el teclado, la hora, los archivos) y al terminar (`oflush()` lo vacía a mano).
 - `crc32.h` + `crc32_a.s`: CRC-32 con tabla, en ensamblador. `unzip_a.s`: los bits y la decodificación de Huffman. `zip_a.s`: los bits de salida, la búsqueda de coincidencias y el corrimiento de las tablas de hash.
 - **SDCC 4.2:** `(int32_t)a * b` con `a` y `b` de 16 bits con signo da mal; se usa `mul16()`. Por eso `MANDEL` salía todo de puntos.
+- `znum_a.s`, `znum.c`, `znum.h`: los números decimales de 9 cifras, su formato y las funciones (finanzas, fechas, trigonometría), los de ZCALC, que también usa ZBAS. Con `-DCPM_LITE`, `cpm.c` deja fuera lo que no usan los programas grandes (unos 1,9 KB).
 - `mk.sh [programa...]` compila (con `--opt-code-size`), enlaza en 0110h y pasa el `.ihx` a `.COM`. Si existe `programa_a.s` lo agrega, y `crc32_a.s` si el programa usa `crc32.h`.
 
 Se probaron en el emulador (`retroemu23`) con MP/M 1.4; los `.ZIP` hechos por `ZIP` se comprobaron con `unzip -t` y los de Python con `UNZIP`.
