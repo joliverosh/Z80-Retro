@@ -53,7 +53,7 @@ VQ      EQU     0FFD5h          ; caracteres de la consola que se ve que faltan 
 ITXF    EQU     0FE00h          ; el camino corto del transmisor de la SIO A (FE00-FE3F)
 RXB     EQU     0FE40h          ; bufer circular de la SIO B (consola 4)
 DIRBF   EQU     0FE80h          ; bufer de directorio (en la comun: READ copia con el banco del usuario puesto)
-BOUNCE  EQU     0FF00h          ; 64 bytes de paso entre BUF y el DMA del programa
+ZBF     EQU     0FF00h          ; el camino corto del servicio 46 (FF00-FF3F)
 ISTK    EQU     0FF80h          ; pila de las interrupciones (FF40-FF7F)
 TXA     EQU     0FF80h          ; buferes de salida (6 + 32 bytes cada uno), FF80-FFCB
 TXB     EQU     TXA+6+TXMSK+1
@@ -367,6 +367,10 @@ SI12:   DEC     B
         LDIR
         LD      HL,ITXF
         LD      (VSIO+8),HL
+        LD      HL,ZBFS         ; y el del servicio 46, a FF00
+        LD      DE,ZBF
+        LD      BC,ZBFE_-ZBFS
+        LDIR
         LD      A,0FFh
         LD      I,A
         IM      2
@@ -868,31 +872,42 @@ RECOFF: LD      A,(OFS)
         LD      E,A
         RET
 
-; CPYC: copia BC bytes (multiplo de 64) de HL a DE con la pagina CPAGE puesta en
-; la ventana 0. Las interrupciones se apagan solo durante cada trozo de 64 bytes.
-CPYC:   PUSH    BC
+; CPYC: copia BC bytes de HL a DE con la pagina CPAGE puesta en la ventana 0.
+; Las interrupciones se apagan solo durante cada trozo de hasta 64 bytes.
+CPYC:   LD      A,B
+        OR      C
+        RET     Z
+        PUSH    BC              ; lo que falta
+        LD      A,B
+        OR      A
+        LD      A,64
+        JR      NZ,CPY0
+        LD      A,C
+        CP      64
+        JR      C,CPY0
+        LD      A,64
+CPY0:   LD      C,A             ; el trozo
+        LD      B,0
+        PUSH    BC
         LD      A,I             ; P/V = IFF2
         DI
         PUSH    AF
         LD      A,(CPAGE)
         OUT     (PGPORT),A
-        LD      BC,64
         LDIR
         LD      A,(CURPG0)
         OUT     (PGPORT),A
         POP     AF
         JP      PO,CPY1
         EI
-CPY1:   POP     BC
-        LD      A,C
-        SUB     64
-        LD      C,A
-        JR      NC,CPY2
-        DEC     B
-CPY2:   LD      A,B
-        OR      C
-        JR      NZ,CPYC
-        RET
+CPY1:   POP     BC              ; el trozo
+        EX      (SP),HL         ; HL = lo que falta
+        OR      A
+        SBC     HL,BC
+        LD      B,H
+        LD      C,L
+        POP     HL
+        JR      CPYC
 
 ; CINIT: paginas de la reserva para la cache (despues de los bancos): 8, 4, 2,
 ; 1 o ninguna (los conjuntos van en potencia de 2). Etiquetas vacias.
@@ -3183,6 +3198,57 @@ ITXFE:
         .error  ITXF no cabe antes de RXB
         ENDIF
 
+; ZBF: un caracter C a la consola que se ve, por el camino corto (del servicio
+; 46). Z: listo. NZ: no se pudo (se mira hacia atras, se redibuja, VQ lleno, el
+; transmisor parado o su bufer lleno): el que llama usa CONOUT. Se copia a ZBF
+; (FF00, donde estaba BOUNCE) al arrancar.
+ZBFS:
+        .phase  ZBF
+        DI
+        LD      A,(GENACT)
+        LD      HL,VIEWING
+        OR      (HL)
+        JR      NZ,ZBFE
+        LD      HL,VQN
+        LD      A,(HL)
+        CP      VQMAX
+        JR      NC,ZBFE
+        LD      A,(TXA+2)       ; transmitiendo?
+        OR      A
+        JR      Z,ZBFE
+        LD      HL,(TXA)        ; L = cabeza, H = cola
+        LD      A,H
+        INC     A
+        AND     TXMSK
+        CP      L
+        JR      Z,ZBFE          ; lleno
+        LD      (TXA+1),A
+        LD      A,H
+        ADD     A,(TXA+6) AND 0FFh
+        LD      L,A
+        LD      H,TXA SHR 8     ; (TXA, VQN y VQ estan en la pagina FF)
+        LD      (HL),C
+        LD      L,VQN AND 0FFh
+        LD      A,(HL)
+        INC     (HL)
+        ADD     A,VQ AND 0FFh
+        LD      L,A
+        LD      (HL),C
+        EI
+        XOR     A
+        RET
+ZBFE:   EI
+        OR      0FFh
+        RET
+        .dephase
+ZBFE_:
+        IF      ZBF+ZBFE_-ZBFS > ZBF+64
+        .error  ZBF no cabe en FF00-FF3F
+        ENDIF
+        IF      (TXA SHR 8) <> (VQN SHR 8) OR (VQ SHR 8) <> (VQN SHR 8)
+        .error  TXA, VQN y VQ tienen que estar en la misma pagina
+        ENDIF
+
 ; RAWPUT / RAWGET: el anillo del modo crudo (256 bytes). RAWGET: A = el byte,
 ; carry si no hay.
 RAWCLR: LD      HL,0
@@ -4572,19 +4638,8 @@ READ:   CALL    TODCHK          ; cambiaron la hora? -> al DS1307
         CALL    GETBLK
         RET     NZ
         CALL    BUFPTR          ; BUF (aqui) -> DMA del programa
-        PUSH    HL
-        CALL    UDMA
-        POP     HL
-        JR      NZ,RD2
-        LD      BC,128          ; directo: su pagina en la ventana 0
-        CALL    CPYC
         XOR     A
-        RET
-RD2:    LD      (XSRC),HL       ; si no, en dos mitades por BOUNCE (memoria alta)
-        LD      HL,(DMA)
-        LD      (XDST),HL
-        CALL    XRD64
-        CALL    XRD64
+        CALL    UCOPY
         XOR     A
         RET
 
@@ -4599,20 +4654,8 @@ WRITE:  LD      A,C             ; tipo: 0 normal, 1 directorio, 2 bloque nuevo
         CALL    GETBLK
         RET     NZ
         CALL    BUFPTR          ; DMA del programa -> BUF
-        PUSH    HL
-        CALL    UDMA
-        POP     HL
-        JR      NZ,WR0
-        EX      DE,HL
-        LD      BC,128
-        CALL    CPYC
-        JR      WR00
-WR0:    LD      (XDST),HL       ; si no, en dos mitades por BOUNCE
-        LD      HL,(DMA)
-        LD      (XSRC),HL
-        CALL    XWR64
-        CALL    XWR64
-WR00:
+        LD      A,1
+        CALL    UCOPY
         LD      A,(DSKC)
         CP      2
         JP      Z,RAMWR         ; disco en RAM
@@ -4764,14 +4807,17 @@ WTYPE:  DEFB    0
 BDIRTY: DEFB    0               ; BUF tiene registros que la tarjeta todavia no
 FLQ:    DEFB    0
 
-; UDMA: para copiar el registro directo entre BUF y el DMA del programa, sin
-; BOUNCE ni cambiar de banco dos veces por mitad. Z: CPAGE = la pagina del
-; programa donde cae su DMA y DE = el DMA en la ventana 0 (CPYC). NZ: no se
-; puede (DMA en la memoria comun, el registro cruza de pagina, sin segmento).
+; UCOPY: los 128 bytes del registro entre BUF (HL) y el DMA del programa;
+; A = 0 READ (BUF -> DMA), 1 WRITE (DMA -> BUF). La pagina del programa va a la
+; ventana 0 y CPYC copia de a 64 bytes con las interrupciones apagadas, como
+; la cache; sin cambiar de banco. Si el registro cruza de pagina, en dos
+; partes. El DMA en la memoria comun, o un proceso sin segmento (banco 0), es
+; un LDIR directo.
 ; El banco es el que pondria SWTUSER de XDOS: su segmento en (USEGA) (FF:
 ; ninguno; al cargar un programa es el del hijo, no el del TMP) y la tabla de
 ; descriptores en ((UTABA)), 4 bytes cada uno, el banco en +3. UDINI saca las
-; dos direcciones del codigo de SWTUSER al arrancar.
+; dos direcciones del codigo de SWTUSER al arrancar; si no lo reconoce, se usa
+; el segmento del proceso (pd + 15) y la tabla de SYSDAT + 16.
 USEGA:  DEFW    0
 UTABA:  DEFW    0
 UDINI:  LD      HL,(SWTUSER+1)  ; CALL x / LD A,(USEG) / ... / LD HL,(TAB)
@@ -4799,23 +4845,91 @@ UDINI:  LD      HL,(SWTUSER+1)  ; CALL x / LD A,(USEG) / ... / LD HL,(TAB)
         LD      (UTABA),BC
         LD      (USEGA),DE
         RET
-UDMA:   LD      HL,(DMA)
-        LD      A,H
+UCDIR:  DEFB    0
+UCBUF:  DEFW    0
+UCDMA:  DEFW    0
+UCOPY:  LD      (UCDIR),A
+        LD      (UCBUF),HL
+        LD      HL,(DMA)
+        LD      (UCDMA),HL
+        LD      BC,128
+UC1:    LD      A,B
+        OR      C
+        RET     Z
+        LD      A,(UCDMA+1)
         CP      0C0h
-        JR      NC,UDMN
+        JR      NC,UC5          ; DMA en la comun
+        PUSH    BC
+        CALL    UBANK
+        POP     BC
+        CP      MAXBNK+1
+        JR      NC,UC5          ; banco 0 (o FF): directo
+        LD      E,A             ; BNKPG + 3*banco + ventana
+        ADD     A,A
+        ADD     A,E
+        LD      E,A
+        LD      A,(UCDMA+1)
+        RLCA
+        RLCA
+        AND     3
+        ADD     A,E
+        LD      E,A
+        LD      D,0
+        LD      HL,BNKPG
+        ADD     HL,DE
+        LD      A,(HL)
+        LD      (CPAGE),A
+        LD      HL,(UCDMA)      ; DE = el DMA en la ventana 0
+        LD      A,H
         AND     3Fh
-        CP      3Fh
-        JR      NZ,UDM1
-        LD      A,L
-        CP      81h
-        JR      NC,UDMN         ; (DMA AND 3FFF) + 128 > 4000h
-UDM1:   LD      HL,(USEGA)      ; el segmento que pondria SWTUSER
+        LD      D,A
+        LD      E,L
+        PUSH    BC              ; lo que falta
+        LD      HL,4000h        ; lo que cabe en la pagina
+        OR      A
+        SBC     HL,DE
+        OR      A
+        SBC     HL,BC
+        JR      NC,UC2          ; cabe todo: BC
+        ADD     HL,BC
+        LD      B,H
+        LD      C,L
+UC2:    PUSH    BC              ; n
+        LD      HL,(UCBUF)
+        LD      A,(UCDIR)
+        OR      A
+        JR      Z,UC3
+        EX      DE,HL           ; WRITE: de la ventana 0 a BUF
+UC3:    CALL    CPYC
+        POP     BC              ; n
+        LD      HL,(UCBUF)
+        ADD     HL,BC
+        LD      (UCBUF),HL
+        LD      HL,(UCDMA)
+        ADD     HL,BC
+        LD      (UCDMA),HL
+        POP     HL              ; falta - n
+        OR      A
+        SBC     HL,BC
+        LD      B,H
+        LD      C,L
+        JR      UC1
+UC5:    LD      HL,(UCBUF)      ; directo: lo que falta
+        LD      DE,(UCDMA)
+        LD      A,(UCDIR)
+        OR      A
+        JR      Z,UC6
+        EX      DE,HL
+UC6:    LDIR
+        RET
+; UBANK: A = el banco que pondria SWTUSER (FF: ninguno)
+UBANK:  LD      HL,(USEGA)
         LD      A,H
         OR      L
-        JR      Z,UDMN          ; (no se encontro al arrancar)
+        JR      Z,UBK8
         LD      A,(HL)
         CP      0FFh
-        JR      Z,UDMN          ; ninguno: SWTUSER no cambia de banco
+        RET     Z
         ADD     A,A
         ADD     A,A
         LD      E,A
@@ -4829,31 +4943,24 @@ UDM1:   LD      HL,(USEGA)      ; el segmento que pondria SWTUSER
         INC     HL
         INC     HL
         INC     HL
-        LD      A,(HL)          ; banco (como SELMEM: descriptor + 3)
-        CP      MAXBNK+1
-        JR      NC,UDMN
-        LD      E,A             ; BNKPG + 3*banco + ventana
-        ADD     A,A
-        ADD     A,E
-        LD      E,A
-        LD      A,(DMA+1)
-        RLCA
-        RLCA
-        AND     3
-        ADD     A,E
-        LD      E,A
-        LD      D,0
-        LD      HL,BNKPG
+        LD      A,(HL)
+        RET
+UBK8:   LD      HL,(RLRA)       ; sin SWTUSER reconocido: el del proceso
+        LD      A,(HL)
+        INC     HL
+        LD      H,(HL)
+        LD      L,A
+        LD      DE,15
         ADD     HL,DE
         LD      A,(HL)
-        LD      (CPAGE),A
-        LD      DE,(DMA)
-        LD      A,D
-        AND     3Fh
-        LD      D,A
-        XOR     A
-        RET
-UDMN:   OR      0FFh
+        CP      0FFh
+        RET     Z
+        ADD     A,A
+        ADD     A,A
+        ADD     A,16+3
+        LD      HL,(SYSDAT)
+        LD      L,A
+        LD      A,(HL)
         RET
 
 BUFPTR: LD      HL,BUF          ; HL = BUF + OFS*128
@@ -5874,29 +5981,6 @@ SB1:    LD      A,(HL)
         OUT     (PGPORT+2),A
         RET
 
-; XRD64 / XWR64: 64 bytes entre BUF (banco 0) y el DMA del programa (su banco),
-; pasando por BOUNCE en la memoria alta. XSRC y XDST avanzan.
-XRD64:  CALL    XCP1
-        CALL    SWTUSER
-        CALL    XCP2
-        JP      SWTSYS
-XWR64:  CALL    SWTUSER
-        CALL    XCP1
-        CALL    SWTSYS
-XCP2:   LD      HL,BOUNCE       ; BOUNCE -> (XDST)
-        LD      DE,(XDST)
-        LD      BC,64
-        LDIR
-        LD      (XDST),DE
-        RET
-XCP1:   LD      HL,(XSRC)       ; (XSRC) -> BOUNCE
-        LD      DE,BOUNCE
-        LD      BC,64
-        LDIR
-        LD      (XSRC),HL
-        RET
-XSRC:   DEFW    0
-XDST:   DEFW    0
 
 ; PGQRY: paginas del banco 0 preguntandole a ZIOS (servicio 1). Va en la memoria
 ; comun, con la pila en ella, porque la ventana que se pregunta cambia un momento.
@@ -6177,27 +6261,41 @@ ZOUT:   LD      C,E
         JP      ZRET
 ; 46 (propio): DE caracteres desde HL a la consola del programa, directo al
 ; XIOS: sin el BDOS (ni ^S, ni tabuladores, ni columna). Para los programas que
-; dibujan la pantalla (MD, VI, CAT...): la mitad de ciclos por caracter.
+; dibujan la pantalla (MD, VI, CAT...). En la consola que se ve, cada caracter
+; va a VQ y al bufer de la SIO A en ZBF, sin CONOUT; cuando hay que vaciar VQ,
+; arrancar el transmisor, esperar lugar o redibujar, sigue por CONOUT.
 ZBLK:   PUSH    DE
-        CALL    ZCON
-        POP     DE
+        CALL    ZCON            ; C = consola, HL = pd + 0Eh
+        LD      A,(ACTVC)
+        CP      C
+        JR      NZ,ZBK0
+        LD      DE,-0Eh         ; la que se ve: quien escribe, para la linea
+        ADD     HL,DE           ; de estado (una vez por bloque)
+        LD      (LASTPD),HL
+ZBK0:   POP     DE
         LD      B,C             ; B = consola
-        LD      HL,(ZHL)
+        PUSH    IX
+        LD      IX,(ZHL)
 ZBL1:   LD      A,D
         OR      E
-        JP      Z,ZRET          ; (A = 0)
-        PUSH    HL
-        PUSH    DE
+        JR      Z,ZBL9
+        LD      C,(IX+0)
+        LD      A,(ACTVC)       ; la que se ve, y sin nada raro: ZBF (en FF00)
+        CP      B
+        CALL    Z,ZBF
+        JR      Z,ZBL2
+        PUSH    DE              ; si no, como cualquier caracter
         PUSH    BC
         LD      D,B
-        LD      C,(HL)
         CALL    CONOUT
         POP     BC
         POP     DE
-        POP     HL
-        INC     HL
+ZBL2:   INC     IX
         DEC     DE
         JR      ZBL1
+ZBL9:   POP     IX
+        XOR     A
+        JP      ZRET
 ; ZCON: C = la consola del proceso que corre
 ZCON:   LD      HL,(RLRA)
         LD      A,(HL)
