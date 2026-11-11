@@ -434,6 +434,7 @@ SI15E:  CALL    TODADR          ; donde XDOS tiene el proceso que corre
         ADD     HL,DE
         LD      (RLRA),HL
         LD      (VCRLR+1),HL
+        CALL    UDINI           ; READ/WRITE directo al DMA del programa
         LD      A,(STATON)      ; con linea de estado: redibujar (fija las filas
         OR      A               ; que se desplazan)
         JR      Z,SI15F
@@ -4551,8 +4552,16 @@ READ:   CALL    TODCHK          ; cambiaron la hora? -> al DS1307
         LD      (GMODE),A
         CALL    GETBLK
         RET     NZ
-        CALL    BUFPTR          ; BUF (aqui) -> DMA del programa, en dos mitades
-        LD      (XSRC),HL       ; por BOUNCE (memoria alta)
+        CALL    BUFPTR          ; BUF (aqui) -> DMA del programa
+        PUSH    HL
+        CALL    UDMA
+        POP     HL
+        JR      NZ,RD2
+        LD      BC,128          ; directo: su pagina en la ventana 0
+        CALL    CPYC
+        XOR     A
+        RET
+RD2:    LD      (XSRC),HL       ; si no, en dos mitades por BOUNCE (memoria alta)
         LD      HL,(DMA)
         LD      (XDST),HL
         CALL    XRD64
@@ -4570,12 +4579,21 @@ WRITE:  LD      A,C             ; tipo: 0 normal, 1 directorio, 2 bloque nuevo
         CALL    UNCHK           ; GMODE: 1 el bloque entero, 2 un bloque sin usar
         CALL    GETBLK
         RET     NZ
-        CALL    BUFPTR          ; DMA del programa -> BUF, en dos mitades
-        LD      (XDST),HL
+        CALL    BUFPTR          ; DMA del programa -> BUF
+        PUSH    HL
+        CALL    UDMA
+        POP     HL
+        JR      NZ,WR0
+        EX      DE,HL
+        LD      BC,128
+        CALL    CPYC
+        JR      WR00
+WR0:    LD      (XDST),HL       ; si no, en dos mitades por BOUNCE
         LD      HL,(DMA)
         LD      (XSRC),HL
         CALL    XWR64
         CALL    XWR64
+WR00:
         LD      A,(DSKC)
         CP      2
         JP      Z,RAMWR         ; disco en RAM
@@ -4726,6 +4744,98 @@ FLUSHQ: LD      A,1
 WTYPE:  DEFB    0
 BDIRTY: DEFB    0               ; BUF tiene registros que la tarjeta todavia no
 FLQ:    DEFB    0
+
+; UDMA: para copiar el registro directo entre BUF y el DMA del programa, sin
+; BOUNCE ni cambiar de banco dos veces por mitad. Z: CPAGE = la pagina del
+; programa donde cae su DMA y DE = el DMA en la ventana 0 (CPYC). NZ: no se
+; puede (DMA en la memoria comun, el registro cruza de pagina, sin segmento).
+; El banco es el que pondria SWTUSER de XDOS: su segmento en (USEGA) (FF:
+; ninguno; al cargar un programa es el del hijo, no el del TMP) y la tabla de
+; descriptores en ((UTABA)), 4 bytes cada uno, el banco en +3. UDINI saca las
+; dos direcciones del codigo de SWTUSER al arrancar.
+USEGA:  DEFW    0
+UTABA:  DEFW    0
+UDINI:  LD      HL,(SWTUSER+1)  ; CALL x / LD A,(USEG) / ... / LD HL,(TAB)
+        PUSH    HL
+        INC     HL
+        INC     HL
+        INC     HL
+        LD      A,(HL)
+        INC     HL
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        POP     HL
+        CP      3Ah
+        RET     NZ
+        LD      BC,16h
+        ADD     HL,BC
+        LD      A,(HL)
+        CP      2Ah
+        RET     NZ
+        INC     HL
+        LD      C,(HL)
+        INC     HL
+        LD      B,(HL)
+        LD      (UTABA),BC
+        LD      (USEGA),DE
+        RET
+UDMA:   LD      HL,(DMA)
+        LD      A,H
+        CP      0C0h
+        JR      NC,UDMN
+        AND     3Fh
+        CP      3Fh
+        JR      NZ,UDM1
+        LD      A,L
+        CP      81h
+        JR      NC,UDMN         ; (DMA AND 3FFF) + 128 > 4000h
+UDM1:   LD      HL,(USEGA)      ; el segmento que pondria SWTUSER
+        LD      A,H
+        OR      L
+        JR      Z,UDMN          ; (no se encontro al arrancar)
+        LD      A,(HL)
+        CP      0FFh
+        JR      Z,UDMN          ; ninguno: SWTUSER no cambia de banco
+        ADD     A,A
+        ADD     A,A
+        LD      E,A
+        LD      D,0
+        LD      HL,(UTABA)
+        LD      A,(HL)
+        INC     HL
+        LD      H,(HL)
+        LD      L,A
+        ADD     HL,DE
+        INC     HL
+        INC     HL
+        INC     HL
+        LD      A,(HL)          ; banco (como SELMEM: descriptor + 3)
+        CP      MAXBNK+1
+        JR      NC,UDMN
+        LD      E,A             ; BNKPG + 3*banco + ventana
+        ADD     A,A
+        ADD     A,E
+        LD      E,A
+        LD      A,(DMA+1)
+        RLCA
+        RLCA
+        AND     3
+        ADD     A,E
+        LD      E,A
+        LD      D,0
+        LD      HL,BNKPG
+        ADD     HL,DE
+        LD      A,(HL)
+        LD      (CPAGE),A
+        LD      DE,(DMA)
+        LD      A,D
+        AND     3Fh
+        LD      D,A
+        XOR     A
+        RET
+UDMN:   OR      0FFh
+        RET
 
 BUFPTR: LD      HL,BUF          ; HL = BUF + OFS*128
         LD      A,(OFS)

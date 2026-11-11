@@ -544,15 +544,16 @@ static uint8_t search(uint8_t fwd, uint16_t *to)
 }
 
 /* ---------------------------------------------------------------- archivos */
-static uint8_t rb[128];
+static uint8_t rb[1024];               /* 8 registros por llamada al BDOS */
 static uint8_t loadat(const char *name, uint16_t at, uint16_t *cnt)  /* 0 bien, 1 no esta, 2 grande */
 {
     static FCB f;
     uint16_t n = 0;
     if (!mkfcb(&f, name) || fopen(&f)) return 1;
     moveto(at);
-    while (!fread(&f, rb)) {
-        uint8_t *s = rb, *e = rb + 128;
+    uint8_t g;
+    while ((g = freadn(&f, rb, 8))) {
+        uint8_t *s = rb, *e = rb + ((uint16_t)g << 7);
         char *d = buf + gs, *lim = buf + ge;
         for (; s < e; s++) {
             char c = *s;

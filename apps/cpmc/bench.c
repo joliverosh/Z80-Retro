@@ -3,7 +3,7 @@
 #include <string.h>
 #include "cpm.h"
 static uint8_t flags[8191];
-static uint8_t buf[128];
+static uint8_t buf[1024];
 static FCB f;
 static uint16_t t0;
 static uint8_t tk;
@@ -100,6 +100,13 @@ void main(void)
     fopen(&f);
     start();
     for (i = 0; i < 512; i++) if (fread(&f, buf)) break;
+    t = stop();
+    fclose(&f);
+    dec1(rate(64, t)); pstr(" KB/s\n");
+    pstr("  Disk read, 1 KB per call ");
+    fopen(&f);
+    start();
+    for (i = 0; i < 64; i++) if (freadn(&f, buf, 8) < 8) break;
     t = stop();
     fclose(&f);
     fdelete(&f);

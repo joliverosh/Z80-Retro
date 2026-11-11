@@ -20,7 +20,7 @@ static uint8_t blk[64];
 static uint32_t total;
 static NAME12 nm[64];
 static FCB f;
-static uint8_t rec[128];
+static uint8_t rec[128], rb[1024];     /* rb: 8 registros por llamada al BDOS */
 
 static void compress(uint8_t *p)
 {
@@ -67,16 +67,23 @@ void main(void)
             fname(&f, s);
             if (fopen(&f)) continue;
             init();
-            while (!fread(&f, rec)) {
-                k = 128;
-                if (text) {
-                    uint8_t *z = memchr(rec, 0x1A, 128);
-                    if (z) { k = z - rec; break; }
+            {
+                uint8_t g, r;
+                while ((g = freadn(&f, rb, 8))) {
+                    for (r = 0; r < g; r++) {
+                        memcpy(rec, rb + ((uint16_t)r << 7), 128);
+                        k = 128;
+                        if (text) {
+                            uint8_t *z = memchr(rec, 0x1A, 128);
+                            if (z) { k = z - rec; goto leido; }
+                        }
+                        compress(rec); compress(rec + 64);
+                        total += 128; k = 0;
+                    }
+                    if (brk()) return;
                 }
-                compress(rec); compress(rec + 64);
-                total += 128; k = 0;
-                if (brk()) return;
             }
+leido:
             fclose(&f);
             fin(rec, k);
             for (j = 0; j < 8; j++) pf("%08lx", H[j]);

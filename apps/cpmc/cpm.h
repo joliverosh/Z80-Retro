@@ -21,6 +21,7 @@ uint8_t mkfcb(FCB *f, const char *name);   /* 0 si el nombre no sirve */
 uint8_t fopen(FCB *f);           /* 0 bien */
 void    fclose(FCB *f);
 uint8_t fread(FCB *f, uint8_t *buf);  /* 0 bien, 1 fin */
+uint8_t freadn(FCB *f, uint8_t *buf, uint8_t n);  /* hasta n registros (16 max): cuantos leyo */
 uint8_t fwrite(FCB *f, uint8_t *buf); /* 0 bien */
 uint8_t fmake(FCB *f);           /* borra y crea; 0 bien */
 uint16_t fsize(FCB *f);          /* registros */
@@ -53,7 +54,10 @@ typedef char NAME12[12];         /* unidad (0 = la actual) y los 11 del nombre *
 uint8_t glob(const char *spec, NAME12 *out, uint8_t max);  /* los que casan; cuantos */
 void nm2fcb(NAME12 n, FCB *f);
 /* lectura de a un byte */
-typedef struct { FCB f; uint8_t b[128]; uint8_t p; uint8_t eof; } RD;
+#ifndef RDN
+#define RDN 8                     /* registros por lectura de RD (1 KB) */
+#endif
+typedef struct { FCB f; uint8_t b[RDN * 128]; uint16_t p, n; uint8_t eof; } RD;
 uint8_t ropen(RD *r, FCB *f);    /* 0 bien */
 int rgetc(RD *r);                /* -1 al final (no mira ^Z) */
 /* SDCC 4.2: (int32_t)a * b con a y b de 16 bits sale mal; usar esta */

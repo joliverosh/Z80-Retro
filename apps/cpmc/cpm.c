@@ -198,6 +198,26 @@ uint8_t mkfcb(FCB *f, const char *s)
 uint8_t fopen(FCB *f) { f->ex = f->s2 = f->cr = 0; return (bdos(15, (uint16_t)f) & 0xFF) == 0xFF; }
 void fclose(FCB *f) { bdos(16, (uint16_t)f); }
 uint8_t fread(FCB *f, uint8_t *buf) { bdos(26, (uint16_t)buf); return bdos(20, (uint16_t)f) & 0xFF; }
+/* freadn: hasta n registros seguidos (n <= 16) con una sola llamada al BDOS
+   (BDOS 44 de MP/M II): el BDOS se lleva unos 14000 ciclos por llamada, mas
+   que leer el registro de la cache. Devuelve cuantos leyo (0 = fin). El
+   contador vuelve a 1, porque las demas llamadas lo dan por sentado. En CP/M
+   2.2, de a uno. */
+uint8_t freadn(FCB *f, uint8_t *buf, uint8_t n)
+{
+    uint16_t r;
+    uint8_t i;
+    if (!ismpm()) {
+        for (i = 0; i < n; i++, buf += 128) if (fread(f, buf)) break;
+        return i;
+    }
+    bdos(44, n);
+    bdos(26, (uint16_t)buf);
+    r = bdos(20, (uint16_t)f);
+    bdos(44, 1);
+    if (!(r & 0xFF)) return n;
+    return (r >> 12) & 15;          /* los que alcanzo a leer, en la mitad alta de H */
+}
 uint8_t fwrite(FCB *f, uint8_t *buf) { bdos(26, (uint16_t)buf); return bdos(21, (uint16_t)f) & 0xFF; }
 uint8_t fmake(FCB *f)
 {
@@ -304,13 +324,15 @@ void nm2fcb(NAME12 n, FCB *f)
 uint8_t ropen(RD *r, FCB *f)
 {
     if (f != &r->f) memcpy(&r->f, f, sizeof(FCB));
-    r->p = 128; r->eof = 0;
+    r->p = r->n = 0; r->eof = 0;
     return fopen(&r->f);
 }
 int rgetc(RD *r)
 {
-    if (r->p >= 128) {
-        if (r->eof || fread(&r->f, r->b)) { r->eof = 1; return -1; }
+    if (r->p >= r->n) {
+        uint8_t k;
+        if (r->eof || !(k = freadn(&r->f, r->b, RDN))) { r->eof = 1; return -1; }
+        r->n = (uint16_t)k << 7;
         r->p = 0;
     }
     return r->b[r->p++];
