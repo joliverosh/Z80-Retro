@@ -91,6 +91,22 @@ Un editor como vi para terminal ANSI de 80 columnas. El texto va en memoria: en 
 - Las líneas largas no se parten: la pantalla se corre a los lados.
 - Lee el teclado con BDOS 6 y escribe con BDOS 6: BDOS 2, 9 y 11 se llevan teclas a un búfer que BDOS 6 no ve (pasaba al pegar texto o con `.`).
 
+## ZAS
+
+Ensamblador Z80 con los mnemónicos de Zilog (`LD A,(HL)`, `DJNZ`, `LDIR`, IX/IY), para CP/M 2.2 y MP/M II. Dos pasadas; saca el `.COM` directo, sin `LOAD`.
+
+```
+ZAS archivo[.Z80] [-L] [-H]
+```
+
+- Sin extensión busca `.Z80` y luego `.ASM`. Saca `archivo.COM` con los bytes desde el primer `ORG` (100h si no hay) hasta el último; `-L` deja el listado en `archivo.PRN` (dirección, hasta 4 bytes, la línea; `*` donde hubo error) y `-H` también `archivo.HEX` (Intel). Con errores no deja el `.COM`.
+- **Instrucciones:** todas las del Z80, también las de IX/IY, `(IX+d)`, las no documentadas `IXH IXL IYH IYL` (o `HX LX`, `XH XL`), `SLL`, `IN F,(C)` y `OUT (C),0`.
+- **Directivas:** `ORG`, `EQU`, `DEFL`, `=` o `SET` (redefinibles), `DB DEFB DEFM DM`, `DW DEFW`, `DS DEFS` (`DS n,relleno`), `END`, `IF ELSE ENDIF` anidados, `INCLUDE archivo` (hasta 3 niveles). `TITLE`, `PAGE`, `.Z80`, `NAME` y `LIST` se saltan.
+- **Expresiones:** números `123`, `0FFH`, `$FF`, `0xFF`, `1010B`, `%1010`, `17Q`, `'A'`; `$` = la dirección de la línea; `+ - * / %` (`MOD`), `& | ^ ~` (`AND OR XOR NOT`), `<< >>` (`SHL SHR`), `HIGH`, `LOW`, comparaciones `= <> < > <= >=` (verdadero = 0FFFFh) y paréntesis. Sin distinguir mayúsculas; nombres de hasta 31 caracteres.
+- **Etiquetas:** en la columna 1, con o sin `:`, o con `:` en cualquier lugar. Si la palabra de la columna 1 es una instrucción o directiva y no lleva `:`, se toma como instrucción.
+- **Comprobado:** las 705 formas de instrucción del archivo de prueba salen igual que con `z80asm` en Linux, y seis programas del repositorio (`XFER`, `RTC`, `VC`, `BAUD`, `SETBOOT`, `LSTFILE`, escritos para zmac) salen byte a byte iguales. `XFER` (1179 líneas) se ensambla en unos 16 s a 7,19 MHz.
+- No tiene macros ni archivos relocalizables: para eso están `MAC`, `RMAC` y `LINK` de Digital Research (mnemónicos 8080). Ejemplo: `HOLA.Z80`.
+
 ## Detalles
 
 - **Archivos de CP/M y tamaños exactos.** CP/M guarda los archivos en registros de 128 bytes y no sabe dónde terminan. `SHA256` y `ZIP` toman el archivo entero; con `-T` (texto) cortan en el primer `^Z`. Para comprobar en la Mac un archivo recibido por XMODEM, que llega con relleno, conviene `SHA256 -T` si es texto, o comparar con la suma del archivo rellenado.

@@ -1,0 +1,22 @@
+; HOLA.Z80 - ejemplo para ZAS
+BDOS    EQU     5
+        ORG     100H
+        LD      DE,MSG
+        LD      C,9
+        CALL    BDOS
+        LD      B,5             ; cuenta 5..1
+LAZO:   LD      A,B
+        ADD     A,'0'
+        LD      E,A
+        LD      C,2
+        PUSH    BC
+        CALL    BDOS
+        POP     BC
+        DJNZ    LAZO
+        LD      DE,FIN
+        LD      C,9
+        JP      BDOS
+MSG:    DB      'Hola desde ZAS: ','$'
+FIN:    DB      13,10,'$'
+        END
+
