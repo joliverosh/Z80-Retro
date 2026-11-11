@@ -574,18 +574,19 @@ static uint8_t save(const char *name)
     static FCB f, t;
     static uint8_t rn_[36];
     uint16_t i, n = LEN(), lines = 0;
-    uint8_t k = 0, err = 0;
+    uint16_t k = 0;
+    uint8_t err = 0;
     if (!mkfcb(&f, name)) { msg("Bad file name"); return 0; }
     memcpy(&t, &f, sizeof t);
     memcpy(t.f + 8, "$$$", 3);
     if (fmake(&t)) { msg("Cannot create the file (directory full?)"); return 0; }
     for (i = 0; i <= n && !err; i++) {
         char c = i < n ? ch(i) : 0x1A;
-        if (c == '\n') { rb[k++] = '\r'; lines++; if (k == 128) { err = fwrite(&t, rb); k = 0; } }
+        if (c == '\n') { rb[k++] = '\r'; lines++; if (k == 1024) { err = fwriten(&t, rb, 8); k = 0; } }
         rb[k++] = c;
-        if (k == 128) { err = fwrite(&t, rb); k = 0; }
+        if (k == 1024) { err = fwriten(&t, rb, 8); k = 0; }
     }
-    if (k && !err) { while (k < 128) rb[k++] = 0x1A; err = fwrite(&t, rb); }
+    if (k && !err) { while (k & 127) rb[k++] = 0x1A; err = fwriten(&t, rb, k >> 7); }
     fclose(&t);
     if (err) { fdelete(&t); msg("Write error (disk full?): file not written"); return 0; }
     f.ex = 0;

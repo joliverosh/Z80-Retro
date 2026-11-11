@@ -71,11 +71,12 @@ int getchar(void)
 
 /* ------------------------------------------------------------ salida */
 static FCB of;
-static uint8_t tofile, ob[128], obn, oerr;
+static uint8_t tofile, ob[1024], oerr;     /* 8 registros por llamada al BDOS */
+static uint16_t obn;
 static void obyte(uint8_t c)
 {
     ob[obn++] = c;
-    if (obn == 128) { if (fwrite(&of, ob)) oerr = 1; obn = 0; }
+    if (obn == 1024) { if (fwriten(&of, ob, 8)) oerr = 1; obn = 0; }
 }
 int putchar(int c)
 {
@@ -87,7 +88,11 @@ int puts(const char *s) { while (*s) putchar(*s++); putchar('\n'); return 1; }
 static void finish(void)
 {
     if (tofile) {
-        if (obn || !oerr) { do obyte(0x1A); while (obn); }
+        if (obn || !oerr) {                 /* ^Z hasta el final del registro */
+            do ob[obn++] = 0x1A; while (obn & 127);
+            if (fwriten(&of, ob, obn >> 7)) oerr = 1;
+            obn = 0;
+        }
         fclose(&of);
         if (oerr) pstr("Write error (disk full?)\r\n");
         tofile = 0;

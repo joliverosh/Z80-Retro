@@ -111,4 +111,12 @@ void main(void)
     fclose(&f);
     fdelete(&f);
     dec1(rate(64, t)); pstr(" KB/s\n");
+    pstr("  Disk write, 1 KB per call ");
+    if (fmake(&f)) { pstr("cannot create the file\n"); return; }
+    start();
+    for (i = 0; i < 64; i++) if (fwriten(&f, buf, 8)) { pstr("disk full\n"); fclose(&f); fdelete(&f); return; }
+    fclose(&f);
+    t = stop();
+    fdelete(&f);
+    dec1(rate(64, t)); pstr(" KB/s\n");
 }

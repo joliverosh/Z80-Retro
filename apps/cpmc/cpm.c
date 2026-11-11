@@ -219,6 +219,22 @@ uint8_t freadn(FCB *f, uint8_t *buf, uint8_t n)
     return (r >> 12) & 15;          /* los que alcanzo a leer, en la mitad alta de H */
 }
 uint8_t fwrite(FCB *f, uint8_t *buf) { bdos(26, (uint16_t)buf); return bdos(21, (uint16_t)f) & 0xFF; }
+/* fwriten: n registros seguidos (n <= 16) con una sola llamada (BDOS 44);
+   0 bien. En CP/M 2.2, de a uno. */
+uint8_t fwriten(FCB *f, uint8_t *buf, uint8_t n)
+{
+    uint8_t r;
+    if (!n) return 0;
+    if (!ismpm()) {
+        for (; n; n--, buf += 128) if (fwrite(f, buf)) return 1;
+        return 0;
+    }
+    bdos(44, n);
+    bdos(26, (uint16_t)buf);
+    r = bdos(21, (uint16_t)f) & 0xFF;
+    bdos(44, 1);
+    return r;
+}
 uint8_t fmake(FCB *f)
 {
     bdos(19, (uint16_t)f);
@@ -324,18 +340,48 @@ void nm2fcb(NAME12 n, FCB *f)
 uint8_t ropen(RD *r, FCB *f)
 {
     if (f != &r->f) memcpy(&r->f, f, sizeof(FCB));
-    r->p = r->n = 0; r->eof = 0;
+    r->q = r->e = r->b; r->eof = 0;
     return fopen(&r->f);
 }
-int rgetc(RD *r)
+static int rgetcs(RD *r)             /* el bufer se acabo: otro KB */
 {
-    if (r->p >= r->n) {
-        uint8_t k;
-        if (r->eof || !(k = freadn(&r->f, r->b, RDN))) { r->eof = 1; return -1; }
-        r->n = (uint16_t)k << 7;
-        r->p = 0;
-    }
-    return r->b[r->p++];
+    uint8_t k;
+    if (r->eof || !(k = freadn(&r->f, r->b, RDN))) { r->eof = 1; return -1; }
+    r->q = r->b + 1;
+    r->e = r->b + ((uint16_t)k << 7);
+    return r->b[0];
+}
+/* rgetc: lo de cada byte, en asm (unos 160 ciclos; en C eran unos 400) */
+int rgetc(RD *r) __naked
+{
+    (void)r;
+    __asm
+        ld      de,#36          ; q (justo despues del FCB)
+        add     hl,de
+        ld      e,(hl)
+        inc     hl
+        ld      d,(hl)
+        inc     hl
+        ld      a,e             ; q < e?
+        sub     (hl)
+        inc     hl
+        ld      a,d
+        sbc     a,(hl)
+        jr      nc,rgetc1
+        ld      a,(de)
+        inc     de
+        dec     hl
+        dec     hl
+        ld      (hl),d
+        dec     hl
+        ld      (hl),e
+        ld      e,a
+        ld      d,#0
+        ret
+rgetc1: ld      de,#-39
+        add     hl,de
+        jp      _rgetcs
+    __endasm;
 }
 int32_t mul16(int16_t a, int16_t b)
 {

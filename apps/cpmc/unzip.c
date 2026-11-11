@@ -40,10 +40,11 @@ static uint32_t ocrc, ocount, olimit;
 static uint8_t oerr;
 static void flushw(void)                /* el ultimo registro, con ^Z */
 {
-    uint16_t n = (wp - wf) & 0x7FFF;
+    uint16_t n = (wp - wf) & 0x7FFF;   /* hasta 1023 */
     if (n) {
-        memset(win + wf + n, 0x1A, 128 - n);
-        if (fwrite(&of, win + wf)) oerr = 1;
+        uint16_t m = (n + 127) & ~127;
+        memset(win + wf + n, 0x1A, m - n);
+        if (fwriten(&of, win + wf, m >> 7)) oerr = 1;
     }
 }
 static void out(uint8_t c)
@@ -51,9 +52,9 @@ static void out(uint8_t c)
     win[wp] = c;
     wp = (wp + 1) & 0x7FFF;
     ocount++;
-    if (!(wp & 127)) {
-        ocrc = crcbuf(ocrc, win + ((wp - 128) & 0x7FFF), 128);
-        if (fwrite(&of, win + wf)) oerr = 1;
+    if (!(wp & 1023)) {                 /* 1 KB: 8 registros por llamada */
+        ocrc = crcbuf(ocrc, win + ((wp - 1024) & 0x7FFF), 1024);
+        if (fwriten(&of, win + wf, 8)) oerr = 1;
         wf = wp;
     }
 }
@@ -277,7 +278,7 @@ void main(void)
         i = 0;
         if (meth == 0) { uint32_t n = usz; while (n--) out(getb()); }
         else i = inflate();
-        /* lo que falta del CRC: lo que no llego a 128 */
+        /* lo que falta del CRC: lo que no llego a 1 KB */
         {
             uint16_t n = (wp - wf) & 0x7FFF;
             ocrc = crcbuf(ocrc, win + wf, n);
