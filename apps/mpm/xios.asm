@@ -3218,7 +3218,7 @@ ZBFS:
         JR      NC,ZBFE
         LD      A,(TXA+2)       ; transmitiendo?
         OR      A
-        JR      Z,ZBFE
+        JP      Z,ZBFI          ; parado: sale directo (HL = VQN)
         LD      HL,(TXA)        ; L = cabeza, H = cola
         LD      A,H
         INC     A
@@ -6297,6 +6297,23 @@ ZBL2:   INC     IX
 ZBL9:   POP     IX
         XOR     A
         JP      ZRET
+; ZBFI: lo de ZBF con el transmisor parado: el caracter va directo a la SIO
+; (como TXTRY) y a VQ. Interrupciones apagadas, HL = VQN, A = 0. En la SIO
+; real (bufer y registro de desplazamiento) la interrupcion de bufer vacio
+; llega enseguida y ITXF para el transmisor casi a cada caracter: sin esto,
+; esos caracteres iban por CONOUT.
+ZBFI:   INC     A
+        LD      (TXA+2),A
+        LD      A,C
+        OUT     (SIOAD),A
+        LD      A,(HL)
+        INC     (HL)
+        ADD     A,VQ AND 0FFh
+        LD      L,A
+        LD      (HL),C
+        EI
+        XOR     A
+        RET
 ; ZCON: C = la consola del proceso que corre
 ZCON:   LD      HL,(RLRA)
         LD      A,(HL)
