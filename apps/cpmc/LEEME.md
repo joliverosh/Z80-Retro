@@ -19,6 +19,7 @@ Programas escritos en C con SDCC 4.2 y una biblioteca chica propia (`cpm.c`). Ca
 | `ROGUE` | El calabozo de Rogue: baja, pelea, encuentra el Amuleto de Yendor y vuelve a subir (ver abajo) | `ROGUE` |
 | `CHESS` | Ajedrez contra el computador o contra otra persona en otra consola (ver abajo) | `CHESS`, `CHESS DUEL` |
 | `NAVAL` | La batalla naval entre dos consolas o contra el computador (ver abajo) | `NAVAL`, `NAVAL C` |
+| `ZGPT` | Un GPT de verdad: un transformer chico que escribe letra por letra a la manera de *El Quijote* (ver abajo) | `ZGPT`, `ZGPT /T5 dijo sancho` |
 | `ZFM` | Administrador de archivos de dos paneles: copiar, mover, borrar, ver, abrir (ver abajo) | `ZFM`, `ZFM A: B:` |
 | `ZWRITE` | Procesador de texto con las teclas de WordStar; guarda Markdown (ver abajo) | `ZWRITE CARTA.MD` |
 | `ZDATA` | Base de datos de fichas sobre archivos `.DBF` de dBase III (ver abajo) | `ZDATA CLIENTES` |
@@ -246,6 +247,23 @@ La batalla naval, contra otra persona en otra consola o contra el computador. Ca
 - El computador busca en damero y, cuando toca, sigue la línea del barco.
 
 **Cómo se hablan dos programas** (`duel.h`, que usan NAVAL y CHESS): por un archivo oculto de `A:` usuario 0 (`NAVAL.DAT`, `CHESS.DAT`) que los dos abren en modo sin bloqueo (atributo f5'). El XIOS tiene una sola caché de la SD, así que lo que escribe uno el otro lo lee en el acto. El registro 0 es la sala de espera (quién espera, desde qué consola y a qué hora: el que espera la escribe cada 2 segundos y una espera de más de 10 segundos no vale); hay 4 mesas de dos registros, uno por jugador, con el número del mensaje, el último que se leyó del otro, el tipo y los datos. Cada mensaje espera a que el otro lea el anterior; lo que llega mientras tanto se guarda. Las colas de MP/M (134-140) no sirven entre programas de usuario: el QCB tendría que estar en la memoria común, que es del sistema.
+
+## ZGPT
+
+Un modelo de lenguaje como los de ahora, en chico, que corre en el Z80: un transformer de 2 capas (dimensión 32, 4 cabezas de atención, 96 en la capa intermedia, 48 letras de memoria; 25 838 parámetros) entrenado con el texto completo de *El Quijote* (2 millones de letras). Escribe una letra por vez, cada una sacada de las probabilidades que calcula, así que inventa: palabras de verdad, giros de la época y frases que casi tienen sentido.
+
+```
+ZGPT                       pregunta el comienzo y sigue escribiendo
+ZGPT /T5 /L200 dijo sancho escribe una vez y vuelve
+```
+
+- Se escribe cómo empieza (`en un lugar de`, `dijo sancho`, `señor don quijote`) y Enter; Enter solo empieza de la nada. Una tecla lo detiene; ESC sale.
+- `/T` es la temperatura en décimas: `/T0` toma siempre la letra más probable (se repite), `/T5` es prudente, `/T7` (al empezar) tiene más gracia, `/T12` desvaría. `/L` cuántas letras escribe (400 al empezar).
+- Las letras son 46: minúsculas con tildes y `ñ`, espacio, fin de párrafo y la puntuación; las mayúsculas las pone ZGPT al principio de cada oración. Lee y escribe UTF-8.
+- **Velocidad:** un segundo y medio por letra, más o menos, a 7,37 MHz: cada letra son unas 28 000 multiplicaciones de 8 bits.
+- Necesita `ZGPT.BIN` (los pesos, 27 KB) en la misma unidad o en `A:`.
+
+**Cómo está hecho.** Se entrenó en Python con PyTorch (`gpt/train.py`): 12 000 pasos, unos 9 minutos en dos núcleos, con una pérdida de validación de unos 1,5 nats por letra. La posición se cuenta módulo 48 y la atención mira las últimas 48 letras, así la memoria de K y V es un anillo y escribe sin fin. `gpt/export.py` pasa el modelo a enteros: las normas se juntan con la matriz que sigue, los pesos van en bytes con signo con una escala por fila (multiplicador de 16 bits y desplazamiento de 16), las activaciones en bytes con escalas fijas medidas con el texto, el residuo en Q8 de 16 bits, el softmax con una tabla de exponenciales de 7 bits; es además la referencia exacta: con `/T0` el Z80 escribe lo mismo, letra por letra. El modelo entero pierde 0,01 nats por letra contra el de punto flotante. En el Z80 (`zgpt.c`, `zgpt_a.s`), el producto escalar usa cuartos de cuadrado, `a·b = T[a+b] − T[a−b]` con `T[k] = ⌊k²/4⌋`, con los pesos guardados como `byte + 80h` para que las dos sumas sean índices de 9 bits en la misma tabla: unos 245 ciclos por término. Usa el `cpm.c` reducido (`CPM_LITE`) para que quepan los pesos, la memoria de K y V (6 KB) y las tablas en la TPA de MP/M.
 
 ## Detalles
 
