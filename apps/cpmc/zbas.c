@@ -1705,7 +1705,7 @@ void main(void)
             exit();
         }
         first = 0;
-        cons("ZBAS " VERSION " - structured BASIC with 9-digit decimal numbers   (C) OLIVEROS 2026\n");
+        cons("ZBAS " VERSION " - structured BASIC   (C) OLIVEROS 2026\n");
         { char b[8]; b[utoa_(hfree, b)] = 0; cons(b); }
         cons(" bytes free. HELP is in LEEME.md; SYSTEM goes back to CP/M.\n");
         prompt_ok();

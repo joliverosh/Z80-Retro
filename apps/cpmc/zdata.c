@@ -547,7 +547,7 @@ static void drawall(void)
         drawrow(TOP + j, r);
         if (r) r = nextok(r, 1);
     }
-    line(23, ESC "[2m Enter edit  A add  F form  Del delete  B find  X filter  O sort  P pack  I report  N new  Q quit" NORM);
+    line(23, ESC "[2m Enter edit  A add  F form  Del delete  B find  X filter  O sort  ? more Q quit" NORM);
     dirty = 0;
 }
 /* deja cur a la vista (top) */
