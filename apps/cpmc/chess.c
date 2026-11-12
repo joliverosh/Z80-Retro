@@ -1,12 +1,14 @@
 /* CHESS - ajedrez contra el computador. Las jugadas se escriben como e2e4 (e7e8n para
    coronar caballo; si no, dama), O-O y O-O-O. Ordenes: new, undo (deshace la ultima
    jugada de cada uno), go (el computador juega con el bando que mueve), level 1-6
-   (cuanto piensa), flip (gira el tablero), help, quit.
+   (cuanto piensa), flip (gira el tablero), help, quit. Con duel (o CHESS DUEL) se juega
+   contra otra persona que corre CHESS en otra consola de MP/M II (ver duel.h).
    Busqueda alfa-beta con profundizacion iterativa y capturas al final; tablero 0x88.
    Los mensajes van en ingles. (C) OLIVEROS 2026 */
 /* mk: --max-allocs-per-node 50000 */
 #include <string.h>
 #include "cpm.h"
+#include "duel.h"
 
 /* ---------------------------------------------------------------- el tablero */
 enum { EMPTY, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING };
@@ -409,6 +411,10 @@ static undo hu[HMAX];
 static uint8_t hpc[HMAX];        /* la pieza que se movio (para escribirla) */
 static uint16_t nh;
 static uint8_t flip, comp = BLACK, level = 3;
+static uint8_t remote;           /* comp es la otra persona, en otra consola */
+static int pend;
+static uint8_t done;            /* termino la partida */
+static uint8_t dbuf[DLEN];
 static char line[40];
 static const char pc[] = " PNBRQK";
 static const uint16_t lsec[7] = { 0, 1, 3, 8, 20, 45, 90 };   /* segundos por nivel */
@@ -460,7 +466,9 @@ static void drawinfo(void)
     char t[12];
     gotoxy(48, 2); pstr("C H E S S   (C) OLIVEROS 2026");
     gotoxy(48, 3); pf("Level %u: up to %u s a move" ESC "[K", level, lsec[level]);
-    gotoxy(48, 4); pf("You play %s" ESC "[K", comp == BLACK ? "white" : comp == WHITE ? "black" : "both sides");
+    gotoxy(48, 4);
+    if (remote) pf("Duel: you play %s" ESC "[K", comp == BLACK ? "white" : "black");
+    else pf("You play %s" ESC "[K", comp == BLACK ? "white" : comp == WHITE ? "black" : "both sides");
     f = nh > 26 ? (nh - 25) & ~1 : 0;    /* las ultimas jugadas, de a dos */
     for (r = 0, i = f; r < 13; r++, i += 2) {
         gotoxy(48, 6 + r); pstr(ESC "[K");
@@ -537,13 +545,27 @@ static uint8_t parse(char *s, move *out)   /* la jugada escrita, si es legal */
         if (l[k].f == f && l[k].t == t && (!l[k].pr || l[k].pr == pr)) { *out = l[k]; return 1; }
     return 0;
 }
+static uint8_t rmsg(uint8_t t);
+static void endduel(const char *why);
 static void getline(void)
 {
-    uint8_t n = 0;
+    uint8_t n = 0, pl = 16;
     int k;
-    gotoxy(1, 22); pstr(side == WHITE ? "White" : "Black"); pstr(" to move: " ESC "[K" SHOW);
+    gotoxy(1, 22);
+    if (remote && side == comp) { pstr("Command: " ESC "[K" SHOW); pl = 10; }
+    else { pstr(side == WHITE ? "White" : "Black"); pstr(" to move: " ESC "[K" SHOW); }
     for (;;) {
-        k = waitkey();
+        if (pend) { k = pend; pend = 0; }
+        else if (remote) {                   /* mientras, lo que diga el otro */
+            while (!(k = getkey())) {
+                uint8_t t = drecv(dbuf);
+                if (t == 'M') { endduel("The other side moved out of turn: the duel is over."); n = 0; break; }
+                if (t && rmsg(t)) { n = 0; break; }
+                if (!t) delay(10);
+            }
+            if (!remote) break;
+            gotoxy(pl + n, 22);
+        } else k = waitkey();
         if (k == 13 || k == 10) break;
         if ((k == 8 || k == 127) && n) { n--; pstr("\b \b"); continue; }
         if (k >= ' ' && k < 127 && n < sizeof line - 1) { line[n++] = k; putch(k); }
@@ -578,24 +600,125 @@ static void help(void)
          "  both       you play both sides; go again to let the computer play\n"
          "  level N    how long the computer thinks: 1 (1 s) to 6 (90 s)\n"
          "  flip       turn the board around\n"
+         "  duel       play someone running CHESS on another console (MP/M II)\n"
+         "             then: say text (talk), draw (offer or accept), resign\n"
          "  quit       leave\n\n"
          "  ESC while the computer thinks makes it move with what it has found.\n"
          "  White pieces are capitals, black pieces small letters.\n\n--press a key--");
     waitkey();
 }
+/* ---------------------------------------------------------------- a duelo */
+static uint8_t drawoff;          /* 1 yo ofreci tablas, 2 me las ofrecieron */
+static void endduel(const char *why)
+{
+    say(why);
+    if (remote) dclose();
+    remote = 0; comp = 0xFF; done = 1;
+    drawinfo();
+}
+static uint8_t duel(void)        /* busca con quien jugar: 1 si empieza la partida */
+{
+    uint8_t r, shown = 0;
+    int k;
+    if (!ismpm()) { say("A duel needs MP/M II (two consoles)."); return 0; }
+    if (dopen("CHESS   DAT")) { say("Can't open A:CHESS.DAT."); return 0; }
+    for (;;) {
+        r = dlobby();
+        if (r == DL_GO) break;
+        if (r == DL_ERR) { dclose(); say("Trouble with A:CHESS.DAT."); return 0; }
+        if (!shown) { say("Waiting for someone to run CHESS and type duel on another console (ESC: stop)"); shown = 1; }
+        k = getkey();
+        if (k == 27 || k == 'q' || k == 'Q') { dclose(); say(""); return 0; }
+        delay(tps() / 3);
+    }
+    setup(); nh = 0; drawoff = 0;
+    remote = 1;
+    comp = dme ? WHITE : BLACK;          /* el que espero juega con blancas */
+    flip = dme;
+    drawall();
+    say(dme ? "Duel: you play black. Waiting for white's move..." : "Duel: you play white. Your move.");
+    return 1;
+}
+/* lo que dice el otro (fuera de su jugada); 1 si se acabo el duelo */
+static uint8_t rmsg(uint8_t t)
+{
+    if (t == 'T') { gotoxy(1, 23); pf(ESC "[7m They say: " ESC "[0m %s" ESC "[K", (char *)dbuf); }
+    else if (t == 'D') {
+        if (drawoff == 1) { endduel("The other player accepts: a draw."); return 1; }
+        drawoff = 2; say("The other player offers a draw (type draw to accept).");
+    } else if (t == 'R') { endduel("The other player resigns: you win!"); return 1; }
+    else if (t == 'Q') { endduel("The other player left: the duel is over."); return 1; }
+    return 0;
+}
+/* mientras juega el otro: su jugada, lo que dice; las teclas abren la linea de ordenes.
+   1 si hay que leer una orden */
+static uint8_t remotewait(move *m)
+{
+    static move l[120];
+    uint8_t t, n, i;
+    gotoxy(1, 22); pstr("Waiting for the other player's move (a key gives you the command line)" ESC "[K" HIDE);
+    for (;;) {
+        t = drecv(dbuf);
+        if (t == 'M') {
+            n = legal(l);
+            for (i = 0; i < n; i++)
+                if (l[i].f == dbuf[0] && l[i].t == dbuf[1] && l[i].pr == dbuf[2]) { *m = l[i]; return 2; }
+            endduel("The other side sent a move that isn't legal here: the duel is over.");
+            return 0;
+        }
+        if (t && rmsg(t)) return 0;
+        if (!t && (pend = getkey()) != 0) return 1;
+        else if (!t) delay(10);
+    }
+}
+static uint8_t dcmd(void)        /* ordenes del duelo; 1 si era una */
+{
+    if (!strncmp(line, "say ", 4)) {
+        if (dsend('T', line + 4, strlen(line + 4) + 1)) endduel("The other player doesn't answer.");
+        else { gotoxy(1, 23); pf("You said: %s" ESC "[K", line + 4); }
+        return 1;
+    }
+    if (!strcmp(line, "resign")) { dsend('R', 0, 0); endduel("You resigned."); return 1; }
+    if (!strcmp(line, "draw")) {
+        dsend('D', 0, 0);
+        if (drawoff == 2) endduel("Agreed: a draw.");
+        else { drawoff = 1; say("You offered a draw."); }
+        return 1;
+    }
+    if (!strcmp(line, "flip")) return 0;
+    if (!strcmp(line, "help") || line[0] == '?') return 0;
+    if (!strcmp(line, "quit") || !strcmp(line, "q")) return 0;
+    if (!strcmp(line, "new") || !strcmp(line, "undo") || !strcmp(line, "go") || !strcmp(line, "both") ||
+        !strncmp(line, "level", 5) || !strcmp(line, "duel")) {
+        say("Not during a duel (resign or quit first)."); return 1;
+    }
+    return 0;
+}
 void main(void)
 {
     static move m;
-    static uint8_t done, n;
+    static uint8_t n;
     static char t[12];
+    char *a = args(), *w = nextarg(&a);
     srnd(ticks());
     pstr(HIDE);
     setup();
     nh = 0; done = 0;
     drawall();
     say("Type help for the commands.");
+    if (w && !strcmp(w, "DUEL")) duel();
     for (;;) {
-        if (!done && side == comp) {
+        if (remote && !done && side == comp) {
+            if (!(n = remotewait(&m))) { done = 1; continue; }
+            if (n == 2) {
+                play(&m); drawboard(); drawinfo();
+                mvtext(t, nh - 1);
+                gotoxy(1, 21); pstr("Their move: "); pstr(t); pstr(ESC "[K");
+                done = over();
+                if (done) { dclose(); remote = 0; }
+                continue;
+            }
+        } else if (!done && side == comp) {
             say("Thinking...");
             maxd = ldep[level]; tlimit = lsec[level] * tps();
             vary = nh < 12 ? 8 : 0;
@@ -613,7 +736,9 @@ void main(void)
         getline();
         n = strlen(line);
         if (!n) continue;
-        if (!strcmp(line, "quit") || !strcmp(line, "q")) break;
+        if (remote && dcmd()) continue;
+        if (!strcmp(line, "quit") || !strcmp(line, "q")) { if (remote) { dsend('Q', 0, 0); dclose(); } break; }
+        if (!strcmp(line, "duel")) { if (duel()) done = 0; continue; }
         else if (!strcmp(line, "help") || line[0] == '?') { help(); drawall(); }
         else if (!strcmp(line, "new")) { setup(); nh = 0; done = 0; comp = BLACK; drawall(); say(""); }
         else if (!strncmp(line, "perft", 5)) { mvp = mv; gotoxy(1, 21); pf("perft: %lu" ESC "[K", perft(line[n - 1] - '0')); }
@@ -629,7 +754,15 @@ void main(void)
             if (n >= 1 && n <= 6) level = n;
             drawinfo(); say("");
         } else if (done) say("The game is over: type new (or undo).");
-        else if (parse(line, &m)) { play(&m); drawboard(); drawinfo(); say(""); done = over(); }
+        else if (remote && side == comp) say("It's the other player's move.");
+        else if (parse(line, &m)) {
+            if (remote) {
+                dbuf[0] = m.f; dbuf[1] = m.t; dbuf[2] = m.pr;
+                if (dsend('M', dbuf, 3)) { endduel("The other player doesn't answer."); continue; }
+            }
+            play(&m); drawboard(); drawinfo(); say(""); done = over();
+            if (done && remote) { dclose(); remote = 0; }
+        }
         else say("That is not a legal move (help shows how to write them).");
     }
     pstr(CLS SHOW);

@@ -17,7 +17,9 @@ Programas escritos en C con SDCC 4.2 y una biblioteca chica propia (`cpm.c`). Ca
 | `TETRIS` | Flechas o WASD/IJKL; arriba gira, espacio la deja caer, P pausa, Q sale | `TETRIS` |
 | `SNAKE` | La víbora: come los `*` sin chocar | `SNAKE` |
 | `ROGUE` | El calabozo de Rogue: baja, pelea, encuentra el Amuleto de Yendor y vuelve a subir (ver abajo) | `ROGUE` |
-| `CHESS` | Ajedrez contra el computador (ver abajo) | `CHESS` |
+| `CHESS` | Ajedrez contra el computador o contra otra persona en otra consola (ver abajo) | `CHESS`, `CHESS DUEL` |
+| `NAVAL` | La batalla naval entre dos consolas o contra el computador (ver abajo) | `NAVAL`, `NAVAL C` |
+| `ZFM` | Administrador de archivos de dos paneles: copiar, mover, borrar, ver, abrir (ver abajo) | `ZFM`, `ZFM A: B:` |
 | `ZWRITE` | Procesador de texto con las teclas de WordStar; guarda Markdown (ver abajo) | `ZWRITE CARTA.MD` |
 | `ZDATA` | Base de datos de fichas sobre archivos `.DBF` de dBase III (ver abajo) | `ZDATA CLIENTES` |
 | `ZBAS` | BASIC estructurado (ver abajo) | `ZBAS`, `ZBAS EJEMPLO` |
@@ -32,7 +34,7 @@ Programas escritos en C con SDCC 4.2 y una biblioteca chica propia (`cpm.c`). Ca
 | `ZIP` | Hace un `.ZIP` con deflate | `ZIP COPIA *.ASM *.COM`, `ZIP -T TEXTOS *.TXT` |
 | `UNZIP` | Saca los archivos de un `.ZIP` (guardados o con deflate, también los hechos en la Mac) y comprueba el CRC | `UNZIP COPIA`, `UNZIP -L COPIA`, `UNZIP COPIA B:` |
 
-`TOP` (el uso de la CPU) y `TALK` usan los servicios 44 y 45 del XIOS: necesitan el `MPM.SYS` de noviembre de 2026 o posterior. `TOP`, `TALK` y `CLOCK` solo andan en MP/M; los demás también en CP/M 2.2.
+`TOP` (el uso de la CPU) y `TALK` usan los servicios 44 y 45 del XIOS: necesitan el `MPM.SYS` de noviembre de 2026 o posterior. `TOP`, `TALK` y `CLOCK` solo andan en MP/M, igual que los duelos de `CHESS` y `NAVAL` y el lanzar programas de `ZFM`; los demás también en CP/M 2.2.
 
 ## Los filtros de Semilla
 
@@ -205,9 +207,45 @@ El calabozo de Rogue en 80×24: cuartos, pasillos, monstruos (`A`–`Z`, de murc
 Ajedrez contra el computador, con el tablero en colores.
 
 - **Jugadas:** las casillas de salida y llegada: `e2e4` (o `e2-e4`, `e4xd5`); para coronar algo que no sea dama, la pieza al final: `e7e8n`. Enroque: `O-O` y `O-O-O`. Las blancas en mayúsculas, las negras en minúsculas.
-- **Órdenes:** `new` (partida nueva), `undo` (deshace la última jugada de cada uno), `go` (el computador juega con el bando que mueve), `both` (dos personas), `level 1`–`6` (de 1 a 90 segundos por jugada), `flip` (gira el tablero), `help`, `quit`. ESC mientras piensa lo hace jugar con lo que tiene.
+- **Órdenes:** `new` (partida nueva), `undo` (deshace la última jugada de cada uno), `go` (el computador juega con el bando que mueve), `both` (dos personas), `level 1`–`6` (de 1 a 90 segundos por jugada), `flip` (gira el tablero), `duel` (contra otra persona en otra consola), `help`, `quit`. ESC mientras piensa lo hace jugar con lo que tiene.
+- **A duelo:** `duel` (o `CHESS DUEL`) en dos consolas de MP/M II, por ejemplo la del terminal y la de la SIO B, o dos consolas virtuales (Ctrl-F1, Ctrl-F2). El primero espera y juega con blancas; el segundo se une y juega con negras, con el tablero girado. Mientras juega el otro, cualquier tecla abre la línea de órdenes: `say texto` (le escribe al otro), `draw` (ofrece tablas, o las acepta si el otro las ofreció), `resign` (abandona), `quit`.
 - Conoce el enroque, la captura al paso, la coronación, el mate, el ahogado, la regla de las 50 jugadas y la falta de material.
 - **Por dentro:** tablero 0x88 con las listas de piezas de cada bando, búsqueda alfa-beta con profundización iterativa, extensión de los jaques y las capturas al final (las más valiosas con las menos valiosas primero); la evaluación es el material más tablas por casilla, sumada al mover. `attacked` (si una casilla está atacada) está en ensamblador (`chess_a.s`) con una tabla de 239 direcciones. A 7,37 MHz mira unas 350 posiciones por segundo: con el nivel 3 (8 s) ve tres jugadas. `perft N` (orden escondida) cuenta las posiciones a `N` jugadas desde la de ahora, para probar las reglas.
+
+## ZFM
+
+Administrador de archivos de dos paneles, al estilo del Norton Commander. Cada panel muestra una unidad y un usuario (al empezar, los de la consola; `ZFM B: C:` abre otras), con el tamaño de cada archivo y los KB libres.
+
+| Tecla | Qué hace |
+|---|---|
+| flechas, RePag/AvPag, Inicio/Fin | moverse en la lista |
+| Tab (o izquierda/derecha) | el otro panel |
+| Espacio o Ins | marca o desmarca; `*` marca todo o nada |
+| Enter | abre: `.BAS` con ZBAS, `.ZC` `.WKS` `.CSV` con ZCALC, `.DBF` con ZDATA, `.MD` `.TXT` con ZWRITE, `.SUB` con SUBMIT; `.COM` y `.PRL` se corren (pregunta la orden, para agregar argumentos); lo demás se muestra |
+| V o F3 | ver un texto (los primeros 18 KB) |
+| E o F4 | editarlo con ZWRITE |
+| C o F5 / M o F6 | copiar / mover los marcados (o el del cursor) al otro panel |
+| R | renombrar |
+| D, Supr o F8 | borrar los marcados (o el del cursor), con confirmación |
+| L / U | cambiar la unidad (A-P) / el usuario (0-15) del panel |
+| S | volver a leer los directorios |
+| ? o F1 | ayuda; Q, ESC o F10: salir |
+
+- Copiar entre usuarios distintos cambia de usuario en cada lectura y escritura (BDOS 32), de a 2 KB. ESC o `Q` detiene la copia y borra la copia a medias.
+- Los programas se lanzan con el BDOS 47 (*Chain To Program*): corren en la unidad y el usuario del panel y, al terminar, se vuelve al indicador (no a ZFM).
+- **Los KB libres:** el vector de asignación del BDOS 27 no sirve en MP/M II (está en el banco del sistema); ZFM los cuenta en la misma pasada que lee el directorio, sumando los bloques de todas las entradas de todos los usuarios.
+
+## NAVAL
+
+La batalla naval, contra otra persona en otra consola o contra el computador. Cada uno tiene cinco barcos (portaaviones de 5, acorazado de 4, crucero y submarino de 3, destructor de 2) en un mar de 10 × 10, sin tocarse; se dispara por turnos.
+
+- `NAVAL` espera a que alguien corra `NAVAL` en otra consola (`C`: jugar contra el computador); `NAVAL C` juega contra el computador de una vez. El que esperaba dispara primero.
+- La flota se reparte sola: `R` otra disposición, Enter listo.
+- **Disparar:** las flechas (o una letra y un número: `E5`) y Enter o Espacio. `T` le escribe al otro; `Q` abandona.
+- A la izquierda, la flota propia (`#` barco, `X` tocado, `o` agua); a la derecha, el mar del otro (`X` tocado, `#` hundido, `o` agua). Al final se ven los barcos que no se encontraron.
+- El computador busca en damero y, cuando toca, sigue la línea del barco.
+
+**Cómo se hablan dos programas** (`duel.h`, que usan NAVAL y CHESS): por un archivo oculto de `A:` usuario 0 (`NAVAL.DAT`, `CHESS.DAT`) que los dos abren en modo sin bloqueo (atributo f5'). El XIOS tiene una sola caché de la SD, así que lo que escribe uno el otro lo lee en el acto. El registro 0 es la sala de espera (quién espera, desde qué consola y a qué hora: el que espera la escribe cada 2 segundos y una espera de más de 10 segundos no vale); hay 4 mesas de dos registros, uno por jugador, con el número del mensaje, el último que se leyó del otro, el tipo y los datos. Cada mensaje espera a que el otro lea el anterior; lo que llega mientras tanto se guarda. Las colas de MP/M (134-140) no sirven entre programas de usuario: el QCB tendría que estar en la memoria común, que es del sistema.
 
 ## Detalles
 
