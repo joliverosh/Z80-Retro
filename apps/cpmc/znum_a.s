@@ -26,164 +26,231 @@ F_TODAY = 26
 F_NOW   = 27
         .module zcalc_a
         .area   _DATA
-ma:     .ds     8               ; multiplicando corrido
-mb:     .ds     4               ; multiplicador
-mr:     .ds     2               ; puntero al producto
-mrm:    .ds     5               ; resto de la division
-mt:     .ds     8               ; temporal
+mtmp:   .ds     8               ; el producto mientras se arma
+dvr:    .ds     4               ; el resto de d64x32 antes de ir de a un bit
 
         .area   _CODE
-; void m32x32(uint8_t *r, uint32_t a, uint32_t b): r = a * b
+; zmul16: DE:HL = DE * BC (BC no cambia)
+zmul16:  ld      a,d
+        or      e
+        jr      z,zm3
+        ld      a,b
+        or      c
+        jr      z,zm3
+        ld      hl,#0
+        ld      a,#16
+zm1:    add     hl,hl
+        rl      e
+        rl      d
+        jr      nc,zm2
+        add     hl,bc
+        jr      nc,zm2
+        inc     de
+zm2:    dec     a
+        jr      nz,zm1
+        ret
+zm3:    ld      hl,#0
+        ld      d,h
+        ld      e,l
+        ret
+
+; void m32x32(uint8_t *r, uint32_t a, uint32_t b): r = a * b, de a 16 bits:
+; a0*b0 + (a0*b1 + a1*b0) << 16 + a1*b1 << 32
 _m32x32::
         push    ix
         ld      ix,#0
         add     ix,sp           ; 4 r, 6 a, 10 b
-        ld      hl,#ma
-        ld      b,#8
-m1:     ld      (hl),#0
-        inc     hl
-        djnz    m1
-        ld      l,4(ix)
-        ld      h,5(ix)
-        ld      (mr),hl
-        ld      b,#8
-m2:     ld      (hl),#0
-        inc     hl
-        djnz    m2
-        ld      a,6(ix)
-        ld      (ma),a
-        ld      a,7(ix)
-        ld      (ma+1),a
-        ld      a,8(ix)
-        ld      (ma+2),a
-        ld      a,9(ix)
-        ld      (ma+3),a
-        ld      a,10(ix)
-        ld      (mb),a
-        ld      a,11(ix)
-        ld      (mb+1),a
-        ld      a,12(ix)
-        ld      (mb+2),a
-        ld      a,13(ix)
-        ld      (mb+3),a
-        ld      c,#32
-m3:     ld      hl,#mb+3
-        srl     (hl)
-        dec     hl
-        rr      (hl)
-        dec     hl
-        rr      (hl)
-        dec     hl
-        rr      (hl)
-        jr      nc,m5
-        ld      hl,(mr)
-        ld      de,#ma
-        ld      b,#8
-        or      a
-m4:     ld      a,(de)
-        adc     a,(hl)
-        ld      (hl),a
-        inc     hl
-        inc     de
-        djnz    m4
-m5:     ld      hl,#ma
-        call    shl1
-        dec     c
-        jr      nz,m3
+        ld      e,6(ix)
+        ld      d,7(ix)
+        ld      c,10(ix)
+        ld      b,11(ix)
+        call    zmul16           ; a0 * b0
+        ld      (mtmp),hl
+        ld      (mtmp+2),de
+        ld      e,8(ix)
+        ld      d,9(ix)
+        ld      c,12(ix)
+        ld      b,13(ix)
+        call    zmul16           ; a1 * b1
+        ld      (mtmp+4),hl
+        ld      (mtmp+6),de
+        ld      e,6(ix)
+        ld      d,7(ix)
+        call    zmul16           ; a0 * b1
+        call    zmadd
+        ld      e,8(ix)
+        ld      d,9(ix)
+        ld      c,10(ix)
+        ld      b,11(ix)
+        call    zmul16           ; a1 * b0
+        call    zmadd
+        ld      e,4(ix)
+        ld      d,5(ix)
+        ld      hl,#mtmp
+        ld      bc,#8
+        ldir
         pop     ix
         ret
-
-; shl1: (hl) de 8 bytes, un bit a la izquierda (hl no cambia)
-shl1:   push    hl
-        ld      b,#8
-        or      a
-s1:     rl      (hl)
+; zmadd: mtmp += DE:HL << 16
+zmadd:   ld      bc,(mtmp+2)
+        add     hl,bc
+        ld      (mtmp+2),hl
+        ld      hl,(mtmp+4)
+        adc     hl,de
+        ld      (mtmp+4),hl
+        ret     nc
+        ld      hl,(mtmp+6)
         inc     hl
-        djnz    s1
-        pop     hl
+        ld      (mtmp+6),hl
         ret
 
-; void d64x32(uint8_t *q, uint32_t d): q = q / d
+; void d64x32(uint8_t *q, uint32_t d): q = q / d. De a un byte, desde el alto: el
+; resto (33 bits) en HL (bajo) y HL' (alto), d en BC y DE'; los bits del
+; cociente entran por abajo del byte mientras salen los del dividendo
 _d64x32::
         push    ix
         ld      ix,#0
         add     ix,sp           ; 4 q, 6 d
-        xor     a
-        ld      (mrm),a
-        ld      (mrm+1),a
-        ld      (mrm+2),a
-        ld      (mrm+3),a
-        ld      (mrm+4),a
-        ld      c,#64
-d1:     ld      l,4(ix)
-        ld      h,5(ix)
-        call    shl1
-        ld      hl,#mrm
-        ld      b,#5
-d2:     rl      (hl)
-        inc     hl
-        djnz    d2
-        ld      a,(mrm)
-        sub     6(ix)
-        ld      (mt),a
-        ld      a,(mrm+1)
-        sbc     a,7(ix)
-        ld      (mt+1),a
-        ld      a,(mrm+2)
-        sbc     a,8(ix)
-        ld      (mt+2),a
-        ld      a,(mrm+3)
-        sbc     a,9(ix)
-        ld      (mt+3),a
-        ld      a,(mrm+4)
-        sbc     a,#0
-        jr      c,d3
-        ld      (mrm+4),a
-        ld      a,(mt)
-        ld      (mrm),a
-        ld      a,(mt+1)
-        ld      (mrm+1),a
-        ld      a,(mt+2)
-        ld      (mrm+2),a
-        ld      a,(mt+3)
-        ld      (mrm+3),a
+        push    iy
         ld      l,4(ix)
         ld      h,5(ix)
-        set     0,(hl)
-d3:     dec     c
-        jr      nz,d1
+        ld      de,#7
+        add     hl,de
+        push    hl
+        pop     iy              ; el byte alto de q
+        ld      c,6(ix)
+        ld      b,7(ix)
+        xor     a               ; los bytes altos que no llegan a d van enteros al resto
+        ld      (dvr),a
+        ld      (dvr+1),a
+        ld      (dvr+2),a
+        ld      (dvr+3),a
+        ld      d,#8
+zp1:    ld      a,(dvr+3)       ; resto * 256 cabe en 32 bits?
+        or      a
+        jr      nz,zp3
+        ld      e,0(iy)         ; T = resto * 256 + byte, con d
+        ld      a,(dvr+2)
+        cp      9(ix)
+        jr      nz,zp2
+        ld      a,(dvr+1)
+        cp      8(ix)
+        jr      nz,zp2
+        ld      a,(dvr)
+        cp      7(ix)
+        jr      nz,zp2
+        ld      a,e
+        cp      6(ix)
+zp2:    jr      nc,zp3          ; T >= d: de aqui en adelante, de a un bit
+        ld      a,(dvr+2)
+        ld      (dvr+3),a
+        ld      a,(dvr+1)
+        ld      (dvr+2),a
+        ld      a,(dvr)
+        ld      (dvr+1),a
+        ld      a,e
+        ld      (dvr),a
+        ld      0(iy),#0
+        dec     iy
+        dec     d
+        jr      nz,zp1
+        jr      zv9             ; todo cupo: cociente 0
+zp3:    exx
+        ld      e,8(ix)
+        ld      d,9(ix)
+        ld      hl,(dvr+2)
+        exx
+        ld      hl,(dvr)
+zv1:    ld      a,0(iy)
+        or      a
+        jr      nz,zv2
+        ld      a,h             ; byte 0 y resto 0: el cociente es 0
+        or      l
+        exx
+        or      h
+        or      l
+        exx
+        jr      z,zv5
+        xor     a
+zv2:    ld      e,#8            ; bits
+zv3:    rla                     ; el bit del dividendo sale; el del cociente entra
+        adc     hl,hl
+        exx
+        adc     hl,hl
+        exx
+        jr      c,zv6           ; el resto pasa de 32 bits: se resta seguro
+        or      a
+        sbc     hl,bc
+        exx
+        sbc     hl,de
+        exx
+        jr      nc,zv7
+        add     hl,bc           ; no cabia: se devuelve
+        exx
+        adc     hl,de
+        exx
+        or      a
+        jr      zv8
+zv6:    or      a
+        sbc     hl,bc
+        exx
+        sbc     hl,de
+        exx
+zv7:    scf
+zv8:    dec     e
+        jr      nz,zv3
+        rla                     ; el ultimo bit del cociente
+        ld      0(iy),a
+zv5:    dec     iy
+        dec     d
+        jr      nz,zv1
+        ld      (dvr),hl        ; el resto
+        exx
+        ld      (dvr+2),hl
+        exx
+zv9:    pop     iy
         pop     ix
         ret
 
-; uint8_t d64x8(uint8_t *q, uint8_t d): q = q / d; devuelve el resto
+; uint8_t d64x8(uint8_t *q, uint8_t d): q = q / d; devuelve el resto. De a un
+; byte, el resto en A; los bits del cociente entran negados y se dan vuelta
 _d64x8::
         push    ix
         ld      ix,#0
         add     ix,sp           ; 4 q, 6 d
-        ld      e,6(ix)
-        ld      d,#0            ; resto
-        ld      c,#64
-e1:     ld      l,4(ix)
-        ld      h,5(ix)
-        call    shl1
-        rl      d
-        jr      c,e2
-        ld      a,d
-        cp      e
-        jr      c,e3
-e2:     ld      a,d
-        sub     e
-        ld      d,a
         ld      l,4(ix)
         ld      h,5(ix)
-        set     0,(hl)
-e3:     dec     c
-        jr      nz,e1
-        ld      l,d
+        ld      de,#7
+        add     hl,de
+        ld      c,6(ix)
+        ld      d,#8
+        xor     a
+z81:     ld      e,(hl)
+        ld      b,#8
+z82:     rl      e
+        rla
+        jr      c,z84
+        cp      c
+        jr      c,z83            ; no cabe: CY = 1 (bit 0 negado)
+        sub     c               ; CY = 0
+        jr      z83
+z84:     sub     c
+        or      a
+z83:     djnz    z82
+        rl      e
+        ld      b,a
+        ld      a,e
+        cpl
+        ld      (hl),a
+        ld      a,b
+        dec     hl
+        dec     d
+        jr      nz,z81
+        ld      l,a
         pop     ix
         ret
 
-; void q10(uint8_t *q): q = q * 10
+; void q10(uint8_t *q): q = q * 10, de a un byte
 _q10::
         ld      hl,#2
         add     hl,sp
@@ -191,23 +258,25 @@ _q10::
         inc     hl
         ld      h,(hl)
         ld      l,a
-        call    shl1            ; q * 2
-        push    hl
-        ld      de,#mt
-        ld      bc,#8
-        ldir
-        pop     hl
-        call    shl1
-        call    shl1            ; q * 8
-        ld      de,#mt
         ld      b,#8
-        or      a
-q1:     ld      a,(de)
-        adc     a,(hl)
+        ld      c,#0            ; lo que se lleva
+zq1:     push    hl
+        ld      e,(hl)
+        ld      d,#0
+        ld      l,e
+        ld      h,d
+        add     hl,hl
+        add     hl,hl
+        add     hl,de
+        add     hl,hl           ; * 10
+        ld      e,c
+        add     hl,de
+        ld      c,h
+        ld      a,l
+        pop     hl
         ld      (hl),a
         inc     hl
-        inc     de
-        djnz    q1
+        djnz    zq1
         ret
 
 ; ------------------------------------------------------------------ numeros
@@ -244,18 +313,101 @@ p64t:   .db 0x00,0xCA,0x9A,0x3B,0x00,0x00,0x00,0x00
         .db 0x00,0x00,0x8A,0x5D,0x78,0x45,0x63,0x01
         .db 0x00,0x00,0x64,0xA7,0xB3,0xB6,0xE0,0x0D
 
-; div10: DEHL = DEHL / 10; A = resto
+; div10: DEHL = DEHL / 10; A = resto. De a un byte: el resto en A, los bits del
+; cociente entran negados por abajo y se dan vuelta al final de cada byte
 div10:  xor     a
-        ld      b,#32
-dv1:    add     hl,hl
-        rl      e
-        rl      d
+        ld      b,#8
+dq1:    rl      d
         rla
         cp      #10
-        jr      c,dv2
+        jr      c,dq2
         sub     #10
-        inc     l
-dv2:    djnz    dv1
+dq2:    djnz    dq1
+        rl      d
+        ld      c,a
+        ld      a,d
+        cpl
+        ld      d,a
+        ld      a,c
+        ld      b,#8
+dq3:    rl      e
+        rla
+        cp      #10
+        jr      c,dq4
+        sub     #10
+dq4:    djnz    dq3
+        rl      e
+        ld      c,a
+        ld      a,e
+        cpl
+        ld      e,a
+        ld      a,c
+        ld      b,#8
+dq5:    rl      h
+        rla
+        cp      #10
+        jr      c,dq6
+        sub     #10
+dq6:    djnz    dq5
+        rl      h
+        ld      c,a
+        ld      a,h
+        cpl
+        ld      h,a
+        ld      a,c
+        ld      b,#8
+dq7:    rl      l
+        rla
+        cp      #10
+        jr      c,dq8
+        sub     #10
+dq8:    djnz    dq7
+        rl      l
+        ld      c,a
+        ld      a,l
+        cpl
+        ld      l,a
+        ld      a,c
+        ret
+; m10z: Z si DEHL es multiplo de 10, sin dividir: par, y la suma de los bytes
+; multiplo de 5 (256 = 1 mas un multiplo de 5). No cambia DEHL
+m10z:   bit     0,l
+        ret     nz
+        push    bc
+        ld      a,l
+        add     a,h
+        ld      c,a
+        ld      a,#0
+        adc     a,a
+        ld      b,a             ; BC = L + H
+        ld      a,c
+        add     a,e
+        ld      c,a
+        jr      nc,mz1
+        inc     b
+mz1:    ld      a,c
+        add     a,d
+        ld      c,a
+        jr      nc,mz2
+        inc     b               ; BC = L + H + E + D (hasta 1020)
+mz2:    ld      a,c             ; B * 256 + C = B + C (mod 5)
+        add     a,b
+        jr      nc,mz3
+        inc     a               ; (256 = 1)
+mz3:    ld      c,a             ; los dos nibbles (16 = 1 mod 5)
+        and     #15
+        ld      b,a
+        ld      a,c
+        rrca
+        rrca
+        rrca
+        rrca
+        and     #15
+        add     a,b             ; hasta 30
+mz4:    sub     #5
+        jr      z,mz5
+        jr      nc,mz4
+mz5:    pop     bc
         ret
 ; mul10: DEHL = DEHL * 10
 mul10:  add     hl,hl
@@ -429,7 +581,9 @@ no1:    ld      a,d
         or      h
         or      l
         jp      z,zres
-no2:    push    de              ; quitar los ceros del final
+no2:    call    m10z            ; quitar los ceros del final
+        jr      nz,no9
+        push    de
         push    hl
         call    div10
         or      a
@@ -440,7 +594,7 @@ no2:    push    de              ; quitar los ceros del final
         jr      no2
 no3:    pop     hl
         pop     de
-        ld      (acc),hl
+no9:    ld      (acc),hl
         ld      (acc+2),de
         ld      hl,(nexp)
         ld      bc,#99
@@ -549,6 +703,9 @@ na1:    ld      a,(wa+4)
         call    ldmag
         ld      a,c
         ld      (nsa),a
+        ld      a,(nd)          ; el mismo exponente: no hay que correr nada
+        or      a
+        jr      z,na2
         call    ndigr           ; a hasta 9 cifras, sin pasar de d
         ld      b,a
         ld      a,#9
@@ -637,20 +794,22 @@ red64:  ld      ix,#p64t
 r1:     ld      a,(nk)
         cp      #10
         jr      z,r2
-        ld      hl,#_qq         ; qq - tabla: carry si qq es menor
-        push    ix
-        pop     de
+        push    ix              ; qq con la tabla, desde el byte alto
+        pop     hl
+        ld      de,#7
+        add     hl,de
+        ex      de,hl
+        ld      hl,#_qq+7
         ld      b,#8
-        or      a
 r0:     ld      a,(de)
-        ld      c,a
-        ld      a,(hl)
-        sbc     a,c
-        inc     hl
-        inc     de
+        cp      (hl)
+        jr      nz,r6
+        dec     hl
+        dec     de
         djnz    r0
-        jr      c,r2
-        ld      hl,#nk
+        jr      r7              ; igual: qq no es menor
+r6:     jr      nc,r2           ; la de la tabla es mayor: qq es menor
+r7:     ld      hl,#nk
         inc     (hl)
         ld      de,#8
         add     ix,de
@@ -659,9 +818,54 @@ r2:     xor     a
         ld      (nrem),a
         ld      a,(nk)          ; qq tiene 9 + nk cifras: quitar nk
         or      a
-        jr      z,r5
-        dec     a
-        jr      z,r3
+        jp      z,r5
+        cp      #1
+        jp      z,r3
+        cp      #10
+        jr      z,r10
+        add     a,a             ; nk de 2 a 9: qq / 10^nk, y el resto dice si se sube
+        add     a,a
+        ld      e,a
+        ld      d,#0
+        ld      hl,#p10t
+        add     hl,de
+        ld      e,(hl)
+        inc     hl
+        ld      d,(hl)
+        inc     hl
+        ld      a,(hl)
+        inc     hl
+        ld      h,(hl)
+        ld      l,a
+        push    hl
+        push    de
+        push    hl
+        push    de
+        ld      hl,#_qq
+        push    hl
+        call    _d64x32
+        pop     af
+        pop     af
+        pop     af
+        pop     de
+        pop     hl
+        srl     h               ; la mitad de 10^nk
+        rr      l
+        rr      d
+        rr      e
+        ld      a,(dvr)         ; resto >= mitad: se sube
+        sub     e
+        ld      a,(dvr+1)
+        sbc     a,d
+        ld      a,(dvr+2)
+        sbc     a,l
+        ld      a,(dvr+3)
+        sbc     a,h
+        jr      c,r4
+        ld      a,#5
+        ld      (nrem),a
+        jr      r4
+r10:    dec     a
         add     a,a             ; qq / 10^(nk-1)
         add     a,a
         ld      e,a
@@ -694,7 +898,7 @@ r3:     ld      a,#10
         inc     sp
         ld      a,l
         ld      (nrem),a
-        ld      hl,(nexp)
+r4:     ld      hl,(nexp)
         ld      a,(nk)
         ld      e,a
         ld      d,#0
@@ -1684,9 +1888,11 @@ nm_:    .ds     2
 nd_:    .ds     2
 nser:   .ds     4
 clkb:   .ds     4
+tx:     .ds     5               ; tangente: x y el coseno
+tc:     .ds     5
 
         .area   _CODE
-; constantes de LDK: 0, 1, 2, pi, ln2, ln10, 4, 86400, 0.1, 1440
+; constantes de LDK: 0, 1, 2, pi, ln2, ln10, 4, 86400, 0.1, 1440, y pi/2 = 1.57079 + 6.32679490E-6
 ktab:   .db     0,0,0,0,0
         .db     1,0,0,0,0
         .db     2,0,0,0,0
@@ -1697,6 +1903,8 @@ ktab:   .db     0,0,0,0,0
         .db     0x60,0x03,0,0,2
         .db     1,0,0,0,0xFF
         .db     144,0,0,0,1
+        .db     0x97,0x65,0x02,0x00,0xFB   ; 1.57079 (pi/2 en dos partes, para reducir)
+        .db     0x6D,0x64,0xC5,0x03,0xF3   ; 6.32679490E-6
 
 ; raddr: HL = el registro A
 raddr:  ld      l,a
@@ -1942,9 +2150,11 @@ vexp2:
         .db     0x17,0x7E             ; ADD R7,R7,R14
         .db     0x36,0x65             ; MUL R6,R6,R5
         .db     0x46,0x67             ; DIV R6,R6,R7
-        .db     0x10,0x06             ; ADD R0,R0,R6
-        .db     0xA6,0x02             ; JZ R6,E
-        .db     0xD0,0xF4             ; LOOP 0,L
+        .db     0x12,0x06             ; ADD R2,R0,R6
+        .db     0x23,0x20             ; SUB R3,R2,R0
+        .db     0x80,0x20             ; MOV R0,R2
+        .db     0xA3,0x02             ; JZ R3,E
+        .db     0xD0,0xF0             ; LOOP 0,L
         .db     0x98,0x02             ; LDK R8,2
         .db     0x68,0x84             ; POW R8,R8,R4
         .db     0x30,0x08             ; MUL R0,R0,R8
@@ -1952,12 +2162,24 @@ vexp2:
 vln:
         .db     0x9E,0x01             ; LDK R14,1
         .db     0x9F,0x02             ; LDK R15,2
+        .db     0x1D,0xEF             ; ADD R13,R14,R15
         .db     0x97,0x00             ; LDK R7,0
         .db     0x9C,0x00             ; LDK R12,0
-        .db     0xB5,0xF0,0x06        ; JLT R5,R15,D
+        .db     0xB5,0xD0,0x06        ; JLT R5,R13,U
+        .db     0x94,0x08             ; LDK R4,8
+        .db     0x35,0x54             ; MUL R5,R5,R4
+        .db     0x19,0x9E             ; ADD R9,R9,R14
+        .db     0x4D,0xDF             ; DIV R13,R13,R15
+        .db     0xB5,0xD0,0x06        ; JLT R5,R13,V
         .db     0x45,0x5F             ; DIV R5,R5,R15
         .db     0x17,0x7E             ; ADD R7,R7,R14
         .db     0xAC,0xF7             ; JZ R12,W
+        .db     0x44,0xDF             ; DIV R4,R13,R15
+        .db     0xB5,0x40,0x02        ; JLT R5,R4,Y
+        .db     0xAC,0x06             ; JZ R12,D
+        .db     0x15,0x55             ; ADD R5,R5,R5
+        .db     0x27,0x7E             ; SUB R7,R7,R14
+        .db     0xAC,0xF3             ; JZ R12,V
         .db     0x26,0x5E             ; SUB R6,R5,R14
         .db     0x18,0x5E             ; ADD R8,R5,R14
         .db     0x46,0x68             ; DIV R6,R6,R8
@@ -1969,9 +2191,11 @@ vln:
         .db     0x1B,0xBF             ; ADD R11,R11,R15
         .db     0x3A,0xA8             ; MUL R10,R10,R8
         .db     0x44,0xAB             ; DIV R4,R10,R11
-        .db     0xA4,0x04             ; JZ R4,E
-        .db     0x10,0x04             ; ADD R0,R0,R4
-        .db     0xD0,0xF4             ; LOOP 0,L
+        .db     0x12,0x04             ; ADD R2,R0,R4
+        .db     0x23,0x20             ; SUB R3,R2,R0
+        .db     0x80,0x20             ; MOV R0,R2
+        .db     0xA3,0x02             ; JZ R3,E
+        .db     0xD0,0xF0             ; LOOP 0,L
         .db     0x10,0x00             ; ADD R0,R0,R0
         .db     0x9D,0x04             ; LDK R13,4
         .db     0x34,0x7D             ; MUL R4,R7,R13
@@ -1980,30 +2204,58 @@ vln:
         .db     0x34,0x9D             ; MUL R4,R9,R13
         .db     0x10,0x04             ; ADD R0,R0,R4
         .db     0x00                  ; END
-vsin:
+vtrig:
         .db     0x9D,0x03             ; LDK R13,3
-        .db     0x1D,0xDD             ; ADD R13,R13,R13
-        .db     0x45,0x1D             ; DIV R5,R1,R13
-        .db     0x55,0x50             ; RND R5,R5,0
-        .db     0x35,0x5D             ; MUL R5,R5,R13
+        .db     0x9F,0x02             ; LDK R15,2
+        .db     0x4E,0xDF             ; DIV R14,R13,R15
+        .db     0x44,0x1E             ; DIV R4,R1,R14
+        .db     0x54,0x40             ; RND R4,R4,0
+        .db     0x9D,0x0A             ; LDK R13,10
+        .db     0x35,0x4D             ; MUL R5,R4,R13
         .db     0x25,0x15             ; SUB R5,R1,R5
+        .db     0x9D,0x0B             ; LDK R13,11
+        .db     0x36,0x4D             ; MUL R6,R4,R13
+        .db     0x25,0x56             ; SUB R5,R5,R6
+        .db     0x14,0x43             ; ADD R4,R4,R3
+        .db     0x9C,0x06             ; LDK R12,6
+        .db     0x46,0x4C             ; DIV R6,R4,R12
+        .db     0x97,0x01             ; LDK R7,1
+        .db     0x17,0x7F             ; ADD R7,R7,R15
+        .db     0x18,0xCC             ; ADD R8,R12,R12
+        .db     0x47,0x78             ; DIV R7,R7,R8
+        .db     0x26,0x67             ; SUB R6,R6,R7
+        .db     0x56,0x60             ; RND R6,R6,0
+        .db     0x36,0x6C             ; MUL R6,R6,R12
+        .db     0x24,0x46             ; SUB R4,R4,R6
         .db     0x38,0x55             ; MUL R8,R5,R5
+        .db     0x9E,0x01             ; LDK R14,1
+        .db     0x99,0x00             ; LDK R9,0
+        .db     0xB4,0xF0,0x04        ; JLT R4,R15,N
+        .db     0x24,0x4F             ; SUB R4,R4,R15
+        .db     0x99,0x01             ; LDK R9,1
+        .db     0xA4,0x08             ; JZ R4,S
+        .db     0x90,0x01             ; LDK R0,1
+        .db     0x96,0x01             ; LDK R6,1
+        .db     0x97,0x00             ; LDK R7,0
+        .db     0xA7,0x06             ; JZ R7,T
         .db     0x80,0x50             ; MOV R0,R5
         .db     0x86,0x50             ; MOV R6,R5
         .db     0x97,0x01             ; LDK R7,1
-        .db     0x9E,0x01             ; LDK R14,1
-        .db     0x9F,0x02             ; LDK R15,2
         .db     0xC0,0x10             ; SETC 0,16
         .db     0x36,0x68             ; MUL R6,R6,R8
-        .db     0x19,0x7E             ; ADD R9,R7,R14
-        .db     0x1A,0x7F             ; ADD R10,R7,R15
-        .db     0x39,0x9A             ; MUL R9,R9,R10
-        .db     0x46,0x69             ; DIV R6,R6,R9
+        .db     0x1A,0x7E             ; ADD R10,R7,R14
+        .db     0x1B,0x7F             ; ADD R11,R7,R15
+        .db     0x3A,0xAB             ; MUL R10,R10,R11
+        .db     0x46,0x6A             ; DIV R6,R6,R10
         .db     0xE6,0x60             ; NEG R6,R6
-        .db     0x10,0x06             ; ADD R0,R0,R6
+        .db     0x12,0x06             ; ADD R2,R0,R6
+        .db     0x2A,0x20             ; SUB R10,R2,R0
+        .db     0x80,0x20             ; MOV R0,R2
         .db     0x17,0x7F             ; ADD R7,R7,R15
-        .db     0xA6,0x02             ; JZ R6,E
-        .db     0xD0,0xEC             ; LOOP 0,L
+        .db     0xAA,0x02             ; JZ R10,E
+        .db     0xD0,0xE8             ; LOOP 0,L
+        .db     0xA9,0x02             ; JZ R9,X
+        .db     0xE0,0x00             ; NEG R0,R0
         .db     0x00                  ; END
 vatan:
         .db     0x9E,0x01             ; LDK R14,1
@@ -2030,9 +2282,11 @@ vatan:
         .db     0x3A,0xA8             ; MUL R10,R10,R8
         .db     0xEA,0xA0             ; NEG R10,R10
         .db     0x44,0xAB             ; DIV R4,R10,R11
-        .db     0xA4,0x04             ; JZ R4,E
-        .db     0x10,0x04             ; ADD R0,R0,R4
-        .db     0xD0,0xF2             ; LOOP 0,L
+        .db     0x12,0x04             ; ADD R2,R0,R4
+        .db     0x23,0x20             ; SUB R3,R2,R0
+        .db     0x80,0x20             ; MOV R0,R2
+        .db     0xA3,0x02             ; JZ R3,E
+        .db     0xD0,0xEE             ; LOOP 0,L
         .db     0x94,0x06             ; LDK R4,6
         .db     0x30,0x04             ; MUL R0,R0,R4
         .db     0xAC,0x06             ; JZ R12,X
@@ -2111,13 +2365,6 @@ virr:
         .db     0xF0,0x02             ; ERR
         .db     0x80,0x10             ; MOV R0,R1
         .db     0x00                  ; END
-vcos0:  .db     0x9D,0x03       ; LDK R13,3
-        .db     0x9F,0x02       ; LDK R15,2
-        .db     0x4D,0xDF       ; DIV R13,R13,R15
-        .db     0x11,0x1D       ; ADD R1,R1,R13
-        .db     0
-vdivr:  .db     0x40,0x30       ; DIV R0,R3,R0
-        .db     0
 vlog:   .db     0x9D,0x05       ; LDK R13,5
         .db     0x40,0x0D       ; DIV R0,R0,R13
         .db     0
@@ -2739,11 +2986,15 @@ cfymd:  ld      a,#1
 cfy1:   ld      de,#0
         xor     a
         jp      ldn
-cfsin:  ld      hl,#vsin
+; cfsin, cfcos: R3 = 0 (seno) o 1 (coseno: un cuadrante mas) y vtrig
+cfsin:  ld      hl,#0
+        jr      cfs1
+cfcos:  ld      hl,#1
+cfs1:   ld      de,#0
+        ld      a,#3
+        call    ldn
+        ld      hl,#vtrig
         jp      vmrun
-cfcos:  ld      hl,#vcos0
-        call    vmrun
-        jr      cfsin
 ; rcp: copia el registro B al registro C
 rcp:    push    bc
         ld      a,c
@@ -2756,20 +3007,36 @@ rcp:    push    bc
         ld      bc,#5
         ldir
         ret
-cftan:  ld      bc,#0x0102      ; R2 = x
-        call    rcp
-        call    cfsin
-        ld      bc,#0x0003      ; R3 = sen
-        call    rcp
-        ld      bc,#0x0201      ; R1 = x
-        call    rcp
+; cftan: coseno (guardado aparte: vtrig usa todos los registros), seno y la division
+cftan:  ld      a,#1
+        call    raddr
+        ld      de,#tx
+        ld      bc,#5
+        ldir
         call    cfcos
         xor     a
         call    raddr
+        push    hl
         call    iszero
+        pop     hl
         jp      z,cferr
-        ld      hl,#vdivr
-        jp      vmrun
+        ld      de,#tc
+        ld      bc,#5
+        ldir
+        ld      a,#1
+        call    raddr
+        ex      de,hl
+        ld      hl,#tx
+        ld      bc,#5
+        ldir
+        call    cfsin
+        xor     a
+        call    raddr
+        ld      d,h
+        ld      e,l
+        ld      bc,#tc
+        ld      a,#'/'
+        jp      nop
 ; negr: el registro A cambia de signo
 negr:   call    raddr
         ld      b,#4

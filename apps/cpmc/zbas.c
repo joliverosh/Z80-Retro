@@ -112,15 +112,26 @@ uint8_t *symat(uint16_t i)
     while (i--) p += 2 + p[1];
     return p;
 }
+uint8_t *skind;                  /* la clase de cada nombre (para no recorrerlos) */
 void growvars(void)
 {
     static slot *nv;
+    static uint8_t *p;
+    static uint16_t i;
     if (nvars >= nsym) return;
     nv = xalloc(nsym * sizeof(slot) + 1);
     memset(nv, 0, nsym * sizeof(slot));
     if (vars) { memcpy(nv, vars, nvars * sizeof(slot)); zfree(vars); }
     vars = nv;
     nvars = nsym;
+    if (skind) zfree(skind);
+    skind = xalloc(nsym + 1);
+    for (p = names, i = 0; i < nsym; i++, p += 2 + p[1]) skind[i] = p[0];
+}
+uint8_t symk(uint16_t i)          /* la clase del nombre i */
+{
+    if (i >= nvars) growvars();
+    return skind[i];
 }
 slot *var(uint16_t i)
 {
@@ -203,13 +214,15 @@ FCB *files[4];
 uint8_t *fbuf[4], fpos[4], fmode[4], feof_[4];
 value retv;               /* el valor de FUNCTION */
 uint8_t retset;
+uint8_t *lcache[32];      /* lineas ya buscadas por GOTO y GOSUB (se olvidan al cambiar el programa) */
 
 void clearvars(void)
 {
     static uint8_t i;
     for (i = 0; i < 4; i++) if (files[i]) { fclose(files[i]); files[i] = 0; }
     heapinit();
-    vars = 0; nvars = 0;
+    vars = 0; nvars = 0; skind = 0;
+    memset(lcache, 0, sizeof lcache);
     csp = 0; svp = 0;
     dnext = 0; datap = 0;
     contline = 0;
@@ -298,8 +311,7 @@ void primary(value *v)
     case K_NOT: primary(v); if (v->s) error(12); setn(v, ~ntoi(&v->n)); return;
     case T_ID:
         ix = tp[0] | tp[1] << 8; tp += 2;
-        p = symat(ix);
-        switch (p[0]) {
+        switch (symk(ix)) {
         case S_NUM: v->s = 0; v->n = var(ix)->u.n; return;
         case S_STR: { slot *s = var(ix); newstr(v, s->u.s.p, s->u.s.l); return; }
         case S_NARR: { uint8_t *e = element(ix, 0); v->s = 0; memcpy(&v->n, e, 5); return; }
@@ -637,7 +649,7 @@ uint8_t *nextline(uint8_t *l) { return l == direct ? 0 : (l + LLEN(l) < pend ? l
 uint8_t *wl, *wp;
 uint8_t wfirst(void)
 {
-    if (*wp == T_ID && wp[3] == ':' && symat(wp[1] | wp[2] << 8)[0] == S_LABEL) wp += 4;   /* etiqueta */
+    if (*wp == T_ID && wp[3] == ':' && symk(wp[1] | wp[2] << 8) == S_LABEL) wp += 4;   /* etiqueta */
     return *wp;
 }
 uint8_t wnext(void)
@@ -719,9 +731,8 @@ uint8_t *lvalue(uint8_t *isstr, slot **sp)
     uint8_t *p, k, s;
     if (*tp != T_ID) error(29);
     ix = tp[1] | tp[2] << 8; tp += 3;
-    p = symat(ix);
     *sp = 0;
-    k = p[0];
+    k = symk(ix);
     if (k > S_SARR) error(30);
     s = k == S_STR || k == S_SARR;      /* (asi: SDCC pasaba mal la constante a element) */
     *isstr = s;
@@ -999,13 +1010,16 @@ void goline(uint8_t *l) { cl = l; tp = LTOK(l); jumped = 1; }
 uint8_t *target(void)     /* el destino de GOTO, GOSUB, THEN, RESTORE */
 {
     uint8_t *l;
-    if (*tp == T_LNUM) {
-        l = findline(tp[1] | tp[2] << 8, 1);
+    if (*tp == T_LNUM) {                 /* (las ultimas 32 buscadas, por el numero) */
+        uint16_t n = tp[1] | tp[2] << 8;
+        uint8_t h = (uint8_t)n & 31;
         tp += 3;
-        if (!l) error(42);
+        if ((l = lcache[h]) && LNUM(l) == n) return l;
+        if (!(l = findline(n, 1))) error(42);
+        lcache[h] = l;
         return l;
     }
-    if (*tp == T_ID && symat(tp[1] | tp[2] << 8)[0] == S_LABEL) {
+    if (*tp == T_ID && symk(tp[1] | tp[2] << 8) == S_LABEL) {
         l = var(tp[1] | tp[2] << 8)->u.f.l;
         tp += 3;
         if (!l) error(43);
@@ -1029,7 +1043,7 @@ void restore(uint8_t to)
     while (svp > to) {
         svp--;
         s = var(sv[svp].i);
-        if (symat(sv[svp].i)[0] == S_STR && s->u.s.p) zfree(s->u.s.p);
+        if (symk(sv[svp].i) == S_STR && s->u.s.p) zfree(s->u.s.p);
         *s = sv[svp].s;
     }
 }
@@ -1041,7 +1055,7 @@ void bind(uint8_t *l, value *args, uint8_t n)
         p++;
         while (*p == T_ID) {
             uint16_t ix = p[1] | p[2] << 8;
-            isstr = symat(ix)[0] == S_STR;
+            isstr = symk(ix) == S_STR;
             if (k >= n) error(17);
             save(ix);
             if (args[k].s != isstr) error(12);
@@ -1084,14 +1098,14 @@ void callfn(uint16_t ix, value *v)
     *v = retv;
     retv.p = 0;
     retset = 0;                          /* la que llamo todavia no termino */
-    if ((symat(ix)[0] == S_SFUNC) != v->s) error(12);
+    if ((symk(ix) == S_SFUNC) != v->s) error(12);
 }
 void callsub(uint16_t ix)
 {
     value a[8];
     uint8_t n;
     slot *f = var(ix);
-    if (symat(ix)[0] != S_SUB || !f->u.f.l) error(47);
+    if (symk(ix) != S_SUB || !f->u.f.l) error(47);
     n = getargs(a);
     pushc(C_CALL);
     cs[csp - 1].v = svp;
@@ -1107,7 +1121,7 @@ void endproc(void)
     c = &cs[csp - 1];
     if (c->k == C_FUNC && !retset) {          /* el resultado: la variable con su nombre */
         slot *s = var(c->lim.m);
-        if (symat(c->lim.m)[0] == S_STR) { newstr(&retv, s->u.s.p, s->u.s.l); }
+        if (symk(c->lim.m) == S_STR) { newstr(&retv, s->u.s.p, s->u.s.l); }
         else { retv.s = 0; retv.n = s->u.n; }
         retset = 1;
     }
@@ -1239,7 +1253,7 @@ void stmt_(void);
 void dosub_or_let(void)
 {
     uint16_t ix = tp[1] | tp[2] << 8;
-    uint8_t k = symat(ix)[0];
+    uint8_t k = symk(ix);
     if (k == S_SUB) { tp += 3; callsub(ix); return; }
     if (tp[3] == '=' || ((k == S_NARR || k == S_SARR) && tp[3] == '(')) {
         if (k == S_NARR || k == S_SARR) {         /* a(...) = : se ve si viene un = */
@@ -1293,7 +1307,7 @@ void stmt_(void)
 {
     uint8_t k = *tp;
     value v;
-    if (k == T_ID && tp[3] == ':' && symat(tp[1] | tp[2] << 8)[0] == S_LABEL) { tp += 4; k = *tp; }
+    if (k == T_ID && tp[3] == ':' && symk(tp[1] | tp[2] << 8) == S_LABEL) { tp += 4; k = *tp; }
     if (k == T_END || k == ':') return;
     if (k == T_RAW) { tp += tsize(tp); return; }
     if (k == T_ID) { dosub_or_let(); return; }
@@ -1442,7 +1456,7 @@ void stmt_(void)
             uint8_t nd = 0, kk;
             if (*tp != T_ID) error(5);
             ix = tp[1] | tp[2] << 8; tp += 3;
-            kk = symat(ix)[0];
+            kk = symk(ix);
             if (kk != S_NARR && kk != S_SARR) error(5);
             skip('(');
             do { if (nd == 3) error(10); d[nd++] = intexpr(); } while (accept(','));

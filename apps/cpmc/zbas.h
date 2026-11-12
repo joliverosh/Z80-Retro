@@ -92,6 +92,7 @@ void zfree(void *p);
 void error(uint8_t n);
 void *xalloc(uint16_t n);
 uint8_t *symat(uint16_t i);
+uint8_t symk(uint16_t i);
 void growvars(void);
 slot *var(uint16_t i);
 void sfree_(value *v);

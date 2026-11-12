@@ -172,7 +172,7 @@ ZBAS                 el intérprete: se escriben las líneas, RUN, LIST, SAVE...
 ZBAS programa        carga programa.BAS, lo corre y vuelve a CP/M
 ```
 
-Son dos archivos: `ZBAS.COM` y `ZBAS.OVL`, que va en la misma unidad (o en la actual, o en `A:`). En MP/M quedan **unos 12 KB** para el programa y sus datos.
+Son dos archivos: `ZBAS.COM` y `ZBAS.OVL`, que va en la misma unidad (o en la actual, o en `A:`). En MP/M quedan **unos 11,5 KB** para el programa y sus datos.
 
 - **El intérprete:** una línea con número se guarda en el programa (o lo cambia; un número solo la borra); sin número se ejecuta en el momento. `RUN ["archivo"]`, `LIST [n][-m]`, `EDIT n` (la línea para cambiarla), `AUTO [n[,paso]]`, `DELETE n[-m]`, `RENUM [desde[,paso]]`, `NEW`, `LOAD "archivo"`, `SAVE "archivo"` (texto: se puede escribir con `MD`, `VI` o `ZWRITE`), `FILES`, `CONT` (sigue después de `STOP` o de `^C`/ESC), `TRON`/`TROFF`, `SYSTEM` (vuelve a CP/M). Un programa sin números de línea se numera solo al cargarlo y se guarda sin ellos si no hay `GOTO` a un número.
 - **Nombres:** largos, sin distinguir mayúsculas; `$` al final para los textos (`nombre$`). Etiquetas: un nombre con `:` al principio de la línea (`fin:`), para `GOTO`, `GOSUB` y `RESTORE`.
@@ -183,6 +183,14 @@ Son dos archivos: `ZBAS.COM` y `ZBAS.OVL`, que va en la misma unidad (o en la ac
 - **Operadores:** `+ - * / ^` (potencia), `MOD`, `= <> < > <= >=` (verdadero es -1), `AND OR XOR NOT`, `+` también une textos.
 - **Funciones:** `ABS INT FIX SGN SQR SIN COS TAN ATN LOG LOG10 EXP RND PI ROUND(x,n) MIN(a,b) MAX(a,b)`; las finanzas de ZCALC `PMT(tasa,n,capital) PV FV`; fechas `DATE(año,mes,día) TODAY NOW YEAR MONTH DAY`, `DATE$` y `TIME$` (del reloj de MP/M o CP/M 3); textos `LEN LEFT$ RIGHT$ MID$(t,desde[,n]) INSTR([desde,]t,buscado) UCASE$ LCASE$ STR$ VAL CHR$ ASC SPACE$ STRING$(n,t) TRIM$ LTRIM$ RTRIM$ HEX$ FORMAT$(x,decimales)`; `INKEY$` (la tecla, sin esperar), `FRE` (memoria libre), `POS` (la columna).
 - **Ejemplo:** `EJEMPLO.BAS` (la tabla de un préstamo, las torres de Hanói, una `FUNCTION` recursiva, `SELECT CASE`, una matriz ordenada).
+- **Velocidad:** los ocho benchmarks de Rugg/Feldman (Kilobaud, 1977) y la criba de BYTE están en `bench/` (con números de línea, así corren igual en MBASIC). En el emulador, a 7,37 MHz y contando cargar el programa:
+
+  | | BM1 | BM2 | BM3 | BM4 | BM5 | BM6 | BM7 | BM8 | Criba |
+  |---|---|---|---|---|---|---|---|---|---|
+  | ZBAS | 3,5 s | 6,1 s | 16,0 s | 15,8 s | 16,6 s | 25,2 s | 37,4 s | 19,5 s | 66,7 s |
+  | MBASIC 5.21 | 1,8 s | 3,3 s | 7,0 s | 7,0 s | 7,7 s | 13,4 s | 20,5 s | 4,0 s | 40,5 s |
+
+  MBASIC usa números binarios de 7 cifras; los de ZBAS son decimales de 9 (0,1 + 0,2 da 0,3 exacto).
 - **Por dentro:** las líneas se guardan compiladas: las palabras en un byte, los números ya convertidos, los textos con su largo y cada nombre como el número de su variable, así al correr no se busca nada. Las variables de texto y las matrices van en un heap que se vacía al cambiar el programa. Lo que no hace falta para correr (compilar las líneas que se escriben, `LIST`, `EDIT`, `LOAD`, `SAVE`, `RENUM`, `FILES`, los mensajes de error) está en `ZBAS.OVL`, en tres partes de 2 a 6 KB: la que hace falta se carga arriba del heap, en una dirección múltiplo de 256 (se corrigen solo los bytes altos de sus direcciones), y queda ahí hasta que el programa necesita el lugar. `mkzbas.sh` arma los dos archivos: enlaza cada parte dos veces (en C000h y en C100h) y de la diferencia saca la lista de lo que hay que corregir, y revisa que el programa principal no cambie. La aritmética es la de ZCALC (`znum_a.s`, `znum.c`).
 
 ## ROGUE
