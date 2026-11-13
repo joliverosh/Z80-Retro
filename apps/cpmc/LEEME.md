@@ -19,6 +19,8 @@ Programas escritos en C con SDCC 4.2 y una biblioteca chica propia (`cpm.c`). Ca
 | `ROGUE` | El calabozo de Rogue: baja, pelea, encuentra el Amuleto de Yendor y vuelve a subir (ver abajo) | `ROGUE` |
 | `CHESS` | Ajedrez contra el computador o contra otra persona en otra consola (ver abajo) | `CHESS`, `CHESS DUEL` |
 | `NAVAL` | La batalla naval entre dos consolas o contra el computador (ver abajo) | `NAVAL`, `NAVAL C` |
+| `FIB` | Los números de Fibonacci con todas sus cifras (BCD con `DAA`): F(10000), 2090 cifras, en 38 s | `FIB`, `FIB 1000`, `FIB 10 20` |
+| `MAZE` | Laberintos en ASCII: para mirar, ver la salida (`S`) o recorrer con las flechas (`P`), o a un archivo | `MAZE`, `MAZE 40 25 LAB.TXT /S` |
 | `ZGPT` | Un GPT de verdad: un transformer chico que escribe letra por letra a la manera de *El Quijote* (ver abajo) | `ZGPT`, `ZGPT /T5 dijo sancho` |
 | `ZFM` | Administrador de archivos de dos paneles: copiar, mover, borrar, ver, abrir (ver abajo) | `ZFM`, `ZFM A: B:` |
 | `ZWRITE` | Procesador de texto con las teclas de WordStar; guarda Markdown (ver abajo) | `ZWRITE CARTA.MD` |
