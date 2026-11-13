@@ -5215,6 +5215,7 @@ CONINR: CALL    KDRAIN
         CALL    CONSTR
         OR      A
         JR      NZ,CIN2
+        CALL    RTSOFF          ; a esperar: el despachador apaga las interrupciones
         POP     AF
         JP      PO,CIN1
         EI
@@ -5417,8 +5418,10 @@ VC0:    DEC     A               ; 1: redibujando (lee la pantalla: esperar antes
         JR      NZ,VC0B
         CALL    VCWAIT
         JR      VCO
-VC0B:   LD      HL,VQFL         ; la cola llena o la linea de estado saliendo
+VC0B:   CALL    RTSOFF          ; la cola llena o la linea de estado saliendo
+        LD      HL,VQFL         ; (un rato sin interrupciones)
         CALL    BKCALL
+        CALL    RTSON
         LD      HL,VQN
         LD      (HL),1
         LD      A,C
@@ -5439,7 +5442,8 @@ VC3:    CALL    VCWAIT          ; (con las interrupciones prendidas puede
         CP      B
         JR      Z,VC2           ; si cambio, el redibujo ya lo muestra
         JR      VCX
-VCWAIT: LD      A,1
+VCWAIT: CALL    RTSOFF          ; (el despachador)
+        LD      A,1
         LD      (TXA+3),A
         EI
         PUSH    BC
@@ -5511,8 +5515,6 @@ SPCLK:  XOR     A
 ; deja ZIOS). Con control de flujo en el PC (picocom --flow h) el PC deja de
 ; mandar mientras esta apagado: alrededor del despachador, que corre con las
 ; interrupciones apagadas, y de KEYIN. Deja las interrupciones apagadas.
-RTSOFF: LD      A,0E8h
-        JR      RTS1
 RTSON:  IN      A,(SIOAC)       ; (no si la SIO ya tiene otro: RR0 bit 0)
         RRA
         RET     C
@@ -5520,15 +5522,21 @@ RTSON:  IN      A,(SIOAC)       ; (no si la SIO ya tiene otro: RR0 bit 0)
         OR      A
         RET     NZ
         LD      A,0EAh
-RTS1:   PUSH    AF              ; (las dos SIO: la B tambien puede ser una consola)
-        LD      A,5
+        JR      RTS1
+RTSOFF: LD      A,0E8h          ; (y vacia la FIFO: con RTS abajo, el PC manda
+RTS1:   PUSH    AF              ; a lo sumo un par mas, y eso cabe en la FIFO)
+        LD      A,5             ; (las dos SIO: la B tambien puede ser una consola)
         DI
         OUT     (SIOAC),A
         OUT     (SIOBC),A
         POP     AF
         OUT     (SIOAC),A
         OUT     (SIOBC),A
-        RET
+RXDRN:  IN      A,(SIOAC)
+        RRA
+        RET     NC
+        CALL    RXA1
+        JR      RXDRN
 EXITRG: LD      A,(PREEMP)
         OR      A
         RET     NZ
@@ -5548,12 +5556,21 @@ IRXA:   LD      (SVSP),SP       ; (en la pila de las interrupciones: la del
         PUSH    HL
         PUSH    DE
         PUSH    BC
-        IN      A,(SIOAD)       ; todo va derecho al anillo RAWQ, solo con la
+        CALL    RXA1
+IRX9:   POP     BC
+        POP     DE
+        POP     HL
+        POP     AF
+        LD      SP,(SVSP)
+        EI
+        RETI
+; RXA1: el caracter de la SIO A al anillo (interrupciones apagadas)
+RXA1:   IN      A,(SIOAD)       ; todo va derecho al anillo RAWQ, solo con la
         LD      C,A             ; ventana 1 (unos 150 ciclos): KEYIN tarda mas
         LD      A,(RAWA)        ; que un caracter a 115200 y va despues, fuera
         LD      (RXACT),A       ; de la interrupcion (KDRAIN). En modo crudo
         CP      2               ; RXACT no es cero: llego algo en este tic.
-        JR      Z,IRX9          ; (con XFER en la SIO B el anillo es suyo)
+        RET     Z               ; (con XFER en la SIO B el anillo es suyo)
         OR      A
         LD      A,(VTAPG)
         JR      NZ,IRXQ         ; modo crudo: lo lee XFER, no KEYIN
@@ -5597,13 +5614,7 @@ IRXR0:  LD      HL,(RAWT)       ; (la cola vieja: DE se uso)
         LD      (HL),C
 IRXR1:  LD      A,(CURPG1)
         OUT     (PGPORT+1),A
-IRX9:   POP     BC
-        POP     DE
-        POP     HL
-        POP     AF
-        LD      SP,(SVSP)
-        EI
-        RETI
+        RET
 IRXB:   LD      (SVSP),SP
         LD      SP,ISTK
         PUSH    AF
@@ -5617,12 +5628,13 @@ IRXB:   LD      (SVSP),SP
         JR      NZ,IRXB1
         LD      (RXACT),A
         LD      A,(VTAPG)
-        JR      IRXQ
+        CALL    IRXQ
+        JP      IRX9
 IRXB1:  LD      A,C
         LD      HL,TLB
         LD      DE,RXB
         CALL    RXQ
-        JR      IRX9
+        JP      IRX9
 ; RXQ: caracter A al bufer DE (64 bytes), HL = su cola (la cabeza en HL-1)
 RXQ:    PUSH    AF
         LD      A,(HL)
@@ -6047,12 +6059,7 @@ ISTMP:  PUSH    DE
         INC     HL
         LD      A,(HL)
         AND     7Fh
-        CP      'm'
-        RET     NZ
-        INC     HL
-        LD      A,(HL)
-        AND     7Fh
-        CP      'p'
+        CP      'm'             ; (Tmp0-Tmp4: con "Tm" basta)
         RET
 
 ; ------------------------------------------------------------- servicios de ZIOS
@@ -6164,18 +6171,18 @@ ZDRV:   LD      A,(ZHL+1)
 ; alguien tiene archivos abiertos en ella, A = FF y no cambia nada.
 ZMNT:   LD      A,B
         OR      A
-        JP      NZ,ZERR
+        JR      NZ,ZERR
         LD      A,E
         CP      2
-        JP      NC,ZERR
+        JR      NC,ZERR
         LD      A,D
         CP      NDRV
-        JP      NC,ZERR
+        JR      NC,ZERR
         LD      C,D
         LD      HL,ZMPB         ; A = su tarjeta
         CALL    ZBK
         CP      2
-        JP      NC,ZERR
+        JR      NC,ZERR
         PUSH    DE
         LD      HL,1            ; vector de la unidad D
         INC     D
