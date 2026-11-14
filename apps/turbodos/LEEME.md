@@ -75,10 +75,20 @@ desactualizado. Si CP/M pisa la etiqueta, TurboDOS lo nota y vuelve a armar el
 mapa (esto se probó). Si no, hay que correr `FIXMAP x:` en TurboDOS antes de
 escribir en el disco.
 
-### Conocido
+### TDATE
 
-- `TDATE` (el DATE de IMS) muestra el año 2026 como `<6`, porque escribe
-  año − 1900 con dos cifras. La fecha que guarda TurboDOS es la correcta.
+El DATE de IMS guarda el año como año − 1900. Sin parche muestra 2026 como `<6`
+y toma un año de dos cifras siempre como 19xx. El `TDATE.COM` de `TDUTIL.zip`
+está parchado con `tdate.z80`: muestra `26` y toma los años de dos cifras
+menores que 48 como 20xx. Para aplicar el parche a un DATE.COM original:
+
+```
+zmac -o tdate.cim tdate.z80
+python3 tdate.py DATE.COM tdate.cim TDATE.COM
+```
+
+`TDATE 29 Feb 28` pone la fecha y luego pide la hora. La fecha y la hora quedan
+solo en TurboDOS y no se escriben en el DS1307.
 
 ## Generar
 

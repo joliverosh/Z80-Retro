@@ -1,0 +1,27 @@
+; tdate.z80 - parche del DATE.COM de IMS (TurboDOS 1.30, VERSION 03/02/83)
+; (C) OLIVEROS 2026
+;
+; DATE.COM guarda el anio como anio - 1900 en 05F2h. Al mostrarlo lo escribe
+; con dos cifras sin quitar el siglo (2026 sale "<6"), y un anio tecleado de dos
+; cifras siempre es 19xx. Este codigo va al final del archivo (0680h) y
+; tdate.py pone las dos llamadas:
+;   0435h  LD A,(05F2h) / CALL 0553h   ->  CALL PRY
+;   03A5h  LD B,1Ch / LD A,(05F2h)     ->  CALL YFIX
+; Con el parche: 2026 sale "26" y un anio tecleado menor que 48 es 20xx.
+
+        org     680h
+; PRY: anio (05F2 = anio - 1900) con dos cifras: 126 -> 26
+PRY:    ld      a,(05F2h)
+PRY1:   cp      100
+        jr      c,PRY2
+        sub     100
+        jr      PRY1
+PRY2:   jp      0553h
+; YFIX: un anio tecleado de dos cifras por debajo de 48 es 20xx
+YFIX:   ld      a,(05F2h)
+        cp      48
+        jr      nc,YF1
+        add     a,100
+        ld      (05F2h),a
+YF1:    ld      b,1Ch
+        ret
