@@ -3037,6 +3037,27 @@ KFL2:   LD      C,(HL)
         DJNZ    KFL2
         RET
 
+; BRTSON / BRTSOFF: RTS como RTSON / RTSOFF, pero sin vaciar la FIFO: aqui la
+; ventana 1 puede no ser CURPG1, y RXA1 la repone (con BKCALL)
+BRTSON: IN      A,(SIOAC)
+        RRA
+        RET     C
+        LD      A,(RTSHLD)
+        OR      A
+        RET     NZ
+        LD      A,0EAh
+        JR      BRTS1
+BRTSOFF: LD     A,0E8h
+BRTS1:  PUSH    AF
+        LD      A,5
+        DI
+        OUT     (SIOAC),A
+        OUT     (SIOBC),A
+        POP     AF
+        OUT     (SIOAC),A
+        OUT     (SIOBC),A
+        RET
+
 ; VRXGET: A = el siguiente caracter tecleado en la consola D (hay)
 VRXGET: LD      A,D
         ADD     A,A
@@ -3062,7 +3083,7 @@ VRXGET: LD      A,D
         JR      Z,VRG1
         LD      A,1
         LD      (RXPEND),A
-VRG1:   CALL    RTSON
+VRG1:   CALL    BRTSON
         LD      A,C
         RET
 
@@ -3106,10 +3127,8 @@ KDN1:   LD      A,(HL)
         CALL    RAWGET
         JR      C,KDN9
         LD      C,A
-        CALL    RTSOFF          ; mientras KEYIN trabaja (mas que un caracter a
-        CALL    KEYIN           ; 115200), con --flow h el PC espera
-        CALL    RTSON
-        OR      A               ; NC: hubo uno
+        CALL    KEYIN           ; (sin tocar RTS: bajarlo a cada caracter hacia que el PC
+        OR      A               ; mandara dos mas cada vez) NC: hubo uno
         RET
 KDN9:   XOR     A
         LD      (RXPEND),A
@@ -3275,7 +3294,7 @@ RAWPUT: LD      HL,(RAWT)       ; (la SIO B en modo crudo)
         ADD     HL,DE
         LD      (HL),C
         RET
-RAWGET: CALL    RTSON           ; el programa lee: el PC puede seguir mandando
+RAWGET: CALL    BRTSON          ; el programa lee: el PC puede seguir mandando
         LD      HL,(RAWH)
         LD      DE,(RAWT)
         OR      A
@@ -3346,7 +3365,7 @@ VSW:    LD      E,A
         LD      (IX+7),0
         LD      HL,0
         LD      (LASTPD),HL
-VSNAP:  CALL    RTSON           ; (al salir del modo crudo, RTS prendido)
+VSNAP:  CALL    BRTSON          ; (al salir del modo crudo, RTS prendido)
         XOR     A               ; (de aqui: volver a la pantalla al dia)
         LD      (VIEWOFS),A
         LD      (VIEWING),A
@@ -5418,10 +5437,8 @@ VC0:    DEC     A               ; 1: redibujando (lee la pantalla: esperar antes
         JR      NZ,VC0B
         CALL    VCWAIT
         JR      VCO
-VC0B:   CALL    RTSOFF          ; la cola llena o la linea de estado saliendo
-        LD      HL,VQFL         ; (un rato sin interrupciones)
+VC0B:   LD      HL,VQFL         ; la cola llena o la linea de estado saliendo
         CALL    BKCALL
-        CALL    RTSON
         LD      HL,VQN
         LD      (HL),1
         LD      A,C
@@ -5442,8 +5459,7 @@ VC3:    CALL    VCWAIT          ; (con las interrupciones prendidas puede
         CP      B
         JR      Z,VC2           ; si cambio, el redibujo ya lo muestra
         JR      VCX
-VCWAIT: CALL    RTSOFF          ; (el despachador)
-        LD      A,1
+VCWAIT: LD      A,1
         LD      (TXA+3),A
         EI
         PUSH    BC
@@ -5535,7 +5551,13 @@ RTS1:   PUSH    AF              ; a lo sumo un par mas, y eso cabe en la FIFO)
 RXDRN:  IN      A,(SIOAC)
         RRA
         RET     NC
+        PUSH    HL              ; (RXA1 usa HL, DE y C: aqui son del que llamo)
+        PUSH    DE
+        PUSH    BC
         CALL    RXA1
+        POP     BC
+        POP     DE
+        POP     HL
         JR      RXDRN
 EXITRG: LD      A,(PREEMP)
         OR      A
@@ -5556,7 +5578,9 @@ IRXA:   LD      (SVSP),SP       ; (en la pila de las interrupciones: la del
         PUSH    HL
         PUSH    DE
         PUSH    BC
-        CALL    RXA1
+        IN      A,(SIOAC)       ; (si RXDRN ya lo leyo, la interrupcion puede
+        RRA                     ; quedar: no leer la FIFO vacia)
+        CALL    C,RXA1
 IRX9:   POP     BC
         POP     DE
         POP     HL
