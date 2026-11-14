@@ -1,0 +1,659 @@
+; zrdrv.z80 - drivers de TurboDOS 1.3 para la Z80-Retro / ZEPHYRUS
+; (C) OLIVEROS 2026
+;
+; Se ensambla con zmac --rel (formato REL de Microsoft, nombres de 6 letras) y
+; se enlaza con GEN de TurboDOS. Interfaz: TurboDOS 1.3 Z80 Implementor's Guide.
+;
+;   HDWNIT  arranque del hardware (?INIT?, con las interrupciones apagadas)
+;   CONDR@  consola en la SIO A: recepcion por interrupcion a un anillo de
+;           256 bytes con RTS (el PC para cuando se llena), salida por encuesta
+;   LSTDR@  impresora en la SIO B (salida por encuesta)
+;   DSKDR@  tarjeta SD por SPI: los discos virtuales de 4 MB de ZIOS
+;   tic     canal 1 del CTC a 120 Hz: uno de cada dos tics es el tic de
+;           TurboDOS (60 Hz), uno de cada 60 de esos llama a RTCSEC
+;
+; Lo que es solo de TurboDOS (no del cargador) va en zrrtc.z80: RTCNIT.
+
+        public  HDWNIT,CONDR@,LSTDR@,DSKDR@,ZDMAP
+        extern  VECTAB,RXQ
+        extern  WAIT,SIGNAL,DELAY,DLYTIC,RTCSEC,ISRXIT,INTSP,INTSTK,RTCNIT
+
+SIOAD   equ     81h
+SIOAC   equ     83h
+SIOBD   equ     80h
+SIOBC   equ     82h
+CTC0    equ     40h
+CTC1    equ     41h
+CTC2    equ     42h
+CTC3    equ     43h
+SPIL    equ     68h             ; SPI: dato con el reloj en bajo
+SPIH    equ     69h             ;      y en alto
+SPIIN   equ     64h             ; MISO en el bit 0
+SPICS   equ     64h             ; seleccion de la tarjeta
+CSOFF   equ     01h
+RXHI    equ     192             ; RTS abajo con tantos en el anillo
+RXLO    equ     64              ; y arriba otra vez por debajo de estos
+; RXHI deja sitio para lo que el PC manda despues de bajar RTS.
+
+; Los vectores y el anillo de la consola estan en zrpage.z80 (segmento ?PAGE?,
+; alineado a pagina). Van en otro modulo porque zmac no reubica bien una
+; referencia de un bloque COMMON a otro.
+
+; ------------------------------------------------------------ arranque
+        common  /?INIT?/
+HDWNIT: ld      hl,VECINI       ; los vectores a la tabla de ?PAGE?
+        ld      de,VECTAB
+        ld      bc,24
+        ldir
+        ld      hl,VECTAB
+        ld      a,h
+        ld      i,a
+        im      2
+        ld      a,2             ; SIO: vector base (en el canal B)
+        out     (SIOBC),a
+        ld      a,l
+        out     (SIOBC),a
+        ld      a,l             ; CTC: vector del canal 0 (bit 0 = 0)
+        add     a,16
+        out     (CTC0),a
+        ld      hl,SIOINI
+        ld      b,SIOINN
+HN1:    ld      c,(hl)
+        inc     hl
+        ld      a,(hl)
+        inc     hl
+        out     (c),a
+        djnz    HN1
+        in      a,(SIOAD)       ; vaciar la FIFO
+        in      a,(SIOAD)
+        in      a,(SIOAD)
+        ld      a,3             ; canales 2 y 3 del CTC parados
+        out     (CTC2),a
+        out     (CTC3),a
+        ld      a,0A7h          ; canal 1: temporizador, /256, interrumpe
+        out     (CTC1),a
+        ld      a,240           ; 7,3728 MHz / 256 / 240 = 120 Hz
+        out     (CTC1),a
+        xor     a               ; SD: SDHC o SDSC en las dos tarjetas
+        call    SDTIPO
+        ld      a,1
+        call    SDTIPO
+        jp      RTCNIT          ; la fecha del DS1307 (no esta en el cargador)
+
+VECINI: defw    INULL,INULL,INULL,INULL         ; SIO B: TX, ext, RX, especial
+        defw    INULL,IEXA,IRXA,ISPA            ; SIO A
+        defw    INULL,ITICK,INULL,INULL         ; CTC 0-3
+
+SIOINI: defb    SIOAC,10h, SIOAC,30h     ; reponer estado y errores (la velocidad queda)
+        defb    SIOAC,1, SIOAC,18h      ; A: RX por interrupcion (todos), sin TX
+        defb    SIOAC,5, SIOAC,0EAh     ; DTR, TX de 8 bits, TX activo, RTS
+        defb    SIOBC,10h, SIOBC,30h
+        defb    SIOBC,1, SIOBC,04h      ; B: sin interrupciones, el estado afecta al vector
+        defb    SIOBC,5, SIOBC,0EAh
+SIOINN  equ     ($-SIOINI)/2
+
+; ------------------------------------------------------------ consola
+        cseg
+; B = consola (solo hay una), E = funcion, C = caracter
+CONDR@: ld      a,e
+        or      a
+        jr      z,CSTAT
+        dec     a
+        jr      z,CIN
+        dec     a
+        jr      z,COUT
+        cp      10-2
+        jr      z,COCOND
+        cp      8-2
+        jr      z,CCRLF
+        cp      9-2
+        jr      z,CCRLF
+        xor     a
+        ret
+; E=0: estado; A=FF y el caracter en C sin sacarlo
+CSTAT:  ld      a,(RXN)
+        or      a
+        ret     z
+        ld      hl,RXQ
+        ld      a,(RXT)
+        ld      l,a
+        ld      c,(hl)
+        ld      a,0FFh
+        ret
+; E=1: esperar un caracter. El semaforo solo se usa cuando el anillo esta
+; vacio y alguien espera (RXWT): asi su cuenta nunca pasa de 1 (en DSPSGL es
+; un byte con signo y con mas de 127 senales WAIT no vuelve)
+CIN:    di
+        ld      a,(RXN)
+        or      a
+        jr      nz,CIN0
+        ld      a,0FFh          ; vacio: avisar a la interrupcion y esperar
+        ld      (RXWT),a
+        ei
+        ld      hl,RXSPH
+        call    WAIT
+        jr      CIN
+CIN0:   ld      hl,RXQ
+        ld      a,(RXT)
+        ld      l,a
+        inc     a
+        ld      (RXT),a
+        ld      a,(RXN)
+        dec     a
+        ld      (RXN),a
+        ld      b,(hl)
+        cp      RXLO
+        jr      nc,CIN1
+        ld      a,(RTSOFF)      ; casi vacio otra vez: RTS arriba
+        or      a
+        jr      z,CIN1
+        xor     a
+        ld      (RTSOFF),a
+        ld      a,5
+        out     (SIOAC),a
+        ld      a,0EAh
+        out     (SIOAC),a
+CIN1:   ei
+        ld      a,b
+        ret
+; E=10: salida si se puede sin esperar
+COCOND: in      a,(SIOAC)
+        and     4
+        ret     z               ; A=0: no se pudo
+        ld      a,c
+        out     (SIOAD),a
+        ld      a,0FFh
+        ret
+; E=8/9: el mensaje de error va en su propia linea
+CCRLF:  ld      c,13
+        call    COUT
+        ld      c,10
+; E=2: salida (cede la CPU mientras el transmisor esta ocupado)
+COUT:   in      a,(SIOAC)
+        and     4
+        jr      nz,COUT1
+        push    bc
+        ld      hl,0
+        call    DELAY
+        pop     bc
+        jr      COUT
+COUT1:  ld      a,c
+        out     (SIOAD),a
+        ret
+
+; recepcion de la SIO A
+IRXA:   ld      (INTSP),sp
+        ld      sp,INTSTK
+        push    af
+        push    hl
+        push    de
+        push    bc
+IRX1:   in      a,(SIOAD)
+        ld      c,a
+        ld      a,(RXN)
+        inc     a
+        jr      z,IRX2          ; lleno: se pierde
+        ld      (RXN),a
+        ld      hl,RXQ
+        ld      a,(RXH)
+        ld      l,a
+        ld      (hl),c
+        inc     a
+        ld      (RXH),a
+        ld      a,(RXWT)        ; alguien espera en CIN?
+        or      a
+        jr      z,IRX3
+        xor     a
+        ld      (RXWT),a
+        ld      hl,RXSPH
+        call    SIGNAL
+IRX3:
+        ld      a,(RXN)
+        cp      RXHI
+        jr      c,IRX2
+        ld      a,0FFh          ; casi lleno: RTS abajo
+        ld      (RTSOFF),a
+        ld      a,5
+        out     (SIOAC),a
+        ld      a,0E8h
+        out     (SIOAC),a
+IRX2:   in      a,(SIOAC)       ; quedan mas en la FIFO?
+        rra
+        jr      c,IRX1
+        pop     bc
+        pop     de
+        pop     hl
+        pop     af
+        ld      sp,(INTSP)
+        ei
+        reti
+; errores de recepcion de la SIO A: se descartan
+ISPA:   push    af
+        in      a,(SIOAD)
+        ld      a,30h
+        out     (SIOAC),a
+        pop     af
+        ei
+        reti
+IEXA:   push    af
+        ld      a,10h
+        out     (SIOAC),a
+        pop     af
+INULL:  ei
+        reti
+
+; ------------------------------------------------------------ tic (CTC 1)
+ITICK:  ld      (INTSP),sp
+        ld      sp,INTSTK
+        push    af
+        push    hl
+        push    de
+        push    bc
+        ld      hl,TDIV
+        dec     (hl)
+        jr      nz,ITK9         ; los tics de en medio: nada
+        ld      (hl),2
+        call    DLYTIC
+        ld      hl,TSEC
+        dec     (hl)
+        jr      nz,ITK1
+        ld      (hl),60
+        call    RTCSEC
+ITK1:   pop     bc
+        pop     de
+        pop     hl
+        pop     af
+        ld      sp,(INTSP)
+        jp      ISRXIT          ; al despachador (reparte el tiempo)
+ITK9:   pop     bc
+        pop     de
+        pop     hl
+        pop     af
+        ld      sp,(INTSP)
+        ei
+        reti
+
+; ------------------------------------------------------------ impresora
+; SIO B, por encuesta. E=2: caracter en C; E=7: fin del trabajo (nada)
+LSTDR@: ld      a,e
+        cp      2
+        ret     nz
+LST1:   in      a,(SIOBC)
+        and     4
+        jr      nz,LST2
+        push    bc
+        ld      hl,0
+        call    DELAY
+        pop     bc
+        jr      LST1
+LST2:   ld      a,c
+        out     (SIOBD),a
+        ret
+
+; ------------------------------------------------------------ disco
+; IX = paquete PDR: +0 operacion, +1 unidad, +2 pista, +4 sector, +6 sectores,
+; +8 bytes, +10 DMA, +12 DST
+DSKDR@: ld      hl,DMX          ; una operacion a la vez
+        call    WAIT
+        call    DSK1
+        push    af
+        ld      hl,DMX
+        call    SIGNAL
+        pop     af
+        ret
+DSK1:   ld      a,(ix+0)
+        cp      2
+        jr      z,DSTYP
+        cp      3
+        jr      z,DRDY
+        cp      2
+        jr      nc,DERR         ; formatear: no
+        ; leer o escribir: bloque = disco * 8192 + pista * 128 + sector
+        call    DBASE
+        jr      nz,DERR
+        call    DBLK            ; BLK = bloque del primer sector
+        ld      l,(ix+10)
+        ld      h,(ix+11)
+        ld      (DMA),hl
+        ld      b,(ix+6)        ; sectores (nunca pasan de la pista)
+DRW1:   push    bc
+        ld      a,(ix+0)
+        or      a
+        jr      nz,DRW2
+        call    SDRD
+        jr      DRW3
+DRW2:   call    SDWR
+DRW3:   pop     bc
+        jr      nz,DERR
+        ld      hl,(DMA)
+        inc     h               ; + 512
+        inc     h
+        ld      (DMA),hl
+        ld      hl,(BLK)        ; siguiente bloque
+        inc     hl
+        ld      (BLK),hl
+        ld      a,h
+        or      l
+        jr      nz,DRW4
+        ld      hl,(BLK+2)
+        inc     hl
+        ld      (BLK+2),hl
+DRW4:   djnz    DRW1
+        xor     a
+        ret
+DERR:   ld      a,0FFh
+        ret
+; tipo de disco: todos son discos virtuales de 4 MB de ZIOS
+DSTYP:  call    DBASE
+        jr      nz,DNRDY
+        ld      hl,DST
+        ld      (ix+12),l
+        ld      (ix+13),h
+        ld      a,0FFh
+        ret
+DRDY:   call    DBASE
+        ld      a,0FFh
+        ret     z
+DNRDY:  xor     a
+        ret
+
+; DBASE: la unidad (IX+1) en ZDMAP -> DSKC (tarjeta) y BASE0 (disco virtual);
+; NZ si la unidad no existe (FF en el mapa)
+DBASE:  ld      a,(ix+1)
+        cp      16
+        jr      nc,DB9
+        add     a,a
+        ld      e,a
+        ld      d,0
+        ld      hl,ZDMAP
+        add     hl,de
+        ld      a,(hl)          ; tarjeta
+        cp      0FFh
+        jr      z,DB9
+        ld      (DSKC),a
+        inc     hl
+        ld      a,(hl)          ; disco virtual (0-255)
+        ld      (VDSK),a
+        xor     a
+        ret
+DB9:    or      0FFh
+        ret
+
+; DBLK: BLK (32 bits) = VDSK * 8192 + pista * 128 + sector
+DBLK:   ld      a,(VDSK)        ; VDSK * 8192 = VDSK << 13
+        ld      l,0
+        ld      h,a
+        ld      de,0
+        ld      b,5
+DBK1:   add     hl,hl
+        rl      e
+        rl      d
+        djnz    DBK1
+        push    de
+        push    hl
+        ld      l,(ix+2)        ; pista << 7
+        ld      h,(ix+3)
+        ld      de,0
+        ld      b,7
+DBK2:   add     hl,hl
+        rl      e
+        rl      d
+        djnz    DBK2
+        ld      c,(ix+4)        ; + sector
+        ld      b,(ix+5)
+        add     hl,bc
+        jr      nc,DBK3
+        inc     de
+DBK3:   pop     bc              ; + base
+        add     hl,bc
+        ex      de,hl
+        pop     bc
+        adc     hl,bc
+        ld      (BLK+2),hl
+        ld      (BLK),de
+        ret
+
+; ------------------------------------------------------------ SD por SPI
+; (los metodos de zlib/libspi.asm de Peter Wilson, como en el XIOS de MP/M)
+SPITX:  ld      b,8
+STX1:   rlca
+        out     (SPIL),a
+        out     (SPIH),a
+        djnz    STX1
+        ret
+SPIRX:  push    bc
+        ld      b,8
+SRX1:   ld      a,1
+        out     (SPIL),a
+        out     (SPIH),a
+        in      a,(SPIIN)
+        rra
+        rl      c
+        djnz    SRX1
+        ld      a,c
+        pop     bc
+        ret
+SPITXB: push    bc              ; SPITX conservando B
+        call    SPITX
+        pop     bc
+        ret
+; SPIRB: 512 bytes a (HL)
+SPIRB:  ld      c,SPIIN
+        ld      a,1
+        ld      b,0
+        call    SRB1
+SRB1:   push    bc
+        ld      b,8
+SRB2:   out     (SPIL),a
+        out     (SPIH),a
+        in      d,(c)
+        rr      d
+        rl      e
+        djnz    SRB2
+        pop     bc
+        ld      (hl),e
+        inc     hl
+        djnz    SRB1
+        ret
+; SPIWB: 512 bytes de (HL)
+SPIWB:  ld      b,0
+        call    SWB1
+SWB1:   ld      a,(hl)
+        call    SPITXB
+        inc     hl
+        djnz    SWB1
+        ret
+
+SDSEL:  xor     a
+        out     (SPIL),a
+        ld      a,(DSKC)
+        or      a
+        ld      a,05h
+        jr      z,SDS1
+        ld      a,09h
+SDS1:   out     (SPICS),a
+        ret
+SDEND:  xor     a
+        out     (SPIL),a
+        ld      a,CSOFF
+        out     (SPICS),a
+        jp      SPIRX
+
+; SDCMD: comando C con el argumento en ARG. A = R1, Z si 0.
+SDCMD:  call    SDSEL
+        ld      de,0
+SDC1:   call    SPIRX
+        inc     a
+        jr      z,SDC2
+        dec     de
+        ld      a,d
+        or      e
+        jr      nz,SDC1
+        dec     a
+        ret
+SDC2:   ld      a,c
+        call    SPITXB
+        ld      hl,ARG+3
+        ld      b,4
+SDC3:   ld      a,(hl)
+        call    SPITXB
+        dec     hl
+        djnz    SDC3
+        ld      a,(SDCRC)
+        call    SPITXB
+        ld      a,0FFh
+        ld      (SDCRC),a
+        ld      b,16
+SDC4:   call    SPIRX
+        cp      0FFh
+        jr      nz,SDC5
+        djnz    SDC4
+SDC5:   or      a
+        ret
+
+; SDARG: ARG = BLK (SDHC) o BLK*512 (SDSC)
+SDARG:  ld      hl,(BLK)
+        ld      de,(BLK+2)
+        ld      a,(DSKC)
+        push    hl
+        ld      hl,HCARD
+        add     a,l
+        ld      l,a
+        jr      nc,SDA0
+        inc     h
+SDA0:   ld      a,(hl)
+        pop     hl
+        or      a
+        jr      nz,SDA1
+        ld      d,e
+        ld      e,h
+        ld      h,l
+        ld      l,0
+        sla     h
+        rl      e
+        rl      d
+SDA1:   ld      (ARG),hl
+        ld      (ARG+2),de
+        ret
+
+SDRD:   call    SDARG
+        ld      c,40h+17
+        call    SDCMD
+        jr      nz,SDERR
+        ld      de,0
+SDR1:   call    SPIRX
+        cp      0FEh
+        jr      z,SDR2
+        cp      0FFh
+        jr      nz,SDERR
+        dec     de
+        ld      a,d
+        or      e
+        jr      nz,SDR1
+        jr      SDERR
+SDR2:   ld      hl,(DMA)
+        call    SPIRB
+        call    SPIRX
+        call    SPIRX
+        call    SDEND
+        xor     a
+        ret
+SDERR:  call    SDEND
+        ld      a,1
+        or      a
+        ret
+
+SDWR:   call    SDARG
+        ld      c,40h+24
+        call    SDCMD
+        jr      nz,SDERR
+        call    SPIRX
+        ld      a,0FEh
+        call    SPITXB
+        ld      hl,(DMA)
+        call    SPIWB
+        ld      a,0FFh
+        call    SPITXB
+        ld      a,0FFh
+        call    SPITXB
+        call    SPIRX
+        and     1Fh
+        cp      5
+        jr      nz,SDERR
+        ld      de,0
+SDW2:   call    SPIRX
+        inc     a
+        jr      z,SDW3
+        dec     de
+        ld      a,d
+        or      e
+        jr      nz,SDW2
+        jr      SDERR
+SDW3:   call    SDEND
+        xor     a
+        ret
+
+; SDTIPO: tarjeta A -> HCARD (1 = SDHC), con CMD58
+SDTIPO: ld      (DSKC),a
+        ld      hl,HCARD
+        add     a,l
+        ld      l,a
+        jr      nc,SDT0
+        inc     h
+SDT0:   ld      (hl),0
+        ld      hl,0
+        ld      (ARG),hl
+        ld      (ARG+2),hl
+        ld      c,40h+58
+        call    SDCMD
+        jr      nz,SDT9
+        call    SPIRX           ; OCR, byte alto: bit 6 = CCS
+        push    af
+        call    SPIRX
+        call    SPIRX
+        call    SPIRX
+        pop     af
+        and     40h
+        jr      z,SDT9
+        ld      a,(DSKC)
+        ld      hl,HCARD
+        add     a,l
+        ld      l,a
+        jr      nc,SDT8
+        inc     h
+SDT8:   ld      (hl),1
+SDT9:   jp      SDEND
+
+; ------------------------------------------------------------ datos
+        dseg
+; mapa de unidades: tarjeta (0/1, FF = no hay) y disco virtual de 4 MB de ZIOS.
+; Por omision A-P son los discos 1-16 de la tarjeta 0, como CP/M en ZIOS.
+; GEN lo puede cambiar en el .PAR (ZDMAP = 0,1, 0,2, ...).
+ZDMAP:  defb    0,1, 0,2, 0,3, 0,4, 0,5, 0,6, 0,7, 0,8
+        defb    0,9, 0,10, 0,11, 0,12, 0,13, 0,14, 0,15, 0,16
+; tabla del disco (DST): bloques de 2K (fijo), 2016 bloques, 8 de directorio
+; (512 entradas), sectores de 512, 128 por pista, 64 pistas, 1 reservada
+DST:    defb    80h+4
+        defw    2016
+        defb    8
+        defb    2
+        defw    128
+        defw    64
+        defw    1
+DMX:    defw    1,DMX+2,DMX+2   ; exclusion mutua del disco
+RXSPH:  defw    0,RXSPH+2,RXSPH+2
+RXH:    defb    0
+RXT:    defb    0
+RXN:    defb    0
+RXWT:   defb    0               ; FF: CIN espera en RXSPH
+RTSOFF: defb    0
+TDIV:   defb    2
+TSEC:   defb    60
+DSKC:   defb    0
+VDSK:   defb    0
+HCARD:  defb    0,0
+SDCRC:  defb    0FFh
+ARG:    defs    4
+BLK:    defs    4
+DMA:    defw    0
+        end
