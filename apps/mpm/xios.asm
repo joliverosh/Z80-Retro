@@ -5910,10 +5910,12 @@ ITNOD:  LD      A,(RXPEND)      ; uno por tic aunque nadie lea (Ctrl-F), en los
         JR      Z,ITN1
         LD      HL,KDONE
         CALL    BKCALL
+        CALL    RXDRN           ; (KEYIN es largo: lo que llego mientras)
         CALL    TXSTA
 ITN1:   CALL    RTSON           ; sin despachador: el PC puede seguir
         LD      HL,EIRET
-ITD1:   LD      (DSPV),HL
+ITD1:   CALL    RXDRN           ; lo que llego durante el tic, antes del despachador
+        LD      (DSPV),HL
         XOR     A
         LD      (RXACT),A
         LD      (PREEMP),A
@@ -6024,7 +6026,7 @@ SB1:    LD      A,(HL)
 ; PGQRY: paginas del banco 0 preguntandole a ZIOS (servicio 1). Va en la memoria
 ; comun, con la pila en ella, porque la ventana que se pregunta cambia un momento.
 PGQRY:  LD      (BKSV),SP
-        LD      SP,PGQSTK+24
+        LD      SP,BNKPG+24     ; (la pila, en lo que falta de BNKPG: ZIOS usa la suya)
         LD      HL,BNKPG
         LD      B,0
 SI1:    PUSH    BC
@@ -6051,7 +6053,6 @@ SI1:    PUSH    BC
         JR      NZ,SI1
         LD      SP,(BKSV)
         RET
-PGQSTK: DEFS    24
 
 ; TODADR: HL = TOD de XDOS (dia de 16 bits, hora, minuto, segundo en BCD)
 TODADR: LD      HL,(SYSDAT)
