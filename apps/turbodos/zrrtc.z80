@@ -8,10 +8,14 @@
 ; Si el reloj no responde o la fecha no tiene sentido, no toca nada y
 ; TurboDOS queda con su fecha de "sin poner".
 ;
-; Todo va en ?INIT?: solo corre una vez, desde HDWNIT, y TurboDOS libera
-; esa memoria despues del arranque.
+; ZRSDT: cuando se pone la fecha o la hora (T-funcion 9, C-funcion 104, el
+; comando DATE), tambien se escribe en el DS1307. El .PAR cambia el final de
+; SDTFCN (RTCMGR) para que salte aqui:
+;   SDTFCN + 0F = 0C3,ZRSDT     (en lugar de LD (SECS),A / RET)
+;
+; RTCNIT va en ?INIT? (corre una vez); ZRSDT y el I2C quedan residentes.
 
-        public  RTCNIT
+        public  RTCNIT,ZRSDT
         extern  SECS,MINS,HOURS,JDATE
 
 I2CP    equ     64h
@@ -19,7 +23,11 @@ I2CDATA equ     02h
 
         common  /?INIT?/
 
-RTCNIT: call    RDRTC
+RTCNIT: ld      a,3             ; I2C en reposo (SDA y SCL arriba)
+        ld      (IVAL),a
+        ld      a,I2CP
+        ld      (ICLKP),a
+        call    RDRTC
         ret     c                       ; no responde
         ld      a,(RG+0)
         and     7Fh                     ; bit 7 = reloj detenido
@@ -104,6 +112,133 @@ RT1:    ld      (JDATE),hl
         ld      a,(HH)
         ld      (HOURS),a
         ret
+
+        cseg
+; ZRSDT: A = segundos (lo que guardaba SDTFCN), JDATE, HOURS y MINS ya estan
+ZRSDT:  ld      (SECS),a
+        push    ix
+        call    J2YMD           ; JDATE -> YY, MO, DD
+        ld      a,(SECS)
+        call    BINBCD
+        ld      (RG+0),a        ; bit 7 = 0: el reloj anda
+        ld      a,(MINS)
+        call    BINBCD
+        ld      (RG+1),a
+        ld      a,(HOURS)
+        call    BINBCD
+        ld      (RG+2),a        ; modo de 24 horas
+        ld      a,(DW)
+        ld      (RG+3),a
+        ld      a,(DD)
+        call    BINBCD
+        ld      (RG+4),a
+        ld      a,(MO)
+        call    BINBCD
+        ld      (RG+5),a
+        ld      a,(YY)
+        call    BINBCD
+        ld      (RG+6),a
+        call    WRRTC
+        pop     ix
+        ret
+
+; J2YMD: JDATE (1 = 1-ene-1948) -> YY (anio - 2000, o - 1900), MO, DD, DW
+; (dia de la semana 1-7, 1 = domingo; el 1-ene-1948 fue jueves)
+J2YMD:  ld      hl,(JDATE)
+        push    hl
+        ld      de,3
+        add     hl,de
+        ld      c,7
+        call    DIV8            ; A = (JDATE + 3) mod 7
+        inc     a
+        ld      (DW),a
+        pop     hl
+        ld      b,48            ; anio - 1900
+JY1:    ld      de,365
+        ld      a,b
+        and     3
+        jr      nz,JY2
+        inc     de              ; bisiesto (1948-2099)
+JY2:    or      a
+        sbc     hl,de           ; quedan mas dias que el anio?
+        jr      z,JY3
+        jr      c,JY3
+        inc     b
+        jr      JY1
+JY3:    add     hl,de           ; HL = dia del anio (1-366)
+        ld      a,b
+        sub     100
+        jr      nc,JY4
+        add     a,100
+JY4:    ld      (YY),a
+        ld      ix,MLEN
+        ld      c,1             ; mes
+JY5:    ld      e,(ix+0)
+        ld      d,0
+        ld      a,c
+        cp      2
+        jr      nz,JY6
+        ld      a,b
+        and     3
+        jr      nz,JY6
+        inc     e               ; febrero bisiesto
+JY6:    or      a
+        sbc     hl,de
+        jr      z,JY7
+        jr      c,JY7
+        inc     ix
+        inc     c
+        jr      JY5
+JY7:    add     hl,de
+        ld      a,l
+        ld      (DD),a
+        ld      a,c
+        ld      (MO),a
+        ret
+
+; DIV8: A = HL mod C (C < 128)
+DIV8:   ld      b,16
+        xor     a
+DV1:    add     hl,hl
+        rla
+        cp      c
+        jr      c,DV2
+        sub     c
+        inc     l
+DV2:    djnz    DV1
+        ret
+
+; BINBCD: A (0-99) -> BCD
+BINBCD: ld      b,0
+BB1:    cp      10
+        jr      c,BB2
+        sub     10
+        inc     b
+        jr      BB1
+BB2:    sla     b
+        sla     b
+        sla     b
+        sla     b
+        or      b
+        ret
+
+MLEN:   defb    31,28,31,30,31,30,31,31,30,31,30,31
+
+; WRRTC: los 7 registros de RG al DS1307 (desde el registro 0)
+WRRTC:  call    ISTART
+        ld      a,0D0h
+        call    IWBY
+        or      a
+        jr      nz,WR9
+        xor     a
+        call    IWBY
+        ld      hl,RG
+        ld      b,7
+WR1:    ld      a,(hl)
+        call    IWBY
+        inc     hl
+        djnz    WR1
+WR9:    jp      ISTOP
 
 ; HL = HL * DE (16 bits)
 MUL16:  ld      b,h
@@ -271,6 +406,7 @@ ICLK:   push    bc
         pop     bc
         ret
 
+        dseg
 IVAL:   defb    3
 ICLKP:  defb    I2CP
 RG:     defs    7
@@ -280,5 +416,6 @@ HH:     defb    0
 DD:     defb    0
 MO:     defb    0
 YY:     defb    0
+DW:     defb    0
 
         end

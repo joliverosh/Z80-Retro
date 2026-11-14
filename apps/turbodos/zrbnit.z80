@@ -1,0 +1,49 @@
+; zrbnit.z80 - BNKSET: paginas de los dos bancos (solo el sistema con bancos)
+; (C) OLIVEROS 2026
+;
+; Toma lo que dejo OSLOAD en 0040h (ver zrlqry.z80) y llena BPG. Si no esta, o
+; si ZIOS no tenia paginas libres, avisa por la consola y se detiene.
+
+        public  BNKSET
+        extern  BPG
+
+INFO    equ     0040h
+SIOAD   equ     81h
+SIOAC   equ     83h
+
+        common  /?INIT?/
+BNKSET: ld      hl,(INFO)
+        ld      de,'R'*256+'Z'
+        or      a
+        sbc     hl,de
+        jr      nz,BS9
+        ld      hl,INFO+5       ; las tres del banco 1 tienen que existir
+        ld      b,3
+BS1:    ld      a,(hl)
+        or      a
+        jr      z,BS9
+        inc     hl
+        djnz    BS1
+        ld      hl,INFO+2
+        ld      de,BPG
+        ld      bc,6
+        ldir
+        ld      hl,0
+        ld      (INFO),hl
+        ret
+BS9:    ld      hl,BSMSG
+BS10:   ld      a,(hl)
+        or      a
+        jr      z,BS12
+BS11:   in      a,(SIOAC)
+        and     4
+        jr      z,BS11
+        ld      a,(hl)
+        out     (SIOAD),a
+        inc     hl
+        jr      BS10
+BS12:   di
+        halt
+BSMSG:  defb    13,10,'No memory bank for the TPA: load TurboDOS with OSLOAD from CP/M 3',13,10,0
+
+        end

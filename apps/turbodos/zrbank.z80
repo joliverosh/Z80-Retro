@@ -1,0 +1,152 @@
+; zrbank.z80 - bancos e interrupciones de TurboDOS para la Z80-Retro / ZEPHYRUS
+; (C) OLIVEROS 2026
+;
+; Todo va en ?BANK?, la memoria comun (la ventana 3, C000-FFFF, que es la misma
+; pagina en los dos bancos):
+;
+;   SELBNK  pone el banco A (0 = sistema, 1 = TPA) en las ventanas 0-2. Las
+;           paginas de cada banco estan en BPG (las pone ZRBNIT).
+;   VSET    arma la tabla de vectores IM 2 dentro de VTBUF; HL = su direccion
+;   STxxx   entradas de las interrupciones: pasan a una pila comun, ponen el
+;           banco 0, llaman al manejador (HRX, HSP, HTK, que estan en el
+;           banco 0 y terminan con RET) y vuelven a poner el banco que habia.
+;
+; Sin bancos (el cargador y el sistema de un solo banco) CURB queda en 0 y las
+; entradas no cambian nada.
+;
+; GEN no acepta referencias externas dentro de un bloque COMMON como este, y
+; zmac no reubica bien las referencias de un bloque a otro: aqui solo hay
+; referencias a este mismo bloque, y las direcciones de los manejadores las
+; escribe HDWNIT en HRX, HSP y HTK.
+
+        public  SELBNK,CURB,BPG,VSET,HRX,HSP,HTK
+
+PGPORT  equ     60h             ; registros de pagina: 60h + ventana
+
+        common  /?BANK?/
+; SELBNK: banco A; conserva todos los registros menos A (y las banderas)
+SELBNK: push    hl
+        push    bc
+        ld      c,a
+        ld      a,i             ; P/V = IFF2
+        push    af
+        di
+        ld      a,c
+        ld      (CURB),a
+        call    SELA
+        pop     af
+        jp      po,SB1
+        ei
+SB1:    ld      a,c
+        pop     bc
+        pop     hl
+        ret
+
+; SELA: pone las paginas del banco A sin tocar CURB; conserva BC, DE y HL
+SELA:   push    hl
+        push    bc
+        ld      hl,BPG
+        or      a
+        jr      z,SA0
+        ld      hl,BPG+3
+SA0:    ld      bc,3*256+PGPORT
+SA1:    ld      a,(hl)
+        out     (c),a
+        inc     hl
+        inc     c
+        djnz    SA1
+        pop     bc
+        pop     hl
+        ret
+
+; VSET: tabla de vectores alineada a 8 y sin cruzar de pagina, dentro de VTBUF.
+; HL = su direccion. (Se llena con codigo: una referencia externa repetida en
+; DEFW sale mal con zmac y GEN.)
+VSET:   ld      hl,VTBUF+7
+        ld      a,l
+        and     0F8h
+        ld      l,a
+        cp      0E9h
+        jr      c,VS1
+        inc     h
+        ld      l,0
+VS1:    push    hl
+        ld      de,STNUL        ; los 12: SIO B, SIO A, CTC 0-3
+        ld      b,12
+VS2:    ld      (hl),e
+        inc     hl
+        ld      (hl),d
+        inc     hl
+        djnz    VS2
+        pop     hl
+        push    hl
+        ld      de,12           ; SIO A: recepcion y condicion especial
+        add     hl,de
+        ld      de,STRX
+        ld      (hl),e
+        inc     hl
+        ld      (hl),d
+        inc     hl
+        ld      de,STSP
+        ld      (hl),e
+        inc     hl
+        ld      (hl),d
+        pop     hl
+        push    hl
+        ld      de,18           ; CTC 1: el tic
+        add     hl,de
+        ld      de,STTK
+        ld      (hl),e
+        inc     hl
+        ld      (hl),d
+        pop     hl
+        ret
+
+; entradas de las interrupciones
+STNUL:  ei
+        reti
+STRX:   push    hl
+        ld      hl,HRX
+        jr      STCOM
+STSP:   push    hl
+        ld      hl,HSP
+        jr      STCOM
+STTK:   push    hl
+        ld      hl,HTK
+STCOM:  ld      (SSP),sp
+        ld      sp,CSTK
+        push    af
+        ld      a,(CURB)
+        push    af
+        or      a
+        jr      z,STC1
+        xor     a               ; banco 0 para el manejador
+        call    SELA
+STC1:   ld      a,(hl)
+        inc     hl
+        ld      h,(hl)
+        ld      l,a
+        call    JPHL
+        pop     af              ; el banco que habia
+        or      a
+        call    nz,SELA
+        pop     af
+        ld      sp,(SSP)
+        pop     hl
+        ei
+        reti
+JPHL:   jp      (hl)
+
+CURB:   defb    0               ; banco puesto
+BPG:    defb    0,0,0           ; paginas del banco 0 (ventanas 0-2)
+        defb    0,0,0           ; paginas del banco 1
+HRX:    defw    0               ; manejadores (banco 0)
+HSP:    defw    0
+HTK:    defw    0
+SSP:    defw    0               ; pila de quien fue interrumpido
+        defs    48
+CSTK:                           ; pila comun de las interrupciones
+VTBUF:  defs    55              ; tabla de vectores: 24 bytes alineados a 8
+        defb    0               ; sin cruzar de pagina (el bloque no puede
+                                ; terminar con DEFS)
+        end

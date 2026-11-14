@@ -1,18 +1,15 @@
-; zrpage.z80 - tabla de vectores (IM 2) y anillo de la consola de TurboDOS
-; para la Z80-Retro / ZEPHYRUS. (C) OLIVEROS 2026
+; zrpage.z80 - anillo de la consola de TurboDOS para la Z80-Retro / ZEPHYRUS
+; (C) OLIVEROS 2026
 ;
-; GEN pone el segmento ?PAGE? al principio de una pagina de 256 bytes: el
-; anillo RXQ ocupa esa pagina (se indexa solo con L) y VECTAB empieza en la
-; siguiente (I = parte alta de VECTAB). El bloque termina con datos y no con
-; DEFS: si termina con DEFS, GEN dice "Load address out-of-bounds". Los
-; vectores los copia HDWNIT: GEN tampoco acepta referencias externas dentro de
-; este bloque.
+; GEN pone el segmento ?PAGE? al principio de una pagina de 256 bytes, asi que
+; el anillo RXQ se indexa solo con L. El bloque termina con DEFB y no con DEFS:
+; si termina con DEFS, GEN dice "Load address out-of-bounds".
+; (La tabla de vectores esta en zrbank.z80, en la memoria comun.)
 
-        public  VECTAB,RXQ
+        public  RXQ
 
         common  /?PAGE?/
-RXQ:    defs    256                             ; anillo de la consola (L = indice)
-VECTAB: defs    23                              ; 12 vectores: SIO B, SIO A, CTC
-        defb    0                               ; (los llena HDWNIT)
+RXQ:    defs    255
+        defb    0
 
         end

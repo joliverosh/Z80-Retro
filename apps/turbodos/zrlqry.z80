@@ -1,0 +1,90 @@
+; zrlqry.z80 - BNKQRY: el cargador le pregunta a ZIOS las paginas (solo OSLOAD)
+; (C) OLIVEROS 2026
+;
+; OSLOAD corre en el TPA de CP/M 3, con ZIOS todavia en FE00. Antes de que se
+; cargue el sistema (que tapa a ZIOS), BNKQRY averigua que paginas tienen las
+; ventanas 0-2 (seran el banco 0 de TurboDOS) y le pide a ZIOS tres paginas
+; libres para el banco 1 (el TPA). Lo deja en 0040h:
+;   'Z','R', P0,P1,P2 (banco 0), N0,N1,N2 (banco 1; 0 si ZIOS no tenia)
+; El sistema con bancos lo lee en ZRBNIT.
+;
+; Los registros de pagina no se pueden leer: el servicio 1 de ZIOS pone una
+; pagina en una ventana y devuelve la que habia, asi que se pone otra y se
+; vuelve a poner la de antes. Para las ventanas 0 y 2 eso se hace desde una
+; copia de QRY en 4000h (ventana 1), con su pila ahi mismo.
+
+        public  BNKQRY
+
+ZIOS    equ     0FE00h
+INFO    equ     0040h
+QBASE   equ     4000h           ; copia de QRY
+QSP     equ     40F0h           ; SP del cargador
+QP0     equ     40F2h           ; pagina de la ventana 0
+QSTK    equ     4100h
+TMPPG   equ     3Fh             ; pagina que se pone un momento (no se escribe)
+
+        cseg
+BNKQRY: ld      hl,QRY
+        ld      de,QBASE
+        ld      bc,QRYN
+        ldir
+        call    QBASE           ; ventanas 0 y 2 -> QP0, INFO+4
+        ld      a,(QP0)
+        ld      (INFO+2),a
+        ld      e,1             ; ventana 1, desde aqui (ventana 0)
+        call    QWIN
+        ld      (INFO+3),a
+        ld      hl,INFO+5       ; tres paginas para el banco 1
+        ld      b,3
+BQ1:    push    bc
+        push    hl
+        ld      c,2
+        call    ZIOS
+        pop     hl
+        pop     bc
+        ld      (hl),a
+        inc     hl
+        djnz    BQ1
+        ld      hl,'R'*256+'Z'
+        ld      (INFO),hl
+        ret
+
+; QWIN: A = pagina de la ventana E (que no sea la del codigo ni la de la pila)
+QWIN:   push    de
+        ld      d,TMPPG
+        ld      c,1
+        call    ZIOS
+        pop     de
+        push    af
+        ld      d,a
+        ld      c,1
+        call    ZIOS
+        pop     af
+        ret
+
+; QRY: se copia a 4000h. Solo direcciones absolutas, sin saltos.
+QRY:    ld      (QSP),sp
+        ld      sp,QSTK
+        ld      e,0
+        ld      d,TMPPG
+        ld      c,1
+        call    ZIOS
+        ld      (QP0),a         ; (0042h esta en la ventana 0, que ahora no es la suya)
+        ld      d,a
+        ld      e,0
+        ld      c,1
+        call    ZIOS
+        ld      e,2
+        ld      d,TMPPG
+        ld      c,1
+        call    ZIOS
+        ld      (INFO+4),a
+        ld      d,a
+        ld      e,2
+        ld      c,1
+        call    ZIOS
+        ld      sp,(QSP)
+        ret
+QRYN    equ     $-QRY
+
+        end

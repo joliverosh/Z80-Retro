@@ -15,8 +15,8 @@
 ; Lo que es solo de TurboDOS (no del cargador) va en zrrtc.z80: RTCNIT.
 
         public  HDWNIT,CONDR@,LSTDR@,DSKDR@,ZDMAP
-        extern  VECTAB,RXQ
-        extern  WAIT,SIGNAL,DELAY,DLYTIC,RTCSEC,ISRXIT,INTSP,INTSTK,RTCNIT
+        extern  RXQ,VSET,HRX,HSP,HTK,BNKQRY,BNKSET
+        extern  WAIT,SIGNAL,DELAY,DLYTIC,RTCSEC,RTCNIT
 
 SIOAD   equ     81h
 SIOAC   equ     83h
@@ -41,11 +41,15 @@ RXLO    equ     64              ; y arriba otra vez por debajo de estos
 
 ; ------------------------------------------------------------ arranque
         common  /?INIT?/
-HDWNIT: ld      hl,VECINI       ; los vectores a la tabla de ?PAGE?
-        ld      de,VECTAB
-        ld      bc,24
-        ldir
-        ld      hl,VECTAB
+HDWNIT: call    BNKQRY          ; solo en OSLOAD: paginas para los bancos
+        call    BNKSET          ; solo en el sistema con bancos: BPG
+        ld      hl,IRXA         ; manejadores para las entradas de ZRBANK
+        ld      (HRX),hl
+        ld      hl,ISPA
+        ld      (HSP),hl
+        ld      hl,ITICK
+        ld      (HTK),hl
+        call    VSET            ; tabla de vectores (en la memoria comun) -> HL
         ld      a,h
         ld      i,a
         im      2
@@ -79,10 +83,6 @@ HN1:    ld      c,(hl)
         ld      a,1
         call    SDTIPO
         jp      RTCNIT          ; la fecha del DS1307 (no esta en el cargador)
-
-VECINI: defw    INULL,INULL,INULL,INULL         ; SIO B: TX, ext, RX, especial
-        defw    INULL,IEXA,IRXA,ISPA            ; SIO A
-        defw    INULL,ITICK,INULL,INULL         ; CTC 0-3
 
 SIOINI: defb    SIOAC,10h, SIOAC,30h     ; reponer estado y errores (la velocidad queda)
         defb    SIOAC,1, SIOAC,18h      ; A: RX por interrupcion (todos), sin TX
@@ -181,12 +181,12 @@ COUT1:  ld      a,c
         out     (SIOAD),a
         ret
 
+; Los manejadores los llaman las entradas de ZRBANK (en la memoria comun), ya
+; con el banco 0 puesto, en la pila comun y con AF y HL guardados. Terminan
+; con RET.
+
 ; recepcion de la SIO A
-IRXA:   ld      (INTSP),sp
-        ld      sp,INTSTK
-        push    af
-        push    hl
-        push    de
+IRXA:   push    de
         push    bc
 IRX1:   in      a,(SIOAD)
         ld      c,a
@@ -207,8 +207,7 @@ IRX1:   in      a,(SIOAD)
         ld      (RXWT),a
         ld      hl,RXSPH
         call    SIGNAL
-IRX3:
-        ld      a,(RXN)
+IRX3:   ld      a,(RXN)
         cp      RXHI
         jr      c,IRX2
         ld      a,0FFh          ; casi lleno: RTS abajo
@@ -222,31 +221,19 @@ IRX2:   in      a,(SIOAC)       ; quedan mas en la FIFO?
         jr      c,IRX1
         pop     bc
         pop     de
-        pop     hl
-        pop     af
-        ld      sp,(INTSP)
-        ei
-        reti
+        ret
 ; errores de recepcion de la SIO A: se descartan
-ISPA:   push    af
-        in      a,(SIOAD)
+ISPA:   in      a,(SIOAD)
         ld      a,30h
         out     (SIOAC),a
-        pop     af
-        ei
-        reti
-IEXA:   push    af
-        ld      a,10h
-        out     (SIOAC),a
-        pop     af
-INULL:  ei
-        reti
+        ret
 
 ; ------------------------------------------------------------ tic (CTC 1)
-ITICK:  ld      (INTSP),sp
-        ld      sp,INTSTK
-        push    af
-        push    hl
+; En TurboDOS de un solo usuario ISRXIT es solo EI / RETI, asi que el tic
+; vuelve con RET a su entrada y no pasa por el despachador.
+ITICK:  in      a,(SIOAC)       ; algo en la FIFO de la SIO A sin atender?
+        rra                     ; (si su interrupcion se perdio, el tic la
+        call    c,IRXA          ; vacia; asi lo hace tambien el XIOS de MP/M)
         push    de
         push    bc
         ld      hl,TDIV
@@ -256,22 +243,12 @@ ITICK:  ld      (INTSP),sp
         call    DLYTIC
         ld      hl,TSEC
         dec     (hl)
-        jr      nz,ITK1
+        jr      nz,ITK9
         ld      (hl),60
         call    RTCSEC
-ITK1:   pop     bc
-        pop     de
-        pop     hl
-        pop     af
-        ld      sp,(INTSP)
-        jp      ISRXIT          ; al despachador (reparte el tiempo)
 ITK9:   pop     bc
         pop     de
-        pop     hl
-        pop     af
-        ld      sp,(INTSP)
-        ei
-        reti
+        ret
 
 ; ------------------------------------------------------------ impresora
 ; SIO B, por encuesta. E=2: caracter en C; E=7: fin del trabajo (nada)
