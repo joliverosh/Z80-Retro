@@ -3798,7 +3798,7 @@ STS5:   LD      A,C
         LD      A,2
         LD      (GENACT),A
         JP      GCEND
-STPRE:  DEFB    1Bh,'7',1Bh,'[24;1H',1Bh,'[7m ZEPHYRUS 1.4 | ',0
+STPRE:  DEFB    1Bh,'7',1Bh,'[24;1H',1Bh,'[7m ZEPHYRUS 1.5 | ',0
 STSEP:  DEFB    ' | ',0
 STHIST: DEFB    'HIST -',0
 STNONE: DEFB    0,0,0,0,0,0,'        '
@@ -4569,7 +4569,7 @@ TXINI:  DEFB    0,0,0,0,SIOAD,SIOAC
 VECS:   DEFW    ITXB,IEXB,IRXB,ISPB,ITXA,IEXA,IRXA,ISPA    ; FFE0-FFEE
         DEFW    INULL,ITICK,INULL,INULL                    ; FFF0-FFF6 (CTC 0-3)
 
-MSG:    DEFB    13,10,'ZEPHYRUS XIOS 1.4 (OLIVEROS 2026): 5 consoles, ',0
+MSG:    DEFB    13,10,'ZEPHYRUS XIOS 1.5 (OLIVEROS 2026): 4 consoles, ',0
 MSGB:   DEFB    ' banks, drives A-P',13,10,0
 MSGC:   DEFB    ' KB disk cache',13,10,0
 MSGS:   DEFB    'A:STARTUP.SUB',13,10,0

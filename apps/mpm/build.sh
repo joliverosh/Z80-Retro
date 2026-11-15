@@ -11,7 +11,7 @@ cd "$(dirname "$0")"
 ZMAC=${ZMAC:-zmac}
 export ZMAC
 python3 mkspr.py xios.asm BNKXIOS.SPR
-python3 gensys.py ${RSPS:-} > gensys.log
+python3 gensys.py ${RSPS-SCHED} > gensys.log
 grep -q "^MPM.SYS" gensys.log || { cat gensys.log; exit 1; }
 # la parte comun del XIOS tiene que quedar en C000 o mas arriba
 python3 - <<'C'

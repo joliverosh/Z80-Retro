@@ -24,7 +24,7 @@ for f in ['RESBDOS.SPR','XDOS.SPR','BNKBDOS.SPR','BNKXDOS.SPR','TMP.SPR']:
         # Parche: el mensaje de arranque dice que es la version para ZEPHYRUS
         # (mismo largo, 56 bytes; el texto no lleva bits de reubicacion).
         old = b'\r\n\nMP/M II V2.0\r\nCopyright (C) 1981, Digital Research\r\n$'
-        new = b'\r\nMP/M II 2.0 ZEPHYRUS 1.4\r\n(C) 1981 Digital Research\r\n$'
+        new = b'\r\nMP/M II 2.0 ZEPHYRUS 1.5\r\n(C) 1981 Digital Research\r\n$'
         assert d.count(old) == 1 and len(old) == len(new), 'XDOS.SPR: no encuentro el mensaje'
         d = d.replace(old, new)
         # Parche: el retorno de los programas (lo que hay en su pila al empezar)
@@ -47,7 +47,7 @@ os.makedirs('/tmp/gs', exist_ok=True)
 shutil.copy(f'{SIM}/disks/library/cpm22-1.dsk', '/tmp/gs/drivea.dsk')
 I.write_img(files, '/tmp/gs/driveb.dsk')
 ANS = [  # (texto de la pregunta, respuesta)
-    ('Top page', 'FD'), ("Number of TMPs", "#5"), ('Number of Printers', '#1'),
+    ('Top page', 'FD'), ("Number of TMPs", '#'+os.environ.get('GS_TMPS','4')), ('Number of Printers', '#1'),
     ('Breakpoint RST', '07'), ('system call user stacks', 'Y'), ('Z80 CPU', 'Y'),
     ('ticks/second', '#60'), ('System Drive', 'H:'), ('Temporary file drive', 'A:'),
     ('locked records/process', ''), ('Total locked records', ''), ('open files/process', ''),

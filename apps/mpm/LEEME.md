@@ -1,13 +1,14 @@
-# MP/M II 2.0 ZEPHYRUS 1.4
+# MP/M II 2.0 ZEPHYRUS 1.5
 
-MP/M II 2.0 de Digital Research, el CP/M multiusuario de 1981, adaptado a ZEPHYRUS (corre también en la Z80 CPU Rev 2.2) con ZLoader/ZIOS v6. El XIOS es propio (`xios.asm`) y da el número de versión: 1.4. El resto son los archivos originales de Digital Research, con tres parches pequeños a `XDOS.SPR` (usuario 0, el mensaje de arranque y la pila al terminar un programa) y el título del cargador.
+MP/M II 2.0 de Digital Research, el CP/M multiusuario de 1981, adaptado a ZEPHYRUS (corre también en la Z80 CPU Rev 2.2) con ZLoader/ZIOS v6. El XIOS es propio (`xios.asm`) y da el número de versión: 1.5. El resto son los archivos originales de Digital Research, con tres parches pequeños a `XDOS.SPR` (usuario 0, el mensaje de arranque y la pila al terminar un programa) y el título del cargador.
 
 Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 - el arranque;
 - `DIR`, `STAT`, `TYPE`, `PIP`, `ERA`, `MPMSTAT` y `TOD`;
 - programas `.COM` y `.PRL`;
 - MBASIC con los juegos;
-- las cinco consolas a la vez, en bancos distintos: cuatro virtuales en la SIO A (Ctrl-F1..F4) y la SIO B;
+- las cuatro consolas a la vez, en bancos distintos, virtuales en la SIO A (Ctrl-F1..F4);
+- `SCHED`, que corre una orden a la hora pedida;
 - tarjetas SDSC y SDHC;
 - lo que MP/M escribe en la SD se lee después desde CP/M 2.2.
 
@@ -16,6 +17,8 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 **La 1.3 en la placa real** (9/11/2026): arranca con 7 bancos, 64 KB de caché y G: de 48 KB; `DIR H:` y `MPMSTAT` salen completos con la salida por interrupción; `TOD` da la hora del DS1307; PI1K desde G: calcula los 1000 decimales en 27 s; PRIMOS tarda 7 s; `H:ZLOADER` vuelve a ZLoader sin RESET.
 
 **La 1.4 en la placa real** (9/11/2026): Ctrl-F1..F3 cambian de consola y los programas corren a la vez en varias (PI1K y otro). Lo de la segunda tanda (historial, atributos, línea de estado ampliada, `H:VC`, `CONSOLE4=`, `H:XFER`, SD más rápida) está probado en el emulador.
+
+**La 1.5** (15/11/2026): cuatro consolas en vez de cinco, para que entre la parte residente de `SCHED` (`SCHED.RSP` y `SCHED.BRS` de los discos de MP/M II de z80pack). Con 5 TMP la memoria común no alcanzaba: la parte común del XIOS quedaba 251 bytes debajo de C000; con 4 TMP los datos de los TMP ocupan una página menos. La SIO B deja de ser consola: queda para la impresora. En el emulador, `H:SCHED 10/15/26 10:31 H:TOD` corrió `TOD` a las 10:31:00 en punto. La parte residente del spooler (`SPOOL.RSP`, tres páginas) no entra.
 
 **Actualizar por la SD en la placa real** (9/11/2026): `H:XFER R A:MPM.SYS` con picocom `--flow h` pasó los 322 bloques con 5 reintentos (844 BPS; sin control de flujo, 2 o 3 reintentos por bloque), y `H:MPMLDR` arrancó ese `MPM.SYS` desde A:. RTS y CTS tienen que ir cruzados entre el adaptador y la placa: con `--flow h` y sin cruzar, el teclado no hace nada. Al pegar texto en la placa real, con el teclado por `RAWQ` y `KDRAIN`: 6 de 8 líneas de 66 caracteres llegaron enteras y en las otras faltaron 2 letras seguidas (el despachador de MP/M, con las interrupciones apagadas, coincide con la llegada; el FTDI manda un par más después de que baja RTS). **Corregido el 13/11/2026:** `RTSOFF` ahora, además de bajar RTS, vacía la FIFO de la SIO al anillo (`RXDRN`, guardando HL, DE y BC), así los dos o tres caracteres que el PC manda después caben en la FIFO mientras las interrupciones siguen apagadas (en el tic que despacha y en `CONIN` antes de esperar una tecla); `IRXA` mira RR0 antes de leer, porque la interrupción puede quedar después de vaciar la FIFO a mano; la parte con bancos usa `BRTSON`/`BRTSOFF`, sin vaciar (allí la ventana 1 puede no ser `CURPG1`), y `KEYIN` ya no sube y baja RTS a cada carácter (eso hacía que el PC mandara dos más cada vez). En el emulador, con la FIFO de 3 de la SIO real (`SKFIFO=2` más el registro de datos), la línea a 115200 y el PC mandando 2 o 3 caracteres más después de bajar RTS: antes, 9 de 10 líneas de 100 caracteres pegadas perdían una letra; ahora llegan las 14 enteras. `XFER` pasa de unos 3 reintentos por archivo a ninguno. (La primera versión de este arreglo, que llegó a la placa, no guardaba los registros en `RXDRN`: podía cambiar la primera letra pegada y dañar a quien interrumpía el tic.) **Segunda vuelta (13/11/2026):** con ese arreglo, en la placa todavía 9 de 20 líneas perdían 2 letras seguidas. El FTDI manda más de 2 o 3 caracteres después de que baja RTS (en el emulador el mismo resultado sale con 4 a 6), y el tic, con las interrupciones apagadas desde que baja RTS, tarda más que eso (`KEYIN` de una tecla, `FLAGSET`): ahora el tic vuelve a vaciar la FIFO después de `KDONE` y justo antes de ir al despachador (`ITD1`). Para que entre en la parte común, `PGQRY` usa de pila lo que falta llenar de `BNKPG` (ZIOS cambia a su propia pila al entrar). En el emulador, con el PC mandando 3, 5, 6 y 8 caracteres más después de bajar RTS, llegaron enteras las 24 líneas (antes, con 5, se perdían 4 de 8); `XFER` pasa 20 KB sin reintentos.
 
@@ -58,7 +61,7 @@ Probado en el emulador de la placa (`retroemu23`) con la v6 real. Funcionan:
 
 | | |
 |---|---|
-| Consolas | 5: **0-3 virtuales en la SIO A** (Ctrl-F1..F4 elige la que se ve, como en Linux; cada una guarda su pantalla de 80 x 24 y lo tecleado) y la **4 en la SIO B** (segundo terminal o NUNTIUS). La salida va por interrupción, con un búfer de 32 caracteres por canal: un programa que escribe mucho ya no frena a los demás, y las consolas de atrás nunca esperan |
+| Consolas | 4: **0-3 virtuales en la SIO A** (Ctrl-F1..F4 elige la que se ve, como en Linux; cada una guarda su pantalla de 80 x 24 y lo tecleado). Hasta la 1.4 había una quinta en la SIO B. La salida va por interrupción, con un búfer de 32 caracteres por canal: un programa que escribe mucho ya no frena a los demás, y las consolas de atrás nunca esperan |
 | Historial de pantalla | **Shift-RePag / Shift-AvPag** (o Ctrl-\\ U / D) miran 12 filas hacia atrás o adelante en la consola que se ve; se guardan 24 filas además de las que se ven. Cualquier tecla o salida vuelve al día |
 | Atributos | Negrita, subrayado, parpadeo, inverso y color del texto se guardan con cada carácter y se repiten al redibujar |
 | Línea de estado | Opcional (`STATUS=ON`): la fila 24 muestra cada segundo la versión, las consolas (la que se ve entre corchetes, `*` en las que escribieron algo que no se vio), el programa que escribió último en la consola que se ve, cuánto trabajó la CPU en el último segundo y la fecha y hora |
@@ -134,7 +137,7 @@ Para volver al de la flash: `ERA A:MPM.SYS` (o `REN A:MPMOLD.SYS=A:MPM.SYS`). Si
   - La pantalla guardada entiende lo que se usa con un terminal ANSI: CR, LF, BS, TAB, `ESC [ fila ; col H`, `ESC [ J`, `ESC [ K`, el movimiento del cursor y `ESC [ ... m` con negrita, subrayado, parpadeo, inverso y color del texto (hasta 3 parámetros). El color de fondo no se guarda.
   - **Mirar hacia atrás:** Shift-RePag sube 12 filas y Shift-AvPag baja 12 (también con Ctrl o Alt, o con **Ctrl-\\ U** y **Ctrl-\\ D**). Cada consola guarda 24 filas además de las que se ven. Mientras se mira hacia atrás el cursor no se ve y la línea de estado dice `HIST -n`; cualquier tecla o algo que escriba el programa vuelve al día. La terminal de GNOME y xterm usan Shift-RePag para su propio historial: ahí sirve Ctrl-RePag o Ctrl-\\ U.
   - **`H:VC n`** muestra la consola n (1 a 4, o 5): sirve en un `SUBMIT` o desde un programa (servicio 40).
-  - **La consola 4** es la SIO B. Con `CONSOLE4=VIRTUAL` en `A:MPM.CFG` es una quinta consola virtual en la SIO A (Ctrl-F5 o Ctrl-\\ 5; cada consola guarda entonces 12 filas hacia atrás en lugar de 24); con `CONSOLE4=OFF` no tiene terminal (lo que escribe se pierde) y la SIO B queda solo para la impresora.
+  - **La consola 4** (la SIO B, o una quinta virtual con `CONSOLE4=VIRTUAL`) existía hasta la 1.4. Desde la 1.5 MP/M tiene 4 consolas y `CONSOLE4=` no tiene efecto; el XIOS la sigue teniendo, por si se genera otra vez con 5 TMP.
 - **La línea de estado** (`STATUS=ON`): la fila 24 queda fija y los programas usan las filas 1-23 (el XIOS fija esa zona de desplazamiento en el terminal). Ejemplo:
 
   ```
@@ -150,7 +153,7 @@ Para volver al de la flash: `ERA A:MPM.SYS` (o `REN A:MPMOLD.SYS=A:MPM.SYS`). Si
   STATUS=ON            ; linea de estado en la fila 24 (OFF: sin ella)
   BAUD A=115200        ; velocidad de la SIO A (o B) para esta sesion
   DRIVE C=SD0:12       ; C: = disco virtual 12 de la tarjeta 0 (SD1:n, RAM, FLASH u OFF)
-  CONSOLE4=B           ; la consola 4: B (la SIO B), OFF o VIRTUAL (Ctrl-F5)
+  CONSOLE4=B           ; sin efecto desde la 1.5 (MP/M tiene 4 consolas)
   BANKS=7              ; bancos de usuario como maximo (1-7)
   ```
 
@@ -168,7 +171,7 @@ Para volver al de la flash: `ERA A:MPM.SYS` (o `REN A:MPMOLD.SYS=A:MPM.SYS`). Si
   Con la caché de 128 KB, un archivo de 64 KB que se vuelve a leer sale entero de la memoria: `BENCH` da 40 KB/s leyendo de a 1 KB. Si no queda banco libre, un programa nuevo no se puede cargar hasta que termine otro.
 - **La impresora** (`LST:`, `^P`, `PIP LST:=archivo`) se elige con `LST=` en `A:MPM.CFG`. `LST=B`, o sin el archivo, la manda a SIO B: si ahí hay un terminal, la salida aparece en él. `LST=A:IMPRESOR.TXT` (cualquier nombre, con o sin unidad; sin unidad es A:) la guarda en ese documento. Lo impreso se agrega al final, así que el archivo crece hasta que lo borres. Al arrancar se ejecuta solo `H:LSTFILE`, que queda corriendo suelto (ocupa un banco) y pasa lo impreso al archivo cada medio segundo. Lo cierra tras 2 s sin impresión: mientras se imprime, `TYPE` responde `File Currently Open`; hay que esperar un momento.
 - **`H:BAUD`** sin parámetros muestra la velocidad guardada de cada canal; `H:BAUD B 9600` la cambia y la guarda. Velocidades: 230400, 115200, 9600, 4800, 2400, 1200, 600 y 300 (con la CPU a 14,7456 MHz, el doble). Las de 9600 o menos usan el CTC: el puente del reloj de la SIO tiene que estar en CLK0_OUT (P6 para el canal A, P3 para el B), y los dos canales comparten esa constante. El mismo `BAUD.COM` funciona en CP/M 2.2 (allí cambia la velocidad con el servicio 32 de ZIOS; bajo MP/M programa la SIO directamente).
-- **`H:XFER`** pasa archivos por XMODEM o YMODEM por la consola donde corre, que tiene que ser la que se ve en el terminal (o la 4, en la SIO B). Con picocom en oli (hace falta `lrzsz`):
+- **`H:XFER`** pasa archivos por XMODEM o YMODEM por la consola donde corre, que tiene que ser la que se ve en el terminal (hasta la 1.4, también la 4, en la SIO B). Con picocom en oli (hace falta `lrzsz`):
 
   ```
   sudo apt install lrzsz
@@ -195,7 +198,8 @@ Los mensajes que se ven en pantalla (arranque, errores, programas propios) está
 - **`MPMLDR.COM`** es el cargador de Digital Research con nuestro `LDRBIOS` (`ldrbios.asm`) en 1700h. Corre como programa de CP/M y lee `MPM.SYS` de H: con el servicio 17 de ZIOS.
 - **`MPM.SYS`** lo arma `GENSYS` con estas opciones:
   - tope en la página FD: deja libre FE00-FFFF, donde está el puente de ZIOS;
-  - 5 consolas (5 TMP), RST 7 para el depurador y 60 tics por segundo; con 5 consolas XDOS empieza en C900;
+  - 4 consolas (4 TMP), RST 7 para el depurador y 60 tics por segundo; XDOS empieza en CA00;
+  - el proceso residente `SCHED` (`dri/SCHED.RSP` en C900 y `dri/SCHED.BRS` en el banco 0). `GS_TMPS=5 RSPS= ./build.sh` vuelve a las 5 consolas sin `SCHED`;
   - unidad del sistema H: y memoria común desde C000;
   - 7 segmentos de usuario (el XIOS deja en SYSDAT solo los que caben en la RAM).
 - **`SYSTEMINIT` del XIOS** se aprovecha de que ZIOS todavía está debajo:
