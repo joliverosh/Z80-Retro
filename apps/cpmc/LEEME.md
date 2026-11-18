@@ -51,15 +51,17 @@ Trece de estos programas están ahora en ensamblador Z80 (`asm/`). Hacen lo mism
 | `WC` | 5093 | 1660 | la misma salida; 41 KB en 12,9 s contra 17,1 |
 | `HEXDUMP` | 5112 | 1700 | la misma salida |
 | `GREP` | 6590 | 2602 | la misma salida (22 patrones y opciones), y la misma que una copia en Python del motor; `A.*B.*C.*D` en 83 KB: 44 s contra más de 2 minutos |
-| `I2CSCAN` | 6685 | 2920 | la misma salida (salvo los segundos del reloj) |
+| `I2CSCAN` | 6685 | 2945 | la misma salida (salvo los segundos del reloj); en la placa, probado: ve el DS1307 |
 | `MAZE` | 7835 | 3439 | los laberintos son perfectos y el camino marcado es el único; los mismos mensajes; se juega igual |
 | `LIFE` | 5006 | 1014 | cada generación sale bien de la anterior; unas 1,5 generaciones por cada una de la versión en C |
 | `MANDEL` | 5361 | 1253 | el mismo dibujo, byte a byte; 15,3 s contra 29,2 |
 | `SNAKE` | 5846 | 1682 | con la misma semilla, la misma pantalla; se juega igual |
 | `TETRIS` | 6950 | 2137 | con la misma semilla y las mismas teclas, la misma partida byte a byte (12 líneas, nivel 1) |
-| `CLOCK` | 5010 | 968 | además corre en CP/M 2.2 (lee el DS1307) y en CP/M 3; la versión en C solo en MP/M |
+| `CLOCK` | 5010 | 984 | además corre en CP/M 2.2 (lee el DS1307) y en CP/M 3; la versión en C solo en MP/M |
 
 Comparten una biblioteca chica en tres archivos que cada programa incluye: `zcon.inc` (consola con el mismo búfer y el servicio 46 que `cpm.c`, números de 16 y 32 bits, teclado, `-- More --`), `zfile.inc` (la línea de órdenes, FCB, comodines, lectura de a 1 KB, `CADA` para recorrer archivos) y `zmisc.inc` (el mismo azar que `rnd()`, los tics y las flechas de `keys.h`). Los búferes van después del programa y no ocupan lugar en el `.COM`.
+
+En la placa, la primera operación del bus I2C después de arrancar a veces no la contesta el DS1307 (en el emulador sí): `CLOCK` e `I2CSCAN` lo intentan hasta 4 veces con el reloj.
 
 `asm/mkasm.sh [programa...]` los arma con zmac y deja el `.COM` en `apps/cpmc`. `mk.sh` sin argumentos ya no arma en C los que tienen su `.z80`, para no pisarlos.
 

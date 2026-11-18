@@ -134,15 +134,27 @@ DS1307: LD      A,0             ; puntero de registro en 0
         OR      A
         RET
 
-I2C:    LD      HL,RTCBUF       ; ZIOS 34: B op, D direccion, E bytes, HL buffer
+; I2C: ZIOS 34 con B op, D direccion, E bytes, sobre RTCBUF. Acarreo si no
+; contesta. En la placa la primera operacion del bus despues de arrancar a
+; veces no la contesta el DS1307: se intenta hasta 4 veces.
+I2C:    LD      A,4
+I2C0:   LD      (INTENT),A
+        PUSH    BC
+        PUSH    DE
+        LD      HL,RTCBUF
         LD      C,34
         PUSH    IX
         PUSH    IY
         RST     30h
         POP     IY
         POP     IX
+        POP     DE
+        POP     BC
         OR      A
         RET     Z
+        LD      A,(INTENT)
+        DEC     A
+        JR      NZ,I2C0
         SCF
         RET
 
@@ -427,6 +439,7 @@ TECLAS: DB      ' ZEPHYRUS - any key to exit',0
 NORTC:  DB      'CLOCK: no clock found (DS1307)',13,10,0
 
 ULTIMO: DB      0FFh
+INTENT: DB      0
 
 SIS     EQU     $               ; 0 CP/M 2.2, 1 CP/M 3, 2 MP/M
 INV     EQU     SIS+1
@@ -439,6 +452,6 @@ ANIO    EQU     MES+1           ; 2 bytes
 TOD     EQU     ANIO+2          ; 5 bytes: dia, hora, min, seg
 TXT     EQU     TOD+5           ; 9 bytes
 RTCBUF  EQU     TXT+9           ; 8 bytes
-PILA    EQU     RTCBUF+8+64
+PILA    EQU     RTCBUF+8+256
 
         END

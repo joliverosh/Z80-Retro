@@ -392,10 +392,25 @@ VDIR:   LD      A,(VI)          ; HL = RAM + i
 
 ; I2C: ZIOS 34 (B 0 escribir, 1 leer, 2 ver si contesta; D direccion; E bytes;
 ; HL bufer). Acarreo si no contesta.
-I2C:    LD      C,34
+I2C:    LD      A,D             ; el DS1307: hasta 4 veces (en la placa la primera
+        CP      RTC             ; operacion del bus despues de arrancar a veces falla)
+        LD      A,1
+        JR      NZ,I2C0
+        LD      A,4
+I2C0:   LD      (INTENT),A
+        PUSH    BC
+        PUSH    DE
+        PUSH    HL
+        LD      C,34
         CALL    ZIOS
+        POP     HL
+        POP     DE
+        POP     BC
         OR      A
         RET     Z
+        LD      A,(INTENT)
+        DEC     A
+        JR      NZ,I2C0
         SCF
         RET
 
@@ -454,6 +469,7 @@ AD:     DB      0
 FOUND:  DB      0
 VI:     DB      0
 VN:     DB      0
+INTENT: DB      0
 
         INCLUDE zcon.inc
         INCLUDE zfile.inc
