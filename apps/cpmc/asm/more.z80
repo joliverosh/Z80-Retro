@@ -1,0 +1,122 @@
+; MORE.Z80 - muestra un archivo de texto por pantallas
+;   MORE archivo...   ESPACIO: otra pantalla, RETURN: otra linea, Q: salir
+; La version en ensamblador del more.c. Corre en CP/M 2.2, CP/M 3 y MP/M II.
+
+PAGE    EQU     23
+
+        ORG     100h
+        LD      SP,PILA
+        CALL    INIT
+        CALL    ARGS
+        CALL    RESTO
+        JR      NZ,MO1
+        CALL    PRI
+        DB      'Usage: MORE file...',13,10,0
+        JP      EXIT
+MO1:    LD      HL,UNO
+        CALL    CADA
+        JP      EXIT
+
+UNO:    CALL    RDOPEN
+        CCF
+        RET     NC              ; no se pudo abrir: el siguiente
+        XOR     A
+        LD      (COL),A
+        LD      A,(CNG)         ; con titulo si hay mas de uno
+        CP      2
+        JR      NC,TIT
+        CALL    RESTO
+        JR      Z,LEE
+TIT:    CALL    PRI
+        DB      ESC,'[1m::::: ',0
+        LD      HL,SNAME
+        CALL    PSTR
+        CALL    PRI
+        DB      ' :::::',ESC,'[0m',0
+        CALL    NL
+        RET     C
+LEE:    CALL    RGETC
+        JR      C,FINA
+        CP      1Ah
+        JR      Z,FINA
+        CP      13
+        JR      Z,LEE
+        CP      10
+        JR      Z,SALTO
+        CP      12
+        JR      Z,SALTO
+        CP      9
+        JR      NZ,CAR
+TAB:    CALL    SPACE
+        LD      HL,COL
+        INC     (HL)
+        LD      A,(HL)
+        CP      80
+        JR      NC,ANCHO
+        AND     7
+        JR      NZ,TAB
+        JR      ANCHO
+CAR:    CP      32
+        JR      C,PUNTO
+        CP      127
+        JR      C,CAR1
+PUNTO:  LD      A,'.'
+CAR1:   CALL    PUTC
+        LD      HL,COL
+        INC     (HL)
+ANCHO:  LD      A,(COL)         ; la linea llego a 80: sigue abajo
+        CP      80
+        JR      C,LEE
+        XOR     A
+        LD      (COL),A
+        LD      HL,ROW
+        INC     (HL)
+        LD      A,(HL)
+        CP      PAGE
+        JR      C,LEE
+        CALL    ASK
+        RET     C
+        JR      LEE
+SALTO:  XOR     A
+        LD      (COL),A
+        CALL    NL
+        RET     C
+        JR      LEE
+FINA:   LD      DE,RFCB
+        CALL    FCLOSE
+        LD      A,(COL)
+        OR      A
+        RET     Z
+        JP      NL
+
+; NL: nueva linea; acarreo si hay que salir
+NL:     CALL    PRI
+        DB      13,13,10,0
+        LD      HL,ROW
+        INC     (HL)
+        LD      A,(HL)
+        CP      PAGE
+        CCF
+        RET     NC
+ASK:    CALL    MORE
+        RET     C
+        CP      13
+        JR      Z,ASK1
+        CP      10
+        JR      Z,ASK1
+        XOR     A
+        LD      (ROW),A
+        RET
+ASK1:   LD      A,PAGE-1
+        LD      (ROW),A
+        OR      A
+        RET
+
+COL:    DB      0
+ROW:    DB      0
+
+        INCLUDE zcon.inc
+        INCLUDE zfile.inc
+BSS0    EQU     $
+PILA    EQU     ZFFIN+256
+        END

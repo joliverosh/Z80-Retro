@@ -1,0 +1,464 @@
+; I2CSCAN.Z80 - busca dispositivos en el bus I2C y muestra el reloj DS1307 y su RAM
+;   I2CSCAN                       el mapa del bus, la hora y la RAM del DS1307
+;   I2CSCAN W reg byte...         escribe bytes (hex) en la RAM, desde reg (18-3F)
+;   I2CSCAN T reg texto           escribe texto en la RAM
+;   I2CSCAN Z                     pone a cero 18-3F
+; La RAM 08-17 es la configuracion de ZIOS (con su suma): no se deja escribir.
+; La version en ensamblador del i2cscan.c. Corre en CP/M 2.2, CP/M 3 y MP/M II.
+
+RTC     EQU     0D0h
+
+        ORG     100h
+        LD      SP,PILA
+        CALL    INIT
+        CALL    ARGS
+        CALL    NEXTARG
+        JP      C,MAPA
+        INC     HL              ; una sola letra?
+        LD      A,(HL)
+        DEC     HL
+        OR      A
+        JR      NZ,USO
+        LD      A,(HL)
+        LD      (ORD),A
+        CP      'Z'
+        JP      Z,ORDZ
+        CP      'W'
+        JP      Z,ORDWT
+        CP      'T'
+        JP      Z,ORDWT
+USO:    CALL    PRI
+        DB      'Usage: I2CSCAN            bus map, clock and RAM of the DS1307',13,10
+        DB      '       I2CSCAN W reg b... write hex bytes to the RAM (18-3F)',13,10
+        DB      '       I2CSCAN T reg text write text to the RAM',13,10
+        DB      '       I2CSCAN Z          clear 18-3F',13,10,0
+        JP      EXIT
+
+ORDZ:   LD      HL,BB+1         ; 40 ceros desde 18
+        LD      B,40
+ORDZ1:  LD      (HL),0
+        INC     HL
+        DJNZ    ORDZ1
+        LD      A,18h
+        LD      (REG),A
+        LD      A,40
+        LD      (N),A
+        JP      ESCRIBE
+
+ORDWT:  CALL    NEXTARG
+        JR      C,SINREG
+        CALL    HEXV
+        JR      NC,ORDWT1
+SINREG: CALL    PRI
+        DB      'Missing register (hex)',13,10,0
+        JP      EXIT
+ORDWT1: LD      (REG),A
+        LD      A,(ORD)
+        CP      'T'
+        JR      NZ,ORDW
+        LD      HL,(APTR)       ; el texto: lo que queda de la linea
+ORDT1:  LD      A,(HL)
+        CP      ' '
+        JR      NZ,ORDT2
+        INC     HL
+        JR      ORDT1
+ORDT2:  LD      DE,BB+1
+        LD      B,0
+ORDT3:  LD      A,(HL)
+        OR      A
+        JR      Z,ORDT4
+        LD      C,A
+        LD      A,B
+        CP      40
+        JR      NC,ORDT3A
+        LD      A,C
+        LD      (DE),A
+        INC     DE
+ORDT3A: INC     HL
+        INC     B
+        JR      ORDT3
+ORDT4:  LD      A,B
+        LD      (N),A
+        JR      ESCRIBE
+ORDW:   LD      A,(N)           ; los bytes, hasta 40
+        CP      40
+        JR      NC,ESCRIBE
+        CALL    NEXTARG
+        JR      C,ESCRIBE
+        PUSH    HL
+        CALL    HEXV
+        POP     HL
+        JR      NC,ORDW1
+        CALL    PRI
+        DB      'Bad byte: ',0
+        CALL    PSTR
+        CALL    CRLF
+        JP      EXIT
+ORDW1:  LD      C,A
+        LD      A,(N)
+        LD      E,A
+        LD      D,0
+        INC     A
+        LD      (N),A
+        LD      HL,BB+1
+        ADD     HL,DE
+        LD      (HL),C
+        JR      ORDW
+
+ESCRIBE:LD      A,(N)           ; solo 18-3F
+        OR      A
+        JR      Z,NOSE
+        LD      B,A
+        LD      A,(REG)
+        CP      18h
+        JR      C,NOSE
+        ADD     A,B
+        JR      C,NOSE
+        CP      41h
+        JR      C,ESC1
+NOSE:   CALL    PRI
+        DB      'Only registers 18-3F can be written (08-17 hold the ZIOS settings)',13,10,0
+        JP      EXIT
+ESC1:   LD      A,(REG)
+        LD      (BB),A
+        LD      A,(N)
+        INC     A
+        LD      E,A
+        LD      D,RTC
+        LD      B,0
+        LD      HL,BB
+        CALL    I2C
+        JR      NC,ESC2
+        CALL    PRI
+        DB      'DS1307: no answer',13,10,0
+        JR      ESC3
+ESC2:   LD      A,(N)
+        LD      L,A
+        LD      H,0
+        CALL    PDEC
+        CALL    PRI
+        DB      ' bytes written at ',0
+        LD      A,(REG)
+        CALL    PHEX2
+        CALL    CRLF
+ESC3:   CALL    VUELCA
+        JP      EXIT
+
+; ---------------------------------------------------------------- el mapa
+MAPA:   CALL    PRI
+        DB      '     0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F',13,10,0
+        XOR     A
+        LD      (AD),A
+MP1:    LD      A,(AD)          ; principio de fila
+        AND     0Fh
+        JR      NZ,MP2
+        LD      A,(AD)
+        CALL    PHEX2
+        CALL    PRI
+        DB      ': ',0
+MP2:    LD      A,(AD)
+        CP      8
+        JR      C,MPNADA
+        CP      78h
+        JR      NC,MPNADA
+        ADD     A,A
+        LD      D,A
+        LD      E,0
+        LD      B,2             ; solo ver si contesta
+        CALL    I2C
+        JR      C,MPNO
+        LD      A,(AD)
+        CALL    PHEX2
+        CALL    SPACE
+        LD      A,(FOUND)
+        LD      E,A
+        LD      D,0
+        INC     A
+        LD      (FOUND),A
+        LD      HL,RAM
+        ADD     HL,DE
+        LD      A,(AD)
+        LD      (HL),A
+        JR      MP3
+MPNO:   CALL    PRI
+        DB      '-- ',0
+        JR      MP3
+MPNADA: CALL    PRI
+        DB      '   ',0
+MP3:    LD      A,(AD)
+        INC     A
+        LD      (AD),A
+        LD      B,A
+        AND     0Fh
+        JR      NZ,MP4
+        CALL    PRI
+        DB      13,13,10,0
+MP4:    LD      A,B
+        CP      80h
+        JR      C,MP1
+        LD      A,(FOUND)
+        OR      A
+        JR      NZ,LISTA
+        CALL    PRI
+        DB      'No devices',13,10,0
+        JP      EXIT
+LISTA:  LD      B,A
+        LD      HL,RAM
+LS1:    PUSH    BC
+        PUSH    HL
+        CALL    PRI
+        DB      '  ',0
+        LD      A,(HL)
+        CALL    PHEX2
+        CALL    PRI
+        DB      '  ',0
+        POP     HL
+        PUSH    HL
+        LD      A,(HL)
+        CALL    QUE
+        CALL    PSTR
+        CALL    CRLF
+        POP     HL
+        POP     BC
+        INC     HL
+        DJNZ    LS1
+        LD      A,(FOUND)       ; el reloj, si esta
+        LD      B,A
+        LD      HL,RAM
+LS2:    LD      A,(HL)
+        CP      68h
+        JR      Z,LS3
+        INC     HL
+        DJNZ    LS2
+        JP      EXIT
+LS3:    CALL    VUELCA
+        JP      EXIT
+
+; QUE: HL = que puede ser el dispositivo A
+QUE:    LD      HL,T68
+        CP      68h
+        RET     Z
+        LD      HL,T50
+        LD      BC,5057h
+        CALL    ENTRE
+        RET     C
+        LD      HL,T20
+        LD      BC,2027h
+        CALL    ENTRE
+        RET     C
+        LD      HL,T38
+        LD      BC,383Fh
+        CALL    ENTRE
+        RET     C
+        LD      HL,T48
+        LD      BC,484Fh
+        CALL    ENTRE
+        RET     C
+        LD      HL,T3C
+        LD      BC,3C3Dh
+        CALL    ENTRE
+        RET     C
+        LD      HL,T76
+        LD      BC,7677h
+        CALL    ENTRE
+        RET     C
+        LD      HL,TNADA
+        RET
+ENTRE:  CP      B               ; acarreo si B <= A <= C
+        CCF
+        RET     NC
+        CP      C
+        JR      Z,ENTRE1
+        RET
+ENTRE1: SCF
+        RET
+
+; ---------------------------------------------------------------- el reloj
+VUELCA: XOR     A               ; los 64 registros
+        LD      (BB),A
+        LD      B,0
+        LD      DE,RTC*256+1
+        LD      HL,BB
+        CALL    I2C
+        JR      C,VNO
+        LD      B,1
+        LD      DE,RTC*256+64
+        LD      HL,RAM
+        CALL    I2C
+        JR      NC,V1
+VNO:    CALL    PRI
+        DB      'DS1307: no answer',13,10,0
+        RET
+V1:     CALL    PRI
+        DB      13,10,'DS1307: 20',0
+        LD      A,(RAM+6)
+        CALL    PHEX2
+        LD      A,'-'
+        CALL    PUTC
+        LD      A,(RAM+5)
+        AND     3Fh
+        CALL    PHEX2
+        LD      A,'-'
+        CALL    PUTC
+        LD      A,(RAM+4)
+        AND     3Fh
+        CALL    PHEX2
+        CALL    SPACE
+        LD      A,(RAM+2)
+        AND     3Fh
+        CALL    PHEX2
+        LD      A,':'
+        CALL    PUTC
+        LD      A,(RAM+1)
+        CALL    PHEX2
+        LD      A,':'
+        CALL    PUTC
+        LD      A,(RAM)
+        AND     7Fh
+        CALL    PHEX2
+        CALL    PRI
+        DB      '  (',0
+        LD      HL,TCORRE
+        LD      A,(RAM)
+        RLA
+        JR      NC,V2
+        LD      HL,TPARA
+V2:     CALL    PSTR
+        CALL    PRI
+        DB      ', control ',0
+        LD      A,(RAM+7)
+        CALL    PHEX2
+        CALL    PRI
+        DB      ')',13,10
+        DB      'RAM (08-17: ZIOS settings, 18-3F: free)',13,10,0
+        LD      A,8             ; i
+V3:     LD      (VI),A
+        CALL    PRI
+        DB      '  ',0
+        LD      A,(VI)
+        CALL    PHEX2
+        CALL    PRI
+        DB      ': ',0
+        LD      A,(VI)          ; cuantos en esta fila: min(16, 64-i)
+        LD      B,A
+        LD      A,64
+        SUB     B
+        CP      16
+        JR      C,V4
+        LD      A,16
+V4:     LD      (VN),A
+        LD      B,A
+        CALL    VDIR
+V5:     LD      A,(HL)
+        CALL    PHEX2
+        CALL    SPACE
+        INC     HL
+        DJNZ    V5
+        LD      A,(VN)
+        LD      B,A
+        LD      A,16
+        SUB     B
+        JR      Z,V7
+        LD      B,A
+V6:     CALL    PRI
+        DB      '   ',0
+        DJNZ    V6
+V7:     CALL    SPACE
+        LD      A,(VN)
+        LD      B,A
+        CALL    VDIR
+V8:     LD      A,(HL)
+        CP      32
+        JR      C,V9
+        CP      127
+        JR      C,V10
+V9:     LD      A,'.'
+V10:    CALL    PUTC
+        INC     HL
+        DJNZ    V8
+        CALL    PRI
+        DB      13,13,10,0
+        LD      A,(VI)
+        ADD     A,16
+        CP      64
+        JR      C,V3
+        RET
+VDIR:   LD      A,(VI)          ; HL = RAM + i
+        LD      E,A
+        LD      D,0
+        LD      HL,RAM
+        ADD     HL,DE
+        RET
+
+; I2C: ZIOS 34 (B 0 escribir, 1 leer, 2 ver si contesta; D direccion; E bytes;
+; HL bufer). Acarreo si no contesta.
+I2C:    LD      C,34
+        CALL    ZIOS
+        OR      A
+        RET     Z
+        SCF
+        RET
+
+; HEXV: la palabra en HL (1 o 2 cifras hex) en A; acarreo si no sirve
+HEXV:   LD      C,0
+        LD      B,0
+HV1:    LD      A,(HL)
+        OR      A
+        JR      Z,HV3
+        SUB     '0'
+        JR      C,HVMAL
+        CP      10
+        JR      C,HV2
+        SUB     'A'-'0'-10
+        CP      10
+        JR      C,HVMAL
+        CP      16
+        JR      NC,HVMAL
+HV2:    LD      D,A
+        LD      A,C
+        ADD     A,A
+        ADD     A,A
+        ADD     A,A
+        ADD     A,A
+        OR      D
+        LD      C,A
+        INC     B
+        INC     HL
+        JR      HV1
+HV3:    LD      A,B
+        OR      A
+        JR      Z,HVMAL
+        CP      3
+        JR      NC,HVMAL
+        LD      A,C
+        OR      A
+        RET
+HVMAL:  SCF
+        RET
+
+T68:    DB      'DS1307 real time clock',0
+T50:    DB      'EEPROM (24Cxx)',0
+T20:    DB      'I/O expander (PCF8574 / MCP23017)',0
+T38:    DB      'PCF8574A or display',0
+T48:    DB      'temperature sensor or ADC',0
+T3C:    DB      'OLED display (SSD1306)',0
+T76:    DB      'pressure sensor (BMP/BME280)',0
+TNADA:  DB      0
+TCORRE: DB      'running',0
+TPARA:  DB      'STOPPED',0
+
+ORD:    DB      0
+REG:    DB      0
+N:      DB      0
+AD:     DB      0
+FOUND:  DB      0
+VI:     DB      0
+VN:     DB      0
+
+        INCLUDE zcon.inc
+        INCLUDE zfile.inc
+BSS0    EQU     $
+RAM     EQU     ZFFIN
+BB      EQU     RAM+128         ; el registro y hasta 64 bytes
+PILA    EQU     BB+66+256
+        END

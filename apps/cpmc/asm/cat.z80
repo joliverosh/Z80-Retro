@@ -1,0 +1,50 @@
+; CAT.Z80 - muestra uno o mas archivos de texto seguidos, hasta el ^Z de cada uno
+;   CAT archivo...   (admite * y ?; ^C, Q o ESC para)
+; La version en ensamblador del cat.c. Corre en CP/M 2.2, CP/M 3 y MP/M II.
+
+        ORG     100h
+        LD      SP,PILA
+        CALL    INIT
+        CALL    ARGS
+        CALL    RESTO
+        JR      NZ,CAT1
+        CALL    PRI
+        DB      'Usage: CAT file...',13,10,0
+        JP      EXIT
+CAT1:   LD      HL,UNO
+        CALL    CADA
+        JP      EXIT
+
+UNO:    CALL    RDOPEN
+        JR      NC,UNO1
+        LD      HL,SNAME
+        CALL    CANTOP
+        OR      A
+        RET
+UNO1:   XOR     A
+        LD      (K),A
+UNO2:   CALL    RGETC
+        JR      C,UNO3
+        CP      1Ah
+        JR      Z,UNO3
+        CALL    PUTC
+        LD      HL,K            ; cada 256 caracteres mira el teclado
+        INC     (HL)
+        JR      NZ,UNO2
+        CALL    BRK
+        JR      NC,UNO2
+        CALL    UNO3
+        SCF
+        RET
+UNO3:   LD      DE,RFCB
+        CALL    FCLOSE
+        OR      A
+        RET
+
+K:      DB      0
+
+        INCLUDE zcon.inc
+        INCLUDE zfile.inc
+BSS0    EQU     $
+PILA    EQU     ZFFIN+256
+        END

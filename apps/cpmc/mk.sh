@@ -7,6 +7,8 @@ CF="-mz80 --std-sdcc11 ${XCF:---opt-code-size}"
 sdasz80 -g -o obj/crt0.rel crt0.s
 sdcc $CF -c cpm.c -o obj/cpm.rel
 progs="$@"; [ -z "$progs" ] && progs=$(ls *.c | grep -v '^cpm.c$\|^filtro.c$\|^zcov' | sed 's/\.c$//')
+# los que ya estan en ensamblador (asm/*.z80, con asm/mkasm.sh) no se pisan, salvo que se pidan
+[ $# -eq 0 ] && for z in asm/*.z80; do z=$(basename $z .z80); progs=$(echo "$progs" | grep -vx "$z"); done
 for p in $progs; do
   if [ -x mk$p.sh ]; then ./mk$p.sh; continue; fi   # los que tienen su propio armado (ZCALC)
   xf=$(sed -n 's/^\/\* mk: \(.*\) \*\/$/\1/p' $p.c)   # opciones propias: /* mk: ... */

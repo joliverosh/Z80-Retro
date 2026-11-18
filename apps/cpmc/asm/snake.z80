@@ -1,0 +1,440 @@
+; SNAKE.Z80 - flechas o WASD/IJKL; come los * y no choques. P pausa, Q sale
+; La version en ensamblador del snake.c. Corre en CP/M 2.2, CP/M 3 y MP/M II
+; (en CP/M la velocidad la marcan los tics de ZIOS, igual que en MP/M).
+
+FW      EQU     60
+FH      EQU     20
+X0      EQU     10
+Y0      EQU     2
+MAXL    EQU     600
+
+        ORG     100h
+        LD      SP,PILA
+        CALL    INIT
+        CALL    TICKS
+        SET     0,L
+        CALL    SRND
+        LD      HL,OCC
+        LD      DE,OCC+1
+        LD      BC,FW*FH-1
+        LD      (HL),0
+        LDIR
+        CALL    PRI
+        DB      ESC,'[H',ESC,'[J',ESC,'[?25l',0
+        LD      DE,1*256+X0+25
+        CALL    GOTOXY
+        CALL    PRI
+        DB      ESC,'[1mS N A K E',ESC,'[0m',0
+        LD      DE,Y0*256+X0    ; el borde
+        CALL    GOTOXY
+        CALL    RAYA
+        LD      D,Y0+1
+LADOS:  PUSH    DE
+        LD      E,X0
+        CALL    GOTOXY
+        LD      A,'|'
+        CALL    PUTC
+        POP     DE
+        PUSH    DE
+        LD      E,X0+FW+1
+        CALL    GOTOXY
+        LD      A,'|'
+        CALL    PUTC
+        POP     DE
+        INC     D
+        LD      A,D
+        CP      Y0+FH+1
+        JR      C,LADOS
+        LD      DE,(Y0+FH+1)*256+X0
+        CALL    GOTOXY
+        CALL    RAYA
+        LD      B,0             ; la viborita: 4 en (10..13, 10)
+VIB1:   LD      A,B
+        ADD     A,10
+        LD      C,A
+        LD      HL,SX
+        LD      E,B
+        LD      D,0
+        ADD     HL,DE
+        LD      (HL),C
+        LD      HL,SY
+        ADD     HL,DE
+        LD      (HL),10
+        PUSH    BC
+        LD      L,C
+        LD      H,10
+        CALL    POCC
+        LD      (HL),1
+        POP     BC
+        PUSH    BC
+        LD      A,C
+        LD      (AX),A
+        LD      A,10
+        LD      (AY),A
+        LD      HL,TCUERPO
+        CALL    AT
+        POP     BC
+        INC     B
+        LD      A,B
+        CP      4
+        JR      C,VIB1
+        LD      HL,4
+        LD      (LEN),HL
+        DEC     HL
+        LD      (HEAD),HL
+        CALL    FOOD
+        CALL    TICKS
+        LD      (LAST),HL
+
+LAZO:   CALL    KEY
+        JP      Z,ESPERA
+        CP      K_UP
+        JR      C,NOFL
+        CP      K_LEFT+1
+        JR      NC,NOFL
+        LD      B,A             ; flecha: no se puede dar la vuelta
+        LD      A,(DIR)
+        LD      C,A
+        LD      A,B
+        CP      K_UP
+        JR      NZ,FL1
+        LD      A,C
+        CP      K_DOWN
+        JR      Z,ESPERA
+        JR      FLOK
+FL1:    CP      K_DOWN
+        JR      NZ,FL2
+        LD      A,C
+        CP      K_UP
+        JR      Z,ESPERA
+        JR      FLOK
+FL2:    CP      K_LEFT
+        JR      NZ,FL3
+        LD      A,C
+        CP      K_RIGHT
+        JR      Z,ESPERA
+        JR      FLOK
+FL3:    LD      A,C             ; derecha
+        CP      K_LEFT
+        JR      Z,ESPERA
+FLOK:   LD      A,B
+        LD      (DIR),A
+        JR      ESPERA
+NOFL:   LD      B,A
+        OR      20h
+        CP      'p'
+        JR      NZ,NOP
+        LD      DE,(Y0+FH+1)*256+X0+26
+        CALL    GOTOXY
+        CALL    PRI
+        DB      ESC,'[7m PAUSED ',ESC,'[0m',0
+        CALL    WAITKEY
+        LD      DE,(Y0+FH+1)*256+X0+26
+        CALL    GOTOXY
+        CALL    PRI
+        DB      '---------',0
+        JR      ESPERA
+NOP:    CP      'q'
+        JR      Z,QUIT
+        LD      A,B
+        CP      3
+        JR      NZ,ESPERA
+QUIT:   LD      A,1
+        LD      (QUITF),A
+        JP      FIN
+
+ESPERA: CALL    TICKS           ; ya es hora de moverse?
+        LD      DE,(LAST)
+        OR      A
+        SBC     HL,DE
+        LD      A,(SPD)
+        LD      E,A
+        LD      D,0
+        OR      A
+        SBC     HL,DE
+        JR      NC,MUEVE
+        LD      DE,1
+        CALL    DELAY
+        JP      LAZO
+MUEVE:  CALL    TICKS
+        LD      (LAST),HL
+        LD      A,(DIR)           ; x, y = la cabeza + (dx, dy)
+        AND     7
+        LD      E,A
+        LD      D,0
+        LD      HL,DX
+        ADD     HL,DE
+        LD      B,(HL)
+        LD      HL,DY
+        ADD     HL,DE
+        LD      C,(HL)
+        LD      HL,(HEAD)
+        CALL    SXY             ; D = sx, E = sy de HL
+        LD      A,D
+        ADD     A,B
+        LD      (NXX),A
+        CP      FW
+        JP      NC,FIN
+        LD      A,E
+        ADD     A,C
+        LD      (NYY),A
+        CP      FH
+        JP      NC,FIN
+        LD      HL,(GROW)
+        LD      A,H
+        OR      L
+        JR      Z,COLA
+        DEC     HL
+        LD      (GROW),HL
+        JR      CHOCA
+COLA:   LD      HL,(TAIL)       ; la cola avanza
+        CALL    SXY
+        LD      L,D
+        LD      H,E
+        PUSH    DE
+        CALL    POCC
+        LD      (HL),0
+        POP     DE
+        LD      A,D
+        LD      (AX),A
+        LD      A,E
+        LD      (AY),A
+        LD      HL,TBLANCO
+        CALL    AT
+        LD      HL,(TAIL)
+        CALL    SIGUI
+        LD      (TAIL),HL
+        LD      HL,(LEN)
+        DEC     HL
+        LD      (LEN),HL
+CHOCA:  LD      A,(NXX)
+        LD      L,A
+        LD      A,(NYY)
+        LD      H,A
+        CALL    POCC
+        LD      A,(HL)
+        OR      A
+        JP      NZ,FIN
+        LD      HL,(HEAD)       ; la cabeza vieja pasa a cuerpo
+        CALL    SXY
+        LD      A,D
+        LD      (AX),A
+        LD      A,E
+        LD      (AY),A
+        LD      HL,TCUERPO
+        CALL    AT
+        LD      HL,(HEAD)
+        CALL    SIGUI
+        LD      (HEAD),HL
+        PUSH    HL
+        LD      DE,SX
+        ADD     HL,DE
+        LD      A,(NXX)
+        LD      (HL),A
+        LD      (AX),A
+        POP     HL
+        LD      DE,SY
+        ADD     HL,DE
+        LD      A,(NYY)
+        LD      (HL),A
+        LD      (AY),A
+        LD      A,(NXX)
+        LD      L,A
+        LD      A,(NYY)
+        LD      H,A
+        CALL    POCC
+        LD      (HL),1
+        LD      HL,(LEN)
+        INC     HL
+        LD      (LEN),HL
+        LD      HL,TCABEZA
+        CALL    AT
+        LD      A,(FX)          ; comida?
+        LD      B,A
+        LD      A,(NXX)
+        CP      B
+        JR      NZ,PUNTOS
+        LD      A,(FY)
+        LD      B,A
+        LD      A,(NYY)
+        CP      B
+        JR      NZ,PUNTOS
+        LD      HL,(SCORE)
+        LD      DE,10
+        ADD     HL,DE
+        LD      (SCORE),HL
+        LD      HL,(GROW)
+        INC     HL
+        INC     HL
+        INC     HL
+        LD      (GROW),HL
+        LD      A,(SPD)         ; mas rapido cada 50 puntos
+        CP      3
+        JR      C,COME1
+        LD      HL,(SCORE)
+        LD      C,50
+        CALL    DIVC
+        OR      A
+        JR      NZ,COME1
+        LD      HL,SPD
+        DEC     (HL)
+COME1:  LD      HL,(LEN)        ; ya no cabe?
+        LD      DE,(GROW)
+        ADD     HL,DE
+        LD      DE,MAXL-4
+        OR      A
+        SBC     HL,DE
+        JR      NC,FIN
+        CALL    FOOD
+PUNTOS: LD      DE,1*256+X0
+        CALL    GOTOXY
+        CALL    PRI
+        DB      'Score ',0
+        LD      HL,(SCORE)
+        CALL    PDEC
+        CALL    PRI
+        DB      '  ',0
+        LD      DE,23*256+1
+        CALL    GOTOXY
+        JP      LAZO
+
+FIN:    LD      DE,(Y0+FH/2)*256+X0+25
+        CALL    GOTOXY
+        LD      HL,TGOVER
+        LD      A,(QUITF)
+        OR      A
+        JR      Z,FIN1
+        LD      HL,TQUIT
+FIN1:   CALL    PSTR
+        LD      DE,(Y0+FH/2+1)*256+X0+25
+        CALL    GOTOXY
+        CALL    PRI
+        DB      ESC,'[7m Score ',0
+        LD      HL,(SCORE)
+        LD      A,4
+        CALL    PDECW
+        CALL    PRI
+        DB      '  ',ESC,'[0m',0
+        LD      DE,23*256+1
+        CALL    GOTOXY
+        CALL    PRI
+        DB      ESC,'[?25h',0
+        JP      EXIT
+
+; FOOD: comida en una casilla libre
+FOOD:   LD      C,FW
+        CALL    RNDN
+        LD      (FX),A
+        LD      C,FH
+        CALL    RNDN
+        LD      (FY),A
+        LD      H,A
+        LD      A,(FX)
+        LD      L,A
+        CALL    POCC
+        LD      A,(HL)
+        OR      A
+        JR      NZ,FOOD
+        LD      A,(FX)
+        LD      (AX),A
+        LD      A,(FY)
+        LD      (AY),A
+        LD      HL,TCOMIDA
+        JP      AT
+
+; AT: el texto HL en la casilla (AX, AY) del campo
+AT:     PUSH    HL
+        LD      A,(AX)
+        ADD     A,X0+1
+        LD      E,A
+        LD      A,(AY)
+        ADD     A,Y0+1
+        LD      D,A
+        CALL    GOTOXY
+        POP     HL
+        JP      PSTR
+
+; POCC: HL = &occ[H][L]
+POCC:   LD      A,L
+        LD      E,H
+        LD      L,H
+        LD      H,0
+        LD      D,H
+        ADD     HL,HL           ; *60 = (*16 - 1) * 4
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL
+        OR      A
+        SBC     HL,DE
+        ADD     HL,HL
+        ADD     HL,HL
+        LD      E,A
+        ADD     HL,DE
+        LD      DE,OCC
+        ADD     HL,DE
+        RET
+
+; SXY: D = sx[HL], E = sy[HL]
+SXY:    PUSH    HL
+        LD      DE,SX
+        ADD     HL,DE
+        LD      A,(HL)
+        POP     HL
+        LD      DE,SY
+        ADD     HL,DE
+        LD      E,(HL)
+        LD      D,A
+        RET
+
+; SIGUI: HL = HL + 1, y 0 al llegar a MAXL
+SIGUI:  INC     HL
+        PUSH    HL
+        LD      DE,MAXL
+        OR      A
+        SBC     HL,DE
+        POP     HL
+        RET     NZ
+        LD      HL,0
+        RET
+
+RAYA:   LD      A,'+'
+        CALL    PUTC
+        LD      B,FW
+RAYA1:  LD      A,'-'
+        CALL    PUTC
+        DJNZ    RAYA1
+        LD      A,'+'
+        JP      PUTC
+
+TCUERPO:DB      ESC,'[32mo',ESC,'[0m',0
+TCABEZA:DB      ESC,'[1;32m@',ESC,'[0m',0
+TCOMIDA:DB      ESC,'[1;31m*',ESC,'[0m',0
+TBLANCO:DB      ' ',0
+TGOVER: DB      ESC,'[7m GAME OVER ',ESC,'[0m',0
+TQUIT:  DB      ESC,'[7m   QUIT    ',ESC,'[0m',0
+DX:     DB      0,0,0,1,-1
+DY:     DB      0,-1,1,0,0
+DIR:    DB      K_RIGHT
+SPD:    DB      8
+QUITF:  DB      0
+FX:     DB      0
+FY:     DB      0
+AX:     DB      0
+AY:     DB      0
+NXX:    DB      0
+NYY:    DB      0
+HEAD:   DW      0
+TAIL:   DW      0
+LEN:    DW      0
+GROW:   DW      0
+SCORE:  DW      0
+LAST:   DW      0
+
+        INCLUDE zcon.inc
+        INCLUDE zmisc.inc
+BSS0    EQU     $
+SX      EQU     ZCFIN
+SY      EQU     SX+MAXL
+OCC     EQU     SY+MAXL
+PILA    EQU     OCC+FW*FH+256
+        END

@@ -1,0 +1,114 @@
+; WC.Z80 - lineas, palabras y caracteres (hasta el ^Z) de uno o mas archivos
+;   WC archivo...   (admite * y ?)
+; La version en ensamblador del wc.c. Corre en CP/M 2.2, CP/M 3 y MP/M II.
+
+        ORG     100h
+        LD      SP,PILA
+        CALL    INIT
+        CALL    ARGS
+        CALL    RESTO
+        JR      NZ,WC1
+        CALL    PRI
+        DB      'Usage: WC file...  (lines, words, chars; wildcards allowed)',13,10,0
+        JP      EXIT
+WC1:    LD      HL,UNO
+        CALL    CADA
+        JP      C,EXIT
+        LD      A,(NF)
+        CP      2
+        JP      C,EXIT
+        LD      HL,TL
+        CALL    TRES
+        CALL    PRI
+        DB      'total',13,10,0
+        JP      EXIT
+
+UNO:    CALL    RDOPEN
+        JR      NC,UNO1
+        LD      HL,SNAME
+        CALL    CANTOP
+        OR      A
+        RET
+UNO1:   LD      HL,CL           ; cuentas en cero
+        LD      B,12
+        XOR     A
+UNO0:   LD      (HL),A
+        INC     HL
+        DJNZ    UNO0
+        LD      (EN),A
+UNO2:   CALL    RGETC
+        JR      C,UNO5
+        CP      1Ah
+        JR      Z,UNO5
+        LD      HL,CC
+        CALL    INC32
+        CP      10
+        JR      NZ,UNO3
+        LD      HL,CL
+        CALL    INC32
+        JR      BLANCO
+UNO3:   CP      ' '
+        JR      Z,BLANCO
+        CP      9
+        JR      Z,BLANCO
+        CP      13
+        JR      Z,BLANCO
+        LD      A,(EN)          ; empieza una palabra?
+        OR      A
+        JR      NZ,UNO2
+        INC     A
+        LD      (EN),A
+        LD      HL,CW
+        CALL    INC32
+        JR      UNO2
+BLANCO: XOR     A
+        LD      (EN),A
+        JR      UNO2
+UNO5:   LD      DE,RFCB
+        CALL    FCLOSE
+        LD      HL,CL
+        CALL    TRES
+        LD      HL,SNAME
+        CALL    PSTR
+        CALL    CRLF
+        LD      HL,TL           ; a los totales
+        LD      DE,CL
+        CALL    ADD32
+        LD      HL,TW
+        LD      DE,CW
+        CALL    ADD32
+        LD      HL,TC
+        LD      DE,CC
+        CALL    ADD32
+        LD      HL,NF
+        INC     (HL)
+        JP      BRK             ; acarreo: para
+
+; TRES: los tres contadores desde HL, de ancho 7, cada uno con un espacio
+TRES:   LD      B,3
+TRES1:  PUSH    BC
+        PUSH    HL
+        LD      A,7
+        CALL    P32W
+        CALL    SPACE
+        POP     HL
+        LD      BC,4
+        ADD     HL,BC
+        POP     BC
+        DJNZ    TRES1
+        RET
+
+NF:     DB      0
+EN:     DB      0
+TL:     DW      0,0
+TW:     DW      0,0
+TC:     DW      0,0
+CL:     DW      0,0             ; lineas, palabras y caracteres del archivo
+CW:     DW      0,0
+CC:     DW      0,0
+
+        INCLUDE zcon.inc
+        INCLUDE zfile.inc
+BSS0    EQU     $
+PILA    EQU     ZFFIN+256
+        END

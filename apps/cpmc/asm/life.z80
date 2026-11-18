@@ -1,0 +1,154 @@
+; LIFE.Z80 - el juego de la vida de Conway (78 x 22, el borde da la vuelta);
+; cualquier tecla sale.
+; La version en ensamblador del life.c. Corre en CP/M 2.2, CP/M 3 y MP/M II.
+;
+; Las casillas van en una tabla de 24 x 80 con un borde alrededor: antes de
+; cada generacion el borde se llena con la fila y la columna del otro lado,
+; asi cada casilla tiene sus 8 vecinas a distancias fijas (IX-81 ... IX+81).
+
+WW      EQU     78
+HH      EQU     22
+ANCHO   EQU     80              ; WW + 2
+
+        ORG     100h
+        LD      SP,PILA
+        CALL    INIT
+        CALL    TICKS
+        SET     0,L
+        CALL    SRND
+        LD      HL,GA           ; todo en cero
+        LD      DE,GA+1
+        LD      BC,2*ANCHO*(HH+2)-1
+        LD      (HL),0
+        LDIR
+        LD      HL,GA+ANCHO+1   ; al azar: 1 de cada 4
+        LD      C,HH
+INI1:   LD      B,WW
+        PUSH    HL
+INI2:   PUSH    BC
+        PUSH    HL
+        CALL    RND
+        LD      A,L
+        POP     HL
+        POP     BC
+        AND     7
+        CP      2
+        LD      A,0
+        RLA                     ; 1 si era < 2
+        LD      (HL),A
+        INC     HL
+        DJNZ    INI2
+        POP     HL
+        LD      DE,ANCHO
+        ADD     HL,DE
+        DEC     C
+        JR      NZ,INI1
+        CALL    PRI
+        DB      ESC,'[H',ESC,'[J',ESC,'[?25l',ESC,'[32m',0
+
+GEN:    CALL    PRI             ; dibujar
+        DB      ESC,'[H',0
+        LD      HL,GA+ANCHO+1
+        LD      C,HH
+DIB1:   LD      B,WW
+        PUSH    HL
+DIB2:   LD      A,(HL)
+        OR      A
+        LD      A,' '
+        JR      Z,DIB3
+        LD      A,'O'
+DIB3:   CALL    PUTC
+        INC     HL
+        DJNZ    DIB2
+        CALL    PRI
+        DB      13,13,10,0
+        POP     HL
+        LD      DE,ANCHO
+        ADD     HL,DE
+        DEC     C
+        JR      NZ,DIB1
+        CALL    PRI
+        DB      ESC,'[0mGeneration ',0
+        LD      HL,(NGEN)
+        PUSH    HL
+        CALL    PDEC
+        POP     HL
+        INC     HL
+        LD      (NGEN),HL
+        CALL    PRI
+        DB      '   (any key: exit)',ESC,'[32m',0
+
+        LD      HL,GA+ANCHO     ; el borde: columnas 0 y 79
+        LD      B,HH
+BOR1:   PUSH    HL
+        LD      DE,WW
+        ADD     HL,DE
+        LD      A,(HL)          ; col 78 -> col 0
+        POP     DE
+        LD      (DE),A
+        INC     DE
+        LD      A,(DE)          ; col 1 -> col 79
+        INC     HL
+        LD      (HL),A
+        INC     HL              ; la fila siguiente
+        DJNZ    BOR1
+        LD      HL,GA+HH*ANCHO  ; fila 22 -> fila 0
+        LD      DE,GA
+        LD      BC,ANCHO
+        LDIR
+        LD      HL,GA+ANCHO     ; fila 1 -> fila 23
+        LD      DE,GA+(HH+1)*ANCHO
+        LD      BC,ANCHO
+        LDIR
+
+        LD      IX,GA+ANCHO+1   ; la generacion siguiente, en GB
+        LD      HL,GB+ANCHO+1
+        LD      C,HH
+SIG1:   LD      B,WW
+        PUSH    HL
+        PUSH    IX
+SIG2:   LD      A,(IX-ANCHO-1)
+        ADD     A,(IX-ANCHO)
+        ADD     A,(IX-ANCHO+1)
+        ADD     A,(IX-1)
+        ADD     A,(IX+1)
+        ADD     A,(IX+ANCHO-1)
+        ADD     A,(IX+ANCHO)
+        ADD     A,(IX+ANCHO+1)
+        CP      3
+        LD      E,1
+        JR      Z,SIG3          ; 3: nace o sigue
+        CP      2
+        LD      E,0
+        JR      NZ,SIG3
+        LD      E,(IX+0)        ; 2: queda como estaba
+SIG3:   LD      (HL),E
+        INC     HL
+        INC     IX
+        DJNZ    SIG2
+        POP     IX
+        POP     HL
+        LD      DE,ANCHO
+        ADD     HL,DE
+        ADD     IX,DE
+        DEC     C
+        JR      NZ,SIG1
+        LD      HL,GB           ; GB -> GA
+        LD      DE,GA
+        LD      BC,ANCHO*(HH+2)
+        LDIR
+        CALL    GETKEY
+        JP      Z,GEN
+        CALL    PRI
+        DB      ESC,'[0m',ESC,'[?25h',13,10,0
+        JP      EXIT
+
+NGEN:   DW      0
+
+        INCLUDE zcon.inc
+        INCLUDE zmisc.inc
+BSS0    EQU     $
+GA      EQU     ZCFIN
+GB      EQU     GA+ANCHO*(HH+2)
+PILA    EQU     GB+ANCHO*(HH+2)+256
+        END

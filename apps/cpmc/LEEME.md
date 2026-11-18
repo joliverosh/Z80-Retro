@@ -10,7 +10,7 @@ Programas escritos en C con SDCC 4.2 y una biblioteca chica propia (`cpm.c`). Ca
 | `MD` | Editor y visor de Markdown, con las teclas de hoy (ver abajo) | `MD LEEME.MD`, `MD -V LEEME.MD` |
 | `TOP` | Los procesos de MP/M (consola, segmento, prioridad, estado), el uso de la CPU, la fecha y la hora; se actualiza cada segundo | `TOP` (una tecla sale) |
 | `TALK` | Manda un mensaje a otra consola | `TALK 2 hola, ya termine` |
-| `CLOCK` | Un reloj grande en la pantalla; en ensamblador (`clock.z80`, 968 bytes), corre en MP/M II, CP/M 3 y CP/M 2.2 | `CLOCK` |
+| `CLOCK` | Un reloj grande en la pantalla | `CLOCK` |
 | `BENCH` | Mide la CPU (MHz), la criba de Eratóstenes, cuentas de 16 y 32 bits, la consola y el disco (escribe y lee 64 KB) | `BENCH` o `BENCH B:` |
 | `MANDEL` | El conjunto de Mandelbrot en colores, con aritmética de punto fijo | `MANDEL` |
 | `LIFE` | El juego de la vida de Conway, 78 × 22 | `LIFE` |
@@ -38,6 +38,30 @@ Programas escritos en C con SDCC 4.2 y una biblioteca chica propia (`cpm.c`). Ca
 | `UNZIP` | Saca los archivos de un `.ZIP` (guardados o con deflate, también los hechos en la Mac) y comprueba el CRC | `UNZIP COPIA`, `UNZIP -L COPIA`, `UNZIP COPIA B:` |
 
 `TOP` (el uso de la CPU) y `TALK` usan los servicios 44 y 45 del XIOS: necesitan el `MPM.SYS` de noviembre de 2026 o posterior. `TOP` y `TALK` solo andan en MP/M, igual que los duelos de `CHESS` y `NAVAL` y el lanzar programas de `ZFM`; los demás también en CP/M 2.2.
+
+## En ensamblador
+
+Trece de estos programas están ahora en ensamblador Z80 (`asm/`). Hacen lo mismo y muestran lo mismo que la versión en C, pero ocupan entre un cuarto y un tercio y van más rápido. Los fuentes en C quedan como la versión anterior.
+
+| Programa | En C | En ensamblador | Cómo se comprobó (emulador, CP/M 2.2 y MP/M II) |
+|---|---|---|---|
+| `CAT` | 4613 | 1454 | la misma salida, byte a byte |
+| `MORE` | 4934 | 1612 | la misma salida, con las mismas teclas |
+| `CMP` | 5052 | 1832 | la misma salida |
+| `WC` | 5093 | 1660 | la misma salida; 41 KB en 12,9 s contra 17,1 |
+| `HEXDUMP` | 5112 | 1700 | la misma salida |
+| `GREP` | 6590 | 2602 | la misma salida (22 patrones y opciones), y la misma que una copia en Python del motor; `A.*B.*C.*D` en 83 KB: 44 s contra más de 2 minutos |
+| `I2CSCAN` | 6685 | 2920 | la misma salida (salvo los segundos del reloj) |
+| `MAZE` | 7835 | 3439 | los laberintos son perfectos y el camino marcado es el único; los mismos mensajes; se juega igual |
+| `LIFE` | 5006 | 1014 | cada generación sale bien de la anterior; unas 1,5 generaciones por cada una de la versión en C |
+| `MANDEL` | 5361 | 1253 | el mismo dibujo, byte a byte; 15,3 s contra 29,2 |
+| `SNAKE` | 5846 | 1682 | con la misma semilla, la misma pantalla; se juega igual |
+| `TETRIS` | 6950 | 2137 | con la misma semilla y las mismas teclas, la misma partida byte a byte (12 líneas, nivel 1) |
+| `CLOCK` | 5010 | 968 | además corre en CP/M 2.2 (lee el DS1307) y en CP/M 3; la versión en C solo en MP/M |
+
+Comparten una biblioteca chica en tres archivos que cada programa incluye: `zcon.inc` (consola con el mismo búfer y el servicio 46 que `cpm.c`, números de 16 y 32 bits, teclado, `-- More --`), `zfile.inc` (la línea de órdenes, FCB, comodines, lectura de a 1 KB, `CADA` para recorrer archivos) y `zmisc.inc` (el mismo azar que `rnd()`, los tics y las flechas de `keys.h`). Los búferes van después del programa y no ocupan lugar en el `.COM`.
+
+`asm/mkasm.sh [programa...]` los arma con zmac y deja el `.COM` en `apps/cpmc`. `mk.sh` sin argumentos ya no arma en C los que tienen su `.z80`, para no pisarlos.
 
 ## Los filtros de Semilla
 
@@ -282,6 +306,7 @@ ZGPT /T5 /L200 dijo sancho escribe una vez y vuelve
 - `crc32.h` + `crc32_a.s`: CRC-32 con tabla, en ensamblador. `unzip_a.s`: los bits y la decodificación de Huffman. `zip_a.s`: los bits de salida, la búsqueda de coincidencias y el corrimiento de las tablas de hash.
 - **SDCC 4.2:** `(int32_t)a * b` con `a` y `b` de 16 bits con signo da mal; se usa `mul16()`. Por eso `MANDEL` salía todo de puntos.
 - `znum_a.s`, `znum.c`, `znum.h`: los números decimales de 9 cifras, su formato y las funciones (finanzas, fechas, trigonometría), los de ZCALC, que también usa ZBAS. Con `-DCPM_LITE`, `cpm.c` deja fuera lo que no usan los programas grandes (unos 1,9 KB).
+- `asm/`: los programas en ensamblador y su biblioteca (ver arriba).
 - `mk.sh [programa...]` compila (con `--opt-code-size`), enlaza en 0110h y pasa el `.ihx` a `.COM`. Si existe `programa_a.s` lo agrega, y `crc32_a.s` si el programa usa `crc32.h`.
 
 Se probaron en el emulador (`retroemu23`) con MP/M 1.4; los `.ZIP` hechos por `ZIP` se comprobaron con `unzip -t` y los de Python con `UNZIP`.

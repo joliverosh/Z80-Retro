@@ -1,0 +1,295 @@
+; MANDEL.Z80 - el conjunto de Mandelbrot en caracteres y colores ANSI
+; (punto fijo 4.12: 4096 = 1,0). Cualquier tecla sale.
+; La version en ensamblador del mandel.c: da exactamente el mismo dibujo.
+; Corre en CP/M 2.2, CP/M 3 y MP/M II.
+
+MAXI    EQU     32
+
+        ORG     100h
+        LD      SP,PILA
+        CALL    INIT
+        CALL    TICKS
+        LD      (T0),HL
+        CALL    PRI
+        DB      ESC,'[H',ESC,'[J',ESC,'[?25l',0
+        XOR     A
+        LD      (Y),A
+FILA:   LD      A,(Y)           ; cy = -4505 + y*409 + (y*13)/22   (-1,1 .. 1,1)
+        LD      E,A
+        LD      D,0
+        LD      HL,409
+        CALL    MULHE
+        PUSH    HL
+        LD      A,(Y)
+        LD      L,A
+        LD      H,0
+        LD      DE,13
+        CALL    MULHE
+        LD      C,22
+        CALL    DIVC
+        POP     DE
+        ADD     HL,DE
+        LD      DE,-4505
+        ADD     HL,DE
+        LD      (CY),HL
+        XOR     A
+        LD      (X),A
+COL:    LD      A,(X)           ; cx = -8602 + x*136 + x/2   (-2,1 .. 0,5)
+        LD      L,A
+        LD      H,0
+        LD      DE,136
+        CALL    MULHE
+        LD      A,(X)
+        SRL     A
+        LD      E,A
+        LD      D,0
+        ADD     HL,DE
+        LD      DE,-8602
+        ADD     HL,DE
+        LD      (CX),HL
+        LD      HL,0
+        LD      (ZX),HL
+        LD      (ZY),HL
+        LD      (X2),HL
+        LD      (X2+2),HL
+        LD      (Y2),HL
+        LD      (Y2+2),HL
+        LD      B,0             ; i
+ITER:   PUSH    BC
+        LD      HL,(ZX)         ; zy = (zx*zy >> 11) + cy
+        LD      DE,(ZY)
+        CALL    MULS
+        LD      B,3             ; los bits 11..26: (bytes 1..3) >> 3
+MI1:    SRA     D
+        RR      E
+        RR      H
+        DJNZ    MI1
+        LD      L,H
+        LD      H,E
+        LD      DE,(CY)
+        ADD     HL,DE
+        LD      (ZY),HL
+        LD      HL,(X2)         ; zx = (x2 - y2) + cx   (16 bits)
+        LD      DE,(Y2)
+        OR      A
+        SBC     HL,DE
+        LD      DE,(CX)
+        ADD     HL,DE
+        LD      (ZX),HL
+        LD      D,H             ; x2 = zx*zx >> 12
+        LD      E,L
+        CALL    MULS
+        LD      IX,X2
+        CALL    SH12
+        LD      HL,(ZY)         ; y2 = zy*zy >> 12
+        LD      D,H
+        LD      E,L
+        CALL    MULS
+        LD      IX,Y2
+        CALL    SH12
+        LD      HL,(X2)         ; x2 + y2 > 4 << 12 ?
+        LD      DE,(Y2)
+        ADD     HL,DE
+        LD      A,(X2+2)
+        LD      B,A
+        LD      A,(Y2+2)
+        ADC     A,B
+        POP     BC
+        OR      A               ; (los numeros son de 20 bits: el byte 2 basta)
+        JR      NZ,FUERA
+        LD      DE,16385
+        OR      A
+        SBC     HL,DE
+        JR      NC,FUERA
+        INC     B
+        LD      A,B
+        CP      MAXI
+        JR      C,ITER
+        LD      A,' '           ; adentro
+        CALL    PUTC
+        JR      SIGUE
+FUERA:  LD      A,B             ; k = 1 + i*9/32
+        LD      L,A
+        ADD     A,A
+        ADD     A,A
+        ADD     A,A
+        ADD     A,L             ; i*9 (hasta 279: con acarreo)
+        LD      L,A
+        LD      A,0
+        ADC     A,0
+        LD      H,A
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,HL           ; /32 = *8 / 256
+        LD      A,H
+        INC     A
+        LD      E,A
+        LD      D,0
+        LD      HL,COLORS
+        ADD     HL,DE
+        LD      A,(HL)
+        LD      HL,LASTC
+        CP      (HL)
+        JR      Z,MISMO
+        LD      (HL),A
+        PUSH    DE
+        LD      A,ESC
+        CALL    PUTC
+        LD      A,'['
+        CALL    PUTC
+        LD      A,(LASTC)
+        LD      L,A
+        LD      H,0
+        CALL    PDEC
+        LD      A,'m'
+        CALL    PUTC
+        POP     DE
+MISMO:  LD      HL,CHARS
+        ADD     HL,DE
+        LD      A,(HL)
+        CALL    PUTC
+SIGUE:  CALL    GETKEY
+        JR      NZ,TECLA
+        LD      A,(X)
+        INC     A
+        LD      (X),A
+        CP      79
+        JP      C,COL
+        CALL    PRI
+        DB      13,13,10,0
+        LD      A,(Y)
+        INC     A
+        LD      (Y),A
+        CP      23
+        JP      C,FILA
+        CALL    TICKS           ; el tiempo: s.d
+        PUSH    AF
+        LD      DE,(T0)
+        OR      A
+        SBC     HL,DE
+        POP     AF
+        LD      C,A
+        PUSH    BC
+        CALL    DIVC
+        PUSH    AF
+        PUSH    HL
+        CALL    PRI
+        DB      ESC,'[0m',ESC,'[?25h',0
+        POP     HL
+        CALL    PDEC
+        LD      A,'.'
+        CALL    PUTC
+        POP     AF              ; (resto * 10) / tps
+        LD      L,A
+        LD      H,0
+        LD      D,H
+        LD      E,L
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,DE
+        ADD     HL,HL
+        POP     BC
+        CALL    DIVC
+        CALL    PDEC
+        CALL    PRI
+        DB      ' s',0
+        JP      EXIT
+TECLA:  CALL    PRI
+        DB      ESC,'[0m',ESC,'[?25h',13,10,0
+        JP      EXIT
+
+; SH12: (IX) = DEHL >> 12, en 3 bytes (el numero no es negativo)
+SH12:   LD      B,4
+SH1:    SRL     D
+        RR      E
+        RR      H
+        DJNZ    SH1
+        LD      (IX+0),H        ; los bytes 1..3 corridos 4: bits 12..35
+        LD      (IX+1),E
+        LD      (IX+2),D
+        RET
+
+; MULHE: HL = HL * DE (16 bits)
+MULHE:  LD      B,H
+        LD      C,L
+        CALL    MULU
+        EX      DE,HL           ; (la parte baja)
+        LD      H,D
+        LD      L,E
+        RET
+
+; MULS: DEHL = HL * DE con signo (32 bits)
+MULS:   LD      A,H
+        XOR     D
+        PUSH    AF              ; el signo del resultado
+        BIT     7,H
+        JR      Z,MS1
+        CALL    NEGHL
+MS1:    BIT     7,D
+        JR      Z,MS2
+        EX      DE,HL
+        CALL    NEGHL
+        EX      DE,HL
+MS2:    LD      B,H
+        LD      C,L
+        CALL    MULU            ; DE:HL
+        POP     AF
+        RET     P
+        LD      A,L             ; -DEHL
+        CPL
+        LD      L,A
+        LD      A,H
+        CPL
+        LD      H,A
+        LD      A,E
+        CPL
+        LD      E,A
+        LD      A,D
+        CPL
+        LD      D,A
+        INC     L
+        RET     NZ
+        INC     H
+        RET     NZ
+        INC     DE
+        RET
+NEGHL:  XOR     A
+        SUB     L
+        LD      L,A
+        SBC     A,A
+        SUB     H
+        LD      H,A
+        RET
+
+; MULU: DE:HL = BC * DE (sin signo)
+MULU:   LD      HL,0
+        LD      A,16
+MU1:    ADD     HL,HL
+        RL      E
+        RL      D
+        JR      NC,MU2
+        ADD     HL,BC
+        JR      NC,MU2
+        INC     DE
+MU2:    DEC     A
+        JR      NZ,MU1
+        RET
+
+CHARS:  DB      ' .,:;=+*%#@'
+COLORS: DB      34,34,36,36,32,32,33,33,31,35,37
+LASTC:  DB      0
+X:      DB      0
+Y:      DB      0
+T0:     DW      0
+CX:     DW      0
+CY:     DW      0
+ZX:     DW      0
+ZY:     DW      0
+X2:     DW      0,0
+Y2:     DW      0,0
+
+        INCLUDE zcon.inc
+        INCLUDE zmisc.inc
+BSS0    EQU     $
+PILA    EQU     ZCFIN+256
+        END

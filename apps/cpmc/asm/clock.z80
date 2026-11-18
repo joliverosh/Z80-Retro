@@ -5,7 +5,7 @@
 ;   CP/M 3    la hora del BDOS (funcion 105)
 ;   CP/M 2.2  lee el DS1307 directamente, por I2C (ZIOS 34, RST 30h)
 ;
-; Armar: zmac -z --od obj --oo cim clock.z80 && cp obj/clock.cim CLOCK.COM
+; Armar: asm/mkasm.sh clock (deja CLOCK.COM en apps/cpmc)
 ; (clock.c es la version anterior en C, solo para MP/M)
 
 BDOS    EQU     5

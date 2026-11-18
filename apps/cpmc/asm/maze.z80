@@ -1,0 +1,848 @@
+; MAZE.Z80 - laberintos en ASCII, como el AMAZING de los libros de BASIC de los 70.
+;   MAZE                 uno del tamano de la pantalla (26 x 11), para mirar o recorrer
+;   MAZE w h             w x h casillas (hasta 80 x 60; los grandes, mejor a un archivo)
+;   MAZE w h ARCHIVO     lo escribe en un archivo de texto (con /S, con la solucion)
+; Cada laberinto es perfecto: entre dos casillas hay un solo camino. Se hace con el
+; backtracker de siempre (avanzar al azar a una casilla sin visitar; si no hay,
+; volver), con una pila propia; el camino de la entrada a la salida es lo que hay en
+; la pila cuando se llega a la salida. (C) OLIVEROS 2026
+; La version en ensamblador del maze.c. Corre en CP/M 2.2, CP/M 3 y MP/M II.
+
+MAXW    EQU     80
+MAXH    EQU     60
+PASE      EQU     1               ; pasa al este
+PASS      EQU     2               ; pasa al sur
+PVIS      EQU     4               ; visitada
+PCAM      EQU     8               ; en el camino de la solucion
+
+        ORG     100h
+        LD      SP,PILA
+        CALL    INIT
+        CALL    ARGS
+        CALL    TICKS           ; la semilla: los tics y la consola
+        PUSH    HL
+        LD      C,153
+        CALL    SYS
+        POP     HL
+        XOR     H
+        LD      H,A
+        CALL    SRND
+
+AR1:    CALL    NEXTARG
+        JP      C,AR9
+        LD      A,(HL)
+        CP      '/'
+        JR      NZ,AR2
+        INC     HL
+        LD      A,(HL)
+        OR      20h
+        CP      's'
+        JR      NZ,AR1
+        LD      A,1
+        LD      (SHOWP),A
+        JR      AR1
+AR2:    LD      A,(NARG)
+        CP      2
+        JR      NC,AR4
+        LD      B,MAXW
+        OR      A
+        JR      Z,AR3
+        LD      B,MAXH
+AR3:    PUSH    HL
+        CALL    NUM
+        POP     HL
+        OR      A
+        JR      Z,AR4
+        LD      C,A
+        LD      A,(NARG)
+        INC     A
+        LD      (NARG),A
+        DEC     A
+        LD      A,C
+        JR      NZ,AR3H
+        LD      (WW),A
+        JR      AR1
+AR3H:   LD      (HH),A
+        JR      AR1
+AR4:    LD      A,(HL)
+        CP      '0'
+        JR      C,AR5
+        CP      '9'+1
+        JR      NC,AR5
+        CALL    PRI
+        DB      'Usage: MAZE [w h] [file] [/S]   (w up to 80, h up to 60)',13,10,0
+        JP      EXIT
+AR5:    LD      (FILE),HL
+        JP      AR1
+AR9:    LD      A,(WW)
+        CP      2
+        JR      NC,AR10
+        LD      A,2
+        LD      (WW),A
+AR10:   LD      A,(HH)
+        CP      2
+        JR      NC,AR11
+        LD      A,2
+        LD      (HH),A
+AR11:   LD      A,(NARG)        ; solo el ancho: el alto en proporcion
+        CP      1
+        JR      NZ,AR12
+        LD      A,(WW)
+        LD      L,A
+        LD      H,0
+        LD      D,H
+        LD      E,L
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,DE
+        ADD     HL,HL
+        ADD     HL,DE           ; * 11
+        LD      C,26
+        CALL    DIVC
+        LD      A,L
+        CP      2
+        JR      NC,AR11A
+        LD      A,2
+AR11A:  CP      MAXH+1
+        JR      C,AR11B
+        LD      A,MAXH
+AR11B:  LD      (HH),A
+AR12:   CALL    MAKE
+        LD      HL,(FILE)
+        LD      A,H
+        OR      L
+        JP      Z,PANT
+
+        LD      DE,FO           ; al archivo
+        CALL    MKFCB
+        JR      C,NOCREA
+        LD      DE,FO
+        CALL    FMAKE
+        JR      NC,ARCH1
+NOCREA: CALL    PRI
+        DB      "Can't create that file.",13,10,0
+        JP      EXIT
+ARCH1:  LD      A,1
+        LD      (TOFILE),A
+        CALL    DRAW
+        LD      A,26
+ARCH2:  CALL    OUTC
+        LD      A,(ON)
+        OR      A
+        LD      A,26
+        JR      NZ,ARCH2
+        LD      DE,FO
+        CALL    FCLOSE
+        CALL    PRI
+        DB      'A ',0
+        LD      A,(WW)
+        LD      L,A
+        LD      H,0
+        CALL    PDEC
+        CALL    PRI
+        DB      ' x ',0
+        LD      A,(HH)
+        LD      L,A
+        LD      H,0
+        CALL    PDEC
+        CALL    PRI
+        DB      ' maze',0
+        LD      A,(SHOWP)
+        OR      A
+        JR      Z,ARCH3
+        CALL    PRI
+        DB      ', with its way out,',0
+ARCH3:  CALL    PRI
+        DB      ' written.',13,10,0
+        JP      EXIT
+
+PANT:   LD      A,(WW)           ; no cabe: se escribe y listo
+        CP      27
+        JR      NC,PANT0
+        LD      A,(HH)
+        CP      12
+        JR      C,MENU
+PANT0:  CALL    DRAW
+        JP      EXIT
+MENU:   CALL    PRI
+        DB      ESC,'[H',ESC,'[J',0
+        CALL    DRAW
+        LD      HL,TMENU
+        CALL    STATUS
+        CALL    WAITKEY
+        CP      'A'
+        JR      C,MENU1
+        CP      'Z'+1
+        JR      NC,MENU1
+        ADD     A,32
+MENU1:  CP      'n'
+        JR      NZ,MENU2
+        CALL    MAKE
+        XOR     A
+        LD      (SHOWP),A
+        JR      MENU
+MENU2:  CP      's'
+        JR      NZ,MENU3
+        LD      A,(SHOWP)
+        XOR     1
+        LD      (SHOWP),A
+        JR      MENU
+MENU3:  CP      'p'
+        JR      NZ,MENU4
+        XOR     A
+        LD      (SHOWP),A
+        CALL    PRI
+        DB      ESC,'[H',ESC,'[J',0
+        CALL    DRAW
+        CALL    PLAY
+        JR      MENU
+MENU4:  CP      'q'
+        JR      Z,MENU5
+        CP      ESC
+        JR      Z,MENU5
+        CP      3
+        JR      NZ,MENU
+MENU5:  CALL    ABAJO
+        CALL    PRI
+        DB      ESC,'[K',0
+        JP      EXIT
+
+TMENU:  DB      'N: new maze  S: show the way out  P: play  Q: quit',0
+
+; ---------------------------------------------------------------- hacer
+MAKE:   LD      HL,CEL          ; todo en cero
+        LD      DE,CEL+1
+        LD      BC,MAXW*MAXH-1
+        LD      (HL),0
+        LDIR
+        LD      A,(WW)           ; LAST = w*h - 1
+        LD      E,A
+        LD      A,(HH)
+        CALL    MULAE
+        DEC     HL
+        LD      (LAST),HL
+        LD      HL,0
+        LD      (ST),HL         ; st[0] = 0
+        LD      HL,1
+        LD      (SP_),HL
+        LD      A,PVIS
+        LD      (CEL),A
+MZ1:    LD      HL,(SP_)        ; mientras haya pila
+        LD      A,H
+        OR      L
+        RET     Z
+        DEC     HL              ; i = st[sp-1]
+        ADD     HL,HL
+        LD      DE,ST
+        ADD     HL,DE
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        LD      (I_),DE
+        EX      DE,HL           ; x = i % w, y = i / w
+        LD      A,(WW)
+        LD      C,A
+        CALL    DIVC
+        LD      (X_),A
+        LD      A,L
+        LD      (Y_),A
+        XOR     A
+        LD      (K),A           ; vecinas sin visitar
+        LD      A,(X_)          ; oeste
+        OR      A
+        JR      Z,MZ2
+        LD      HL,(I_)
+        DEC     HL
+        CALL    PRUEBA
+MZ2:    LD      A,(WW)           ; este
+        DEC     A
+        LD      B,A
+        LD      A,(X_)
+        CP      B
+        JR      NC,MZ3
+        LD      HL,(I_)
+        INC     HL
+        CALL    PRUEBA
+MZ3:    LD      A,(Y_)          ; norte
+        OR      A
+        JR      Z,MZ4
+        LD      HL,(I_)
+        LD      DE,(WW)
+        LD      D,0
+        OR      A
+        SBC     HL,DE
+        CALL    PRUEBA
+MZ4:    LD      A,(HH)           ; sur
+        DEC     A
+        LD      B,A
+        LD      A,(Y_)
+        CP      B
+        JR      NC,MZ5
+        LD      HL,(I_)
+        LD      DE,(WW)
+        LD      D,0
+        ADD     HL,DE
+        CALL    PRUEBA
+MZ5:    LD      A,(K)
+        OR      A
+        JR      NZ,MZ6
+        LD      HL,(SP_)        ; sin salida: atras
+        DEC     HL
+        LD      (SP_),HL
+        JP      MZ1
+MZ6:    LD      C,A             ; n = nb[rnd() % k]
+        CALL    RNDN
+        ADD     A,A
+        LD      E,A
+        LD      D,0
+        LD      HL,NB
+        ADD     HL,DE
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        LD      (N_),DE
+        LD      HL,(I_)         ; el paso: en i o en n
+        INC     HL
+        OR      A
+        SBC     HL,DE
+        JR      NZ,MZ7
+        LD      HL,(I_)         ; n = i + 1
+        LD      B,PASE
+        JR      MZMARCA
+MZ7:    LD      HL,(N_)
+        INC     HL
+        LD      DE,(I_)
+        OR      A
+        SBC     HL,DE
+        JR      NZ,MZ8
+        LD      HL,(N_)         ; n = i - 1
+        LD      B,PASE
+        JR      MZMARCA
+MZ8:    LD      HL,(I_)
+        LD      DE,(WW)
+        LD      D,0
+        ADD     HL,DE
+        LD      DE,(N_)
+        OR      A
+        SBC     HL,DE
+        LD      HL,(I_)         ; n = i + w
+        LD      B,PASS
+        JR      Z,MZMARCA
+        LD      HL,(N_)         ; n = i - w
+MZMARCA:LD      DE,CEL
+        ADD     HL,DE
+        LD      A,(HL)
+        OR      B
+        LD      (HL),A
+        LD      HL,(N_)         ; n visitada, a la pila
+        LD      DE,CEL
+        ADD     HL,DE
+        SET     2,(HL)
+        LD      HL,(SP_)
+        PUSH    HL
+        ADD     HL,HL
+        LD      DE,ST
+        ADD     HL,DE
+        LD      DE,(N_)
+        LD      (HL),E
+        INC     HL
+        LD      (HL),D
+        POP     HL
+        INC     HL
+        LD      (SP_),HL
+        LD      HL,(LAST)       ; la salida: la pila es el camino
+        OR      A
+        SBC     HL,DE
+        JP      NZ,MZ1
+        LD      HL,(SP_)
+        LD      (PLEN),HL
+        LD      B,H
+        LD      C,L
+        LD      HL,ST
+MZ9:    LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        INC     HL
+        PUSH    HL
+        LD      HL,CEL
+        ADD     HL,DE
+        SET     3,(HL)
+        POP     HL
+        DEC     BC
+        LD      A,B
+        OR      C
+        JR      NZ,MZ9
+        JP      MZ1
+
+; PRUEBA: si la casilla HL no esta visitada, a NB
+PRUEBA: PUSH    HL
+        LD      DE,CEL
+        ADD     HL,DE
+        BIT     2,(HL)
+        POP     DE
+        RET     NZ
+        LD      A,(K)
+        LD      C,A
+        INC     A
+        LD      (K),A
+        LD      B,0
+        LD      HL,NB
+        ADD     HL,BC
+        ADD     HL,BC
+        LD      (HL),E
+        INC     HL
+        LD      (HL),D
+        RET
+
+; MULAE: HL = A * E
+MULAE:  LD      HL,0
+        LD      D,0
+        OR      A
+        RET     Z
+        LD      B,A
+MUL1:   ADD     HL,DE
+        DJNZ    MUL1
+        RET
+
+; ---------------------------------------------------------------- escribir
+OUTC:   PUSH    AF
+        LD      A,(TOFILE)
+        OR      A
+        JR      NZ,OUTC1
+        POP     AF
+        JP      PUTC
+OUTC1:  POP     AF
+        PUSH    HL
+        PUSH    DE
+        PUSH    BC
+        LD      HL,ON
+        LD      E,(HL)
+        LD      D,0
+        INC     (HL)
+        LD      HL,OBF
+        ADD     HL,DE
+        LD      (HL),A
+        LD      A,(ON)
+        CP      128
+        JR      NZ,OUTC2
+        XOR     A
+        LD      (ON),A
+        LD      DE,FO
+        LD      HL,OBF
+        CALL    FWRITE
+OUTC2:  POP     BC
+        POP     DE
+        POP     HL
+        RET
+OUTS:   LD      A,(HL)
+        INC     HL
+        OR      A
+        RET     Z
+        CALL    OUTC
+        JR      OUTS
+NL:     LD      A,13
+        CALL    OUTC
+        LD      A,10
+        JP      OUTC
+
+; CELDA: A = c[y*w + x] y HL su direccion (X_, Y_)
+CELDA:  LD      A,(WW)
+        LD      E,A
+        LD      A,(Y_)
+        CALL    MULAE
+        LD      A,(X_)
+        LD      E,A
+        LD      D,0
+        ADD     HL,DE
+        LD      DE,CEL
+        ADD     HL,DE
+        LD      A,(HL)
+        RET
+
+DRAW:   LD      A,'+'           ; arriba, con la entrada en la primera
+        CALL    OUTC
+        XOR     A
+        LD      (X_),A
+DR1:    LD      HL,T2MAS
+        OR      A
+        JR      NZ,DR2
+        LD      HL,T0MAS
+DR2:    CALL    OUTS
+        CALL    XMAS
+        JR      C,DR1
+        CALL    NL
+        XOR     A
+        LD      (Y_),A
+DRF:    LD      A,'|'           ; una fila de casillas
+        CALL    OUTC
+        XOR     A
+        LD      (X_),A
+DRC:    CALL    CELDA
+        LD      C,A
+        LD      HL,T0
+        LD      A,(SHOWP)
+        OR      A
+        JR      Z,DRC1
+        BIT     3,C
+        JR      Z,DRC1
+        LD      HL,T2AST
+DRC1:   PUSH    BC
+        CALL    OUTS
+        POP     BC
+        LD      A,'|'
+        BIT     0,C
+        JR      Z,DRC3
+        LD      A,' '
+        LD      B,A
+        LD      A,(SHOWP)
+        OR      A
+        LD      A,B
+        JR      Z,DRC3
+        BIT     3,C
+        JR      Z,DRC3
+        LD      A,(WW)           ; y la de al lado tambien en el camino?
+        DEC     A
+        LD      B,A
+        LD      A,(X_)
+        CP      B
+        LD      A,' '
+        JR      NC,DRC3
+        CALL    CELDA
+        INC     HL
+        BIT     3,(HL)
+        LD      A,' '
+        JR      Z,DRC3
+        LD      A,'*'
+DRC3:   CALL    OUTC
+        CALL    XMAS
+        JR      C,DRC
+        CALL    NL
+        LD      A,'+'           ; la linea de abajo
+        CALL    OUTC
+        XOR     A
+        LD      (X_),A
+DRB:    LD      A,(HH)
+        DEC     A
+        LD      B,A
+        LD      A,(Y_)
+        CP      B
+        JR      NZ,DRB2
+        LD      A,(WW)           ; la ultima fila: la salida en la ultima casilla
+        DEC     A
+        LD      B,A
+        LD      A,(X_)
+        CP      B
+        LD      HL,T0MAS
+        JR      Z,DRB4
+        LD      HL,T2MAS
+        JR      DRB4
+DRB2:   CALL    CELDA
+        LD      C,A
+        LD      HL,T2MAS
+        BIT     1,C
+        JR      Z,DRB4
+        LD      HL,T0MAS
+        LD      A,(SHOWP)
+        OR      A
+        JR      Z,DRB4
+        BIT     3,C
+        JR      Z,DRB4
+        CALL    CELDA           ; la de abajo
+        LD      A,(WW)
+        LD      E,A
+        LD      D,0
+        ADD     HL,DE
+        BIT     3,(HL)
+        LD      HL,T0MAS
+        JR      Z,DRB4
+        LD      HL,TAMAS
+DRB4:   CALL    OUTS
+        CALL    XMAS
+        JR      C,DRB
+        CALL    NL
+        LD      A,(Y_)
+        INC     A
+        LD      (Y_),A
+        LD      B,A
+        LD      A,(HH)
+        CP      B
+        JP      NZ,DRF
+        RET
+
+; XMAS: la casilla de la derecha; acarreo si todavia hay (A = X_)
+XMAS:   LD      A,(WW)
+        LD      B,A
+        LD      A,(X_)
+        INC     A
+        LD      (X_),A
+        CP      B
+        RET
+
+T0MAS:  DB      '  +',0
+T2MAS:  DB      '--+',0
+TAMAS:  DB      '**+',0
+T0:     DB      '  ',0
+T2AST:  DB      '**',0
+
+; ---------------------------------------------------------------- jugar
+KEYIN:  CALL    WAITKEY
+        CP      ESC
+        RET     NZ
+        LD      B,0
+        CALL    KESPERA
+        CP      '['
+        JR      Z,KI1
+        CP      'O'
+        LD      A,ESC
+        RET     NZ
+KI1:    LD      B,0
+        CALL    KESPERA
+        CP      'A'
+        JR      C,KI0
+        CP      'D'+1
+        JR      NC,KI0
+        ADD     A,K_UP-'A'
+        RET
+KI0:    XOR     A
+        RET
+
+; AT: el texto HL en la casilla (X_, Y_) de la pantalla
+AT:     PUSH    HL
+        CALL    AQUI
+        POP     HL
+        JP      PSTR
+AQUI:   LD      A,(X_)          ; columna 2 + 3x, fila 2 + 2y
+        LD      E,A
+        ADD     A,A
+        ADD     A,E
+        ADD     A,2
+        LD      E,A
+        LD      A,(Y_)
+        ADD     A,A
+        ADD     A,2
+        LD      D,A
+        JP      GOTOXY
+ABAJO:  LD      A,(HH)           ; columna 1, fila 2h + 2
+        ADD     A,A
+        ADD     A,2
+        LD      D,A
+        LD      E,1
+        JP      GOTOXY
+STATUS: PUSH    HL
+        CALL    ABAJO
+        POP     HL
+        CALL    PSTR
+        CALL    PRI
+        DB      ESC,'[K',0
+        RET
+
+PLAY:   XOR     A
+        LD      (X_),A
+        LD      (Y_),A
+        LD      HL,0
+        LD      (MOVES),HL
+        LD      HL,TJUEGO
+        CALL    STATUS
+PL1:    LD      HL,TARROBA
+        CALL    AT
+        CALL    AQUI
+        LD      A,(WW)           ; afuera?
+        DEC     A
+        LD      B,A
+        LD      A,(X_)
+        CP      B
+        JR      NZ,PL2
+        LD      A,(HH)
+        DEC     A
+        LD      B,A
+        LD      A,(Y_)
+        CP      B
+        JR      NZ,PL2
+        CALL    ABAJO
+        CALL    PRI
+        DB      'Out in ',0
+        LD      HL,(MOVES)
+        CALL    PDEC
+        CALL    PRI
+        DB      ' moves (the shortest way is ',0
+        LD      HL,(PLEN)
+        DEC     HL
+        CALL    PDEC
+        CALL    PRI
+        DB      '). Press a key.',ESC,'[K',0
+        JP      WAITKEY
+PL2:    CALL    KEYIN
+        CP      'q'
+        RET     Z
+        CP      'Q'
+        RET     Z
+        CP      ESC
+        RET     Z
+        LD      (KK),A
+        LD      A,(X_)
+        LD      (NX),A
+        LD      A,(Y_)
+        LD      (NY),A
+        CALL    CELDA           ; HL = &c[i]
+        LD      C,A
+        LD      A,(KK)
+        CP      K_UP
+        JR      Z,PLUP
+        CP      'k'
+        JR      Z,PLUP
+        CP      'w'
+        JR      NZ,PL3
+PLUP:   LD      A,(Y_)
+        OR      A
+        JR      Z,PL3
+        LD      A,(WW)
+        LD      E,A
+        LD      D,0
+        PUSH    HL
+        OR      A
+        SBC     HL,DE
+        BIT     1,(HL)
+        POP     HL
+        JR      Z,PL3
+        LD      A,(NY)
+        DEC     A
+        LD      (NY),A
+        JR      PLMUEVE
+PL3:    LD      A,(KK)
+        CP      K_DOWN
+        JR      Z,PLDN
+        CP      'j'
+        JR      Z,PLDN
+        CP      's'
+        JR      NZ,PL4
+PLDN:   LD      A,(HH)
+        DEC     A
+        LD      B,A
+        LD      A,(Y_)
+        CP      B
+        JR      NC,PL4
+        BIT     1,C
+        JR      Z,PL4
+        LD      A,(NY)
+        INC     A
+        LD      (NY),A
+        JR      PLMUEVE
+PL4:    LD      A,(KK)
+        CP      K_LEFT
+        JR      Z,PLLF
+        CP      'h'
+        JR      Z,PLLF
+        CP      'a'
+        JR      NZ,PL5
+PLLF:   LD      A,(X_)
+        OR      A
+        JR      Z,PL5
+        DEC     HL
+        BIT     0,(HL)
+        INC     HL
+        JR      Z,PL5
+        LD      A,(NX)
+        DEC     A
+        LD      (NX),A
+        JR      PLMUEVE
+PL5:    LD      A,(KK)
+        CP      K_RIGHT
+        JR      Z,PLRT
+        CP      'l'
+        JR      Z,PLRT
+        CP      'd'
+        JP      NZ,PL1
+PLRT:   LD      A,(WW)
+        DEC     A
+        LD      B,A
+        LD      A,(X_)
+        CP      B
+        JP      NC,PL1
+        BIT     0,C
+        JP      Z,PL1
+        LD      A,(NX)
+        INC     A
+        LD      (NX),A
+PLMUEVE:LD      HL,TPUNTO       ; el rastro
+        CALL    AT
+        LD      A,(NX)
+        LD      (X_),A
+        LD      A,(NY)
+        LD      (Y_),A
+        LD      HL,(MOVES)
+        INC     HL
+        LD      (MOVES),HL
+        JP      PL1
+
+TJUEGO: DB      'Arrows or h j k l: from the top left to the bottom right. Q: give up',0
+TARROBA:DB      ESC,'[7m@',ESC,'[0m',0
+TPUNTO: DB      '.',0
+
+; NUM: A = el numero decimal en HL si es de 1 a B (y no hay nada despues); si no, 0
+NUM:    LD      A,(HL)
+        SUB     '0'
+        CP      10
+        JR      NC,NUM0
+        LD      DE,0
+NUM1:   LD      A,(HL)
+        OR      A
+        JR      Z,NUM3
+        SUB     '0'
+        CP      10
+        JR      NC,NUM0
+        PUSH    HL
+        LD      H,D
+        LD      L,E
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,DE
+        ADD     HL,HL
+        LD      E,A
+        LD      D,0
+        ADD     HL,DE
+        EX      DE,HL
+        POP     HL
+        INC     HL
+        LD      A,D             ; > B?
+        OR      A
+        JR      NZ,NUM0
+        LD      A,B
+        CP      E
+        JR      C,NUM0
+        JR      NUM1
+NUM3:   LD      A,E
+        RET
+NUM0:   XOR     A
+        RET
+
+WW:     DB      26
+HH:     DB      11
+NARG:   DB      0
+SHOWP:  DB      0
+TOFILE: DB      0
+ON:     DB      0
+FILE:   DW      0
+K:      DB      0
+KK:     DB      0
+X_:     DB      0
+Y_:     DB      0
+NX:     DB      0
+NY:     DB      0
+I_:     DW      0
+N_:     DW      0
+SP_:    DW      0
+LAST:   DW      0
+PLEN:   DW      0
+MOVES:  DW      0
+NB:     DW      0,0,0,0
+
+        INCLUDE zcon.inc
+        INCLUDE zfile.inc
+        INCLUDE zmisc.inc
+BSS0    EQU     $
+FO      EQU     ZFFIN
+OBF     EQU     FO+36
+CEL     EQU     OBF+128
+ST      EQU     CEL+MAXW*MAXH
+PILA    EQU     ST+2*MAXW*MAXH+256
+        END

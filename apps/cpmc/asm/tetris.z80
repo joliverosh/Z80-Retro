@@ -1,0 +1,651 @@
+; TETRIS.Z80 - flechas o WASD/IJKL: mover y girar (arriba), abajo baja,
+; ESPACIO la deja caer, P pausa, Q sale
+; La version en ensamblador del tetris.c. Corre en CP/M 2.2, CP/M 3 y MP/M II.
+
+BW      EQU     10
+BH      EQU     20
+X0      EQU     30              ; columna del borde izquierdo
+Y0      EQU     2
+
+        ORG     100h
+        LD      SP,PILA
+        CALL    INIT
+        CALL    TICKS
+        SET     0,L
+        CALL    SRND
+        LD      C,7
+        CALL    RNDN
+        LD      (NXT),A
+        LD      HL,BD
+        LD      DE,BD+1
+        LD      BC,BW*BH-1
+        LD      (HL),0
+        LDIR
+        CALL    PRI
+        DB      ESC,'[H',ESC,'[J',ESC,'[?25l',0
+        LD      DE,1*256+X0+4
+        CALL    GOTOXY
+        CALL    PRI
+        DB      ESC,'[1mT E T R I S',ESC,'[0m',0
+        LD      D,Y0
+LADO:   PUSH    DE
+        LD      E,X0
+        CALL    GOTOXY
+        LD      A,'|'
+        CALL    PUTC
+        POP     DE
+        PUSH    DE
+        LD      E,X0+1+BW*2
+        CALL    GOTOXY
+        LD      A,'|'
+        CALL    PUTC
+        POP     DE
+        INC     D
+        LD      A,D
+        CP      Y0+BH
+        JR      C,LADO
+        LD      DE,(Y0+BH)*256+X0
+        CALL    GOTOXY
+        CALL    PRI
+        DB      '+--------------------+',0
+        LD      DE,(Y0+16)*256+X0+26
+        CALL    GOTOXY
+        CALL    PRI
+        DB      'Arrows/WASD move',0
+        LD      DE,(Y0+17)*256+X0+26
+        CALL    GOTOXY
+        CALL    PRI
+        DB      'Up rotates, Space drops',0
+        LD      DE,(Y0+18)*256+X0+26
+        CALL    GOTOXY
+        CALL    PRI
+        DB      'P pause, Q quit',0
+        CALL    BORRAV
+        CALL    NEWP
+        CALL    DRAW
+        CALL    TICKS
+        LD      (LAST),HL
+
+LAZO:   LD      A,(OVER)
+        OR      A
+        JP      NZ,FIN
+        LD      A,(LEV)         ; spd = lev < 9 ? 48 - lev*5 : 4
+        LD      B,A
+        LD      A,4
+        CP      B               ; (4 < lev?)  lev >= 9 -> 4
+        LD      A,B
+        CP      9
+        LD      A,4
+        JR      NC,SPD1
+        LD      A,B
+        ADD     A,A
+        ADD     A,A
+        ADD     A,B
+        LD      B,A
+        LD      A,48
+        SUB     B
+SPD1:   LD      (SPD),A
+        LD      A,1
+        LD      (MOVED),A
+        CALL    KEY
+        LD      (KK),A
+        CP      K_LEFT
+        JR      NZ,K2
+        LD      A,(PX)
+        DEC     A
+        LD      C,A
+        CALL    FITSX
+        JR      NC,K2
+        LD      HL,PX
+        DEC     (HL)
+        JP      TIEMPO
+K2:     LD      A,(KK)
+        CP      K_RIGHT
+        JR      NZ,K3
+        LD      A,(PX)
+        INC     A
+        LD      C,A
+        CALL    FITSX
+        JR      NC,K3
+        LD      HL,PX
+        INC     (HL)
+        JP      TIEMPO
+K3:     LD      A,(KK)
+        CP      K_UP
+        JR      NZ,K4
+        LD      A,(ROT)         ; girar, o girar corrida a un lado
+        INC     A
+        AND     3
+        LD      (RR_),A
+        LD      A,(PX)
+        LD      C,A
+        CALL    FITSR
+        JR      C,K3OK
+        LD      A,(PX)
+        DEC     A
+        LD      C,A
+        CALL    FITSR
+        LD      A,-1
+        JR      C,K3MV
+        LD      A,(PX)
+        INC     A
+        LD      C,A
+        CALL    FITSR
+        JP      NC,TIEMPO
+        LD      A,1
+K3MV:   LD      HL,PX
+        ADD     A,(HL)
+        LD      (HL),A
+K3OK:   LD      A,(RR_)
+        LD      (ROT),A
+        JP      TIEMPO
+K4:     CP      K_DOWN
+        JR      NZ,K5
+        CALL    FITSABAJO
+        JR      NC,K4B
+        LD      HL,PY
+        INC     (HL)
+        LD      HL,SCORE
+        CALL    INC32
+        JP      TIEMPO
+K4B:    CALL    ATRASA
+        JP      TIEMPO
+K5:     CP      ' '
+        JR      NZ,K6
+K5A:    CALL    FITSABAJO
+        JR      NC,K5B
+        LD      HL,PY
+        INC     (HL)
+        LD      HL,SCORE
+        CALL    INC32
+        LD      HL,SCORE
+        CALL    INC32
+        JR      K5A
+K5B:    CALL    ATRASA
+        JR      TIEMPO
+K6:     OR      20h
+        CP      'p'
+        JR      NZ,K7
+        LD      DE,(Y0+9)*256+X0+6
+        CALL    GOTOXY
+        CALL    PRI
+        DB      ESC,'[7m PAUSED ',ESC,'[0m',0
+        CALL    WAITKEY
+        CALL    BORRAV
+        JR      TIEMPO
+K7:     CP      'q'
+        JR      Z,K7Q
+        LD      A,(KK)
+        CP      3
+        JR      NZ,K8
+K7Q:    LD      A,2
+        LD      (OVER),A
+        JP      FIN
+K8:     XOR     A
+        LD      (MOVED),A
+
+TIEMPO: CALL    TICKS           ; ya es hora de bajar?
+        LD      DE,(LAST)
+        OR      A
+        SBC     HL,DE
+        LD      A,(SPD)
+        LD      E,A
+        LD      D,0
+        OR      A
+        SBC     HL,DE
+        JR      C,DIBU
+        CALL    TICKS
+        LD      (LAST),HL
+        CALL    FITSABAJO
+        JR      NC,TI1
+        LD      HL,PY
+        INC     (HL)
+        JR      TI2
+TI1:    CALL    LAND
+        CALL    NEWP
+        JR      C,TI2
+        LD      A,1
+        LD      (OVER),A
+TI2:    LD      A,1
+        LD      (MOVED),A
+DIBU:   LD      A,(MOVED)
+        OR      A
+        JR      Z,DIBU1
+        CALL    DRAW
+        JP      LAZO
+DIBU1:  LD      DE,1
+        CALL    DELAY
+        JP      LAZO
+
+FIN:    LD      DE,(Y0+9)*256+X0+5
+        CALL    GOTOXY
+        LD      HL,TGOVER
+        LD      A,(OVER)
+        CP      2
+        JR      NZ,FIN1
+        LD      HL,TQUIT
+FIN1:   CALL    PSTR
+        LD      DE,23*256+1
+        CALL    GOTOXY
+        CALL    PRI
+        DB      ESC,'[?25h',0
+        JP      EXIT
+
+; ATRASA: last -= spd (para que baje ya)
+ATRASA: LD      HL,(LAST)
+        LD      A,(SPD)
+        LD      E,A
+        LD      D,0
+        OR      A
+        SBC     HL,DE
+        LD      (LAST),HL
+        RET
+
+BORRAV: LD      HL,SHOWN        ; todo distinto: se vuelve a dibujar
+        LD      DE,SHOWN+1
+        LD      BC,BW*BH-1
+        LD      (HL),0FFh
+        LDIR
+        RET
+
+; FITSX: la pieza (PC, ROT) en (C, PY)? FITSR: (PC, RR_) en (C, PY).
+; FITSABAJO: (PC, ROT) en (PX, PY+1). Acarreo si cabe.
+FITSX:  LD      A,(ROT)
+        LD      B,A
+        LD      A,(PY)
+        JR      FITS
+FITSR:  LD      A,(RR_)
+        LD      B,A
+        LD      A,(PY)
+        JR      FITS
+FITSABAJO:
+        LD      A,(ROT)
+        LD      B,A
+        LD      A,(PX)
+        LD      C,A
+        LD      A,(PY)
+        INC     A
+; FITS: la pieza PC con giro B, en x = C, y = A (con signo). Acarreo si cabe.
+FITS:   LD      (FY),A
+        LD      A,C
+        LD      (FXX),A
+        LD      A,(PC)
+        CALL    FORMA           ; DE = la forma
+        LD      B,0             ; i (fila)
+FT1:    LD      C,0             ; j (columna)
+FT2:    SLA     E
+        RL      D
+        JR      NC,FT4
+        LD      A,(FXX)         ; cx = x + j
+        ADD     A,C
+        CP      BW              ; (negativo: tambien >= BW sin signo)
+        JR      NC,FTNO
+        LD      L,A
+        LD      A,(FY)          ; cy = y + i
+        ADD     A,B
+        BIT     7,A
+        JR      NZ,FT4          ; arriba del tablero: no choca
+        CP      BH
+        JR      NC,FTNO
+        PUSH    DE
+        LD      H,A
+        CALL    PBD
+        POP     DE
+        LD      A,(HL)
+        OR      A
+        JR      NZ,FTNO
+FT4:    INC     C
+        LD      A,C
+        CP      4
+        JR      C,FT2
+        INC     B
+        LD      A,B
+        CP      4
+        JR      C,FT1
+        SCF
+        RET
+FTNO:   OR      A
+        RET
+
+; FORMA: DE = shape[A][B]
+FORMA:  ADD     A,A
+        ADD     A,A
+        ADD     A,B
+        ADD     A,A
+        LD      E,A
+        LD      D,0
+        LD      HL,SHAPE
+        ADD     HL,DE
+        LD      E,(HL)
+        INC     HL
+        LD      D,(HL)
+        RET
+
+; PBD: HL = &bd[H][L]
+PBD:    LD      A,L
+        LD      L,H
+        LD      H,0
+        ADD     HL,HL
+        LD      D,H
+        LD      E,L
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,DE           ; *10
+        LD      E,A
+        LD      D,0
+        ADD     HL,DE
+        LD      DE,BD
+        ADD     HL,DE
+        RET
+
+; PLACE: pone (A = PC+1) o quita (A = 0) la pieza en el tablero
+PLACE:  LD      (PVAL),A
+        LD      A,(ROT)
+        LD      B,A
+        LD      A,(PC)
+        CALL    FORMA
+        LD      B,0
+PL1:    LD      C,0
+PL2:    SLA     E
+        RL      D
+        JR      NC,PL3
+        LD      A,(PY)
+        ADD     A,B
+        BIT     7,A
+        JR      NZ,PL3
+        PUSH    DE
+        LD      H,A
+        LD      A,(PX)
+        ADD     A,C
+        LD      L,A
+        CALL    PBD
+        LD      A,(PVAL)
+        LD      (HL),A
+        POP     DE
+PL3:    INC     C
+        LD      A,C
+        CP      4
+        JR      C,PL2
+        INC     B
+        LD      A,B
+        CP      4
+        JR      C,PL1
+        RET
+
+; DRAW: lo que cambio en el tablero, con la pieza puesta
+DRAW:   LD      A,(PC)
+        INC     A
+        CALL    PLACE
+        LD      HL,BD
+        LD      DE,SHOWN
+        LD      B,0             ; y
+DR1:    LD      C,0             ; x
+DR2:    LD      A,(DE)
+        CP      (HL)
+        JR      Z,DR3
+        LD      A,(HL)
+        LD      (DE),A
+        PUSH    HL
+        PUSH    DE
+        PUSH    BC
+        CALL    CELL
+        POP     BC
+        POP     DE
+        POP     HL
+DR3:    INC     HL
+        INC     DE
+        INC     C
+        LD      A,C
+        CP      BW
+        JR      C,DR2
+        INC     B
+        LD      A,B
+        CP      BH
+        JR      C,DR1
+        XOR     A
+        CALL    PLACE
+        LD      DE,23*256+1
+        JP      GOTOXY
+
+; CELL: la casilla (C, B) con el color A (0 = vacia)
+CELL:   PUSH    AF
+        LD      A,C
+        ADD     A,A
+        ADD     A,X0+1
+        LD      E,A
+        LD      A,B
+        ADD     A,Y0
+        LD      D,A
+        CALL    GOTOXY
+        POP     AF
+        OR      A
+        JR      NZ,BLOQUE
+        CALL    PRI
+        DB      ' .',0
+        RET
+; BLOQUE: dos espacios con el fondo del color A (1-7)
+BLOQUE: LD      E,A
+        LD      D,0
+        LD      HL,COLOR
+        ADD     HL,DE
+        LD      A,ESC
+        CALL    PUTC
+        LD      A,'['
+        CALL    PUTC
+        LD      L,(HL)
+        LD      H,0
+        CALL    PDEC
+        CALL    PRI
+        DB      'm  ',ESC,'[0m',0
+        RET
+
+; INFO: puntos, lineas, nivel y la pieza que sigue
+INFO:   LD      DE,(Y0+1)*256+X0+26
+        CALL    GOTOXY
+        CALL    PRI
+        DB      'Score ',0
+        LD      HL,SCORE
+        XOR     A
+        CALL    P32W
+        LD      DE,(Y0+3)*256+X0+26
+        CALL    GOTOXY
+        CALL    PRI
+        DB      'Lines ',0
+        LD      HL,(LINES)
+        CALL    PDEC
+        LD      DE,(Y0+5)*256+X0+26
+        CALL    GOTOXY
+        CALL    PRI
+        DB      'Level ',0
+        LD      A,(LEV)
+        LD      L,A
+        LD      H,0
+        CALL    PDEC
+        LD      DE,(Y0+8)*256+X0+26
+        CALL    GOTOXY
+        CALL    PRI
+        DB      'Next',0
+        LD      A,(NXT)
+        LD      B,0
+        CALL    FORMA
+        LD      (NF),DE
+        LD      B,0
+IN1:    PUSH    BC
+        LD      A,B
+        ADD     A,Y0+10
+        LD      D,A
+        LD      E,X0+26
+        CALL    GOTOXY
+        POP     BC
+        LD      C,4
+IN2:    PUSH    BC
+        LD      HL,(NF)
+        ADD     HL,HL
+        LD      (NF),HL
+        JR      NC,IN3
+        LD      A,(NXT)
+        INC     A
+        CALL    BLOQUE
+        JR      IN4
+IN3:    CALL    PRI
+        DB      '  ',0
+IN4:    POP     BC
+        DEC     C
+        JR      NZ,IN2
+        INC     B
+        LD      A,B
+        CP      4
+        JR      C,IN1
+        RET
+
+; NEWP: la pieza que sigue entra; acarreo si cabe
+NEWP:   LD      A,(NXT)
+        LD      (PC),A
+        LD      C,7
+        CALL    RNDN
+        LD      (NXT),A
+        XOR     A
+        LD      (ROT),A
+        LD      A,3
+        LD      (PX),A
+        LD      A,-1
+        LD      (PY),A
+        CALL    INFO
+        LD      A,(PX)
+        LD      C,A
+        JP      FITSX
+
+; LAND: la pieza queda; las filas llenas se van
+LAND:   LD      A,(PC)
+        INC     A
+        CALL    PLACE
+        LD      B,0             ; n
+        LD      C,0             ; y
+LA1:    PUSH    BC
+        LD      H,C
+        LD      L,0
+        CALL    PBD             ; HL = la fila y
+        LD      B,BW
+LA2:    LD      A,(HL)
+        OR      A
+        JR      Z,LA4           ; no esta llena
+        INC     HL
+        DJNZ    LA2
+        POP     BC              ; llena: todo lo de arriba baja una fila
+        PUSH    BC
+        LD      A,C
+        OR      A
+        JR      Z,LA3
+        LD      L,A             ; y*BW bytes, de atras para adelante
+        LD      H,0
+        ADD     HL,HL
+        LD      D,H
+        LD      E,L
+        ADD     HL,HL
+        ADD     HL,HL
+        ADD     HL,DE
+        LD      B,H
+        LD      C,L
+        LD      DE,BD-1
+        ADD     HL,DE           ; el ultimo de los de arriba
+        LD      D,H
+        LD      E,L
+        PUSH    BC
+        LD      BC,BW
+        EX      DE,HL
+        ADD     HL,BC
+        EX      DE,HL
+        POP     BC
+        LDDR
+LA3:    LD      HL,BD           ; la fila 0 vacia
+        LD      B,BW
+LA3A:   LD      (HL),0
+        INC     HL
+        DJNZ    LA3A
+        POP     BC
+        INC     B
+        PUSH    BC
+LA4:    POP     BC
+        INC     C
+        LD      A,C
+        CP      BH
+        JR      C,LA1
+        LD      A,B             ; lineas y puntos
+        LD      E,A
+        LD      D,0
+        LD      HL,(LINES)
+        ADD     HL,DE
+        LD      (LINES),HL
+        LD      HL,PTS          ; score += pts[n] * (lev + 1)
+        ADD     HL,DE
+        ADD     HL,DE
+        LD      C,(HL)
+        INC     HL
+        LD      B,(HL)
+        LD      A,(LEV)
+        LD      E,A
+        LD      D,0
+        INC     DE
+        CALL    MULU            ; DE:HL
+        LD      (TMP),HL
+        LD      (TMP+2),DE
+        LD      HL,SCORE
+        LD      DE,TMP
+        CALL    ADD32
+        LD      HL,(LINES)      ; lev = lines / 10
+        LD      C,10
+        CALL    DIVC
+        LD      A,L
+        LD      (LEV),A
+        RET
+
+; MULU: DE:HL = BC * DE (sin signo)
+MULU:   LD      HL,0
+        LD      A,16
+MU1:    ADD     HL,HL
+        RL      E
+        RL      D
+        JR      NC,MU2
+        ADD     HL,BC
+        JR      NC,MU2
+        INC     DE
+MU2:    DEC     A
+        JR      NZ,MU1
+        RET
+
+SHAPE:  DW      0F00h,2222h,00F0h,4444h, 44C0h,8E00h,6440h,0E20h
+        DW      4460h,0E80h,0C440h,2E00h, 0CC00h,0CC00h,0CC00h,0CC00h
+        DW      06C0h,8C40h,6C00h,4620h, 0E40h,4C40h,4E00h,4640h
+        DW      0C60h,4C80h,0C600h,2640h
+COLOR:  DB      0,46,44,47,43,42,45,41
+PTS:    DW      0,40,100,300,1200
+TGOVER: DB      ESC,'[7m GAME OVER ',ESC,'[0m',0
+TQUIT:  DB      ESC,'[7m   QUIT    ',ESC,'[0m',0
+
+PC:     DB      0
+ROT:    DB      0
+RR_:    DB      0
+NXT:    DB      0
+LEV:    DB      0
+PX:     DB      0
+PY:     DB      0
+FXX:    DB      0
+FY:     DB      0
+PVAL:   DB      0
+KK:     DB      0
+SPD:    DB      0
+MOVED:  DB      0
+OVER:   DB      0
+LINES:  DW      0
+LAST:   DW      0
+NF:     DW      0
+SCORE:  DW      0,0
+TMP:    DW      0,0
+
+        INCLUDE zcon.inc
+        INCLUDE zmisc.inc
+BSS0    EQU     $
+BD      EQU     ZCFIN
+SHOWN   EQU     BD+BW*BH
+PILA    EQU     SHOWN+BW*BH+256
+        END

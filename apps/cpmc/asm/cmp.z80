@@ -1,0 +1,199 @@
+; CMP.Z80 - compara dos archivos byte a byte
+;   CMP archivo1 archivo2   (muestra hasta 16 diferencias)
+; La version en ensamblador del cmp.c. Corre en CP/M 2.2, CP/M 3 y MP/M II.
+
+        ORG     100h
+        LD      SP,PILA
+        CALL    INIT
+        CALL    ARGS
+        CALL    NEXTARG
+        JR      C,USO
+        LD      (A1),HL
+        CALL    NEXTARG
+        JR      NC,CMP1
+USO:    CALL    PRI
+        DB      'Usage: CMP file1 file2',13,10,0
+        JP      EXIT
+CMP1:   LD      (A2),HL
+        LD      HL,(A1)
+        LD      DE,F1
+        CALL    ABRE
+        LD      HL,(A2)
+        LD      DE,F2
+        CALL    ABRE
+
+LAZO:   LD      DE,F1
+        LD      HL,B1
+        LD      B,8
+        CALL    FREADN
+        LD      (N1),A
+        LD      DE,F2
+        LD      HL,B2
+        LD      B,8
+        CALL    FREADN
+        LD      (N2),A
+        LD      B,A             ; el menor * 128
+        LD      A,(N1)
+        CP      B
+        JR      C,MENOR
+        LD      A,B
+MENOR:  LD      H,A
+        LD      L,0
+        SRL     H
+        RR      L
+        LD      B,H
+        LD      C,L
+        LD      HL,B1
+        LD      DE,B2
+        LD      A,B
+        OR      C
+        JR      Z,FINBL
+COMP:   LD      A,(DE)
+        CP      (HL)
+        CALL    NZ,DIFIERE
+        INC     HL
+        INC     DE
+        PUSH    HL
+        LD      HL,OFF
+        CALL    INC32
+        POP     HL
+        DEC     BC
+        LD      A,B
+        OR      C
+        JR      NZ,COMP
+FINBL:  LD      A,(N2)
+        LD      B,A
+        LD      A,(N1)
+        CP      B
+        JR      NZ,FIN
+        CP      8
+        JR      C,FIN
+        CALL    BRK
+        JR      NC,LAZO
+        CALL    PRI
+        DB      'Stopped',13,10,0
+        JP      EXIT
+
+FIN:    LD      A,(N2)
+        LD      B,A
+        LD      A,(N1)
+        CP      B
+        JR      Z,FIN2
+        LD      HL,(A1)         ; el mas corto
+        JR      C,FIN1
+        LD      HL,(A2)
+FIN1:   CALL    PSTR
+        CALL    PRI
+        DB      ' is shorter (',0
+        LD      HL,OFF
+        XOR     A
+        CALL    P32W
+        CALL    PRI
+        DB      ' bytes, ',0
+        LD      HL,(OFF)        ; los registros: off >> 7, en 16 bits
+        LD      A,(OFF+2)
+        ADD     HL,HL
+        RLA
+        LD      L,H
+        LD      H,A
+        CALL    PDEC
+        CALL    PRI
+        DB      ' records)',13,10,0
+        CALL    NDCERO
+        JP      Z,EXIT
+FIN2:   CALL    NDCERO
+        JR      Z,IGUAL
+        LD      HL,ND
+        XOR     A
+        CALL    P32W
+        CALL    PRI
+        DB      ' bytes differ',13,10,0
+        JP      EXIT
+IGUAL:  CALL    PRI
+        DB      'Files are identical (',0
+        LD      HL,OFF
+        XOR     A
+        CALL    P32W
+        CALL    PRI
+        DB      ' bytes)',13,10,0
+        JP      EXIT
+
+NDCERO: LD      HL,(ND)
+        LD      A,H
+        OR      L
+        LD      HL,(ND+2)
+        OR      H
+        OR      L
+        RET
+
+; ABRE: HL nombre, DE FCB; si no se puede, "nombre: not found" y sale
+ABRE:   PUSH    HL
+        PUSH    DE
+        CALL    MKFCB
+        POP     DE
+        JR      C,NOHAY
+        CALL    FOPEN
+        JR      C,NOHAY
+        POP     HL
+        RET
+NOHAY:  POP     HL
+        CALL    NOTFND
+        JP      EXIT
+
+; DIFIERE: (HL) y (DE) no son iguales; muestra las 16 primeras
+DIFIERE:PUSH    BC
+        PUSH    DE
+        PUSH    HL
+        LD      HL,ND
+        CALL    INC32
+        CALL    NDCERO          ; nd <= 16?
+        LD      HL,(ND+1)
+        LD      A,H
+        OR      L
+        LD      HL,ND+3
+        OR      (HL)
+        JR      NZ,DIF1
+        LD      A,(ND)
+        CP      17
+        JR      NC,DIF1
+        LD      A,(OFF+2)
+        CALL    PHEX2
+        LD      A,(OFF+1)
+        CALL    PHEX2
+        LD      A,(OFF)
+        CALL    PHEX2
+        CALL    PRI
+        DB      ': ',0
+        POP     HL
+        PUSH    HL
+        LD      A,(HL)
+        CALL    PHEX2
+        CALL    SPACE
+        POP     HL
+        POP     DE
+        PUSH    DE
+        PUSH    HL
+        LD      A,(DE)
+        CALL    PHEX2
+        CALL    CRLF
+DIF1:   POP     HL
+        POP     DE
+        POP     BC
+        RET
+
+A1:     DW      0
+A2:     DW      0
+N1:     DB      0
+N2:     DB      0
+OFF:    DW      0,0
+ND:     DW      0,0
+
+        INCLUDE zcon.inc
+        INCLUDE zfile.inc
+BSS0    EQU     $
+F1      EQU     ZFFIN
+F2      EQU     F1+36
+B1      EQU     F2+36
+B2      EQU     B1+1024
+PILA    EQU     B2+1024+256
+        END

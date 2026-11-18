@@ -1,0 +1,546 @@
+; GREP.Z80 - busca un patron en archivos de texto
+;   GREP [-N] [-V] [-C] [-L] patron archivo...
+;   GREP [-N] [-V] [-C] [-L] ? archivo...       el patron se escribe despues
+; El patron (el motor de grep-milla de Semilla): . cualquier caracter,
+; x* x+ x? (cero o mas, uno o mas, cero o uno), ^ $ (principio y fin),
+; [abc] [a-z] [^...] (clases), \c (c literal). Escrito en la linea de ordenes
+; no distingue mayusculas (CP/M la pasa en mayusculas); con ? se pide por
+; teclado y ahi si las distingue.
+; La version en ensamblador del grep.c. Corre en CP/M 2.2, CP/M 3 y MP/M II.
+
+        ORG     100h
+        LD      SP,PILA
+        CALL    INIT
+        CALL    ARGS
+OPC:    CALL    NEXTARG         ; las opciones
+        JP      C,USO
+        LD      A,(HL)
+        CP      '-'
+        JR      NZ,PATRON
+OPC1:   INC     HL
+        LD      A,(HL)
+        OR      A
+        JR      Z,OPC
+        LD      DE,ON
+        CP      'N'
+        JR      Z,OPC2
+        INC     DE
+        CP      'V'
+        JR      Z,OPC2
+        INC     DE
+        CP      'C'
+        JR      Z,OPC2
+        INC     DE
+        CP      'L'
+        JR      NZ,OPC1
+OPC2:   LD      A,1
+        LD      (DE),A
+        JR      OPC1
+PATRON: LD      (PAT),HL
+        CALL    RESTO
+        JP      Z,USO
+        LD      HL,(PAT)        ; "?": por teclado
+        LD      A,(HL)
+        CP      '?'
+        JR      NZ,ARCHS
+        INC     HL
+        LD      A,(HL)
+        OR      A
+        JR      NZ,ARCHS
+        CALL    PRI
+        DB      'Pattern: ',0
+        LD      HL,PBUF
+        LD      (HL),127
+        INC     HL
+        LD      (HL),0
+        LD      C,10
+        LD      DE,PBUF
+        CALL    SYS
+        CALL    PRI
+        DB      13,13,10,0
+        LD      HL,PBUF+1
+        LD      E,(HL)
+        LD      D,0
+        INC     HL
+        LD      (PAT),HL
+        ADD     HL,DE
+        LD      (HL),0
+        XOR     A
+        LD      (ICASE),A
+
+ARCHS:  LD      HL,NMS          ; todos los nombres, hasta 64
+        LD      (Q),HL
+AR1:    LD      A,(NN)
+        CP      64
+        JR      NC,AR3
+        CALL    NEXTARG
+        JR      C,AR3
+        PUSH    HL
+        LD      A,(NN)
+        LD      B,A
+        LD      A,64
+        SUB     B
+        LD      B,A
+        LD      DE,(Q)
+        CALL    GLOB
+        POP     HL
+        OR      A
+        JR      NZ,AR2
+        CALL    NOTFND
+        JR      AR1
+AR2:    LD      B,A
+        LD      HL,NN
+        ADD     A,(HL)
+        LD      (HL),A
+        LD      HL,(Q)
+        LD      DE,12
+AR2A:   ADD     HL,DE
+        DJNZ    AR2A
+        LD      (Q),HL
+        JR      AR1
+AR3:    LD      A,(NN)
+        LD      (NN0),A
+        OR      A
+        JP      Z,EXIT
+        LD      HL,NMS
+        LD      (Q),HL
+
+UNO:    LD      HL,(Q)          ; el archivo que sigue
+        LD      DE,RFCB
+        CALL    NM2FCB
+        LD      (Q),HL
+        LD      HL,RFCB
+        LD      DE,SNAME
+        CALL    FNAME
+        CALL    RDOPEN
+        JP      C,SIGUE
+        LD      HL,0
+        LD      (LN),HL
+        LD      (CNT),HL
+        LD      (CNT+2),HL
+        XOR     A
+        LD      (K),A
+LEE:    CALL    RGETC
+        JR      C,FINA
+        CP      1Ah
+        JR      Z,FINA
+        CP      13
+        JR      Z,LEE
+        CP      10
+        JR      Z,LINEA_
+        LD      C,A             ; a la linea, hasta 255
+        LD      A,(K)
+        CP      255
+        JR      Z,LEE
+        LD      E,A
+        LD      D,0
+        INC     A
+        LD      (K),A
+        LD      HL,LIN
+        ADD     HL,DE
+        LD      (HL),C
+        JR      LEE
+FINA:   LD      A,(K)           ; la ultima, si no termina en LF
+        OR      A
+        JR      Z,CIERRA
+        LD      A,1
+        LD      (FIN),A
+LINEA_: LD      A,(K)
+        LD      E,A
+        LD      D,0
+        LD      HL,LIN
+        ADD     HL,DE
+        LD      (HL),0
+        XOR     A
+        LD      (K),A
+        LD      HL,(LN)
+        INC     HL
+        LD      (LN),HL
+        CALL    MATCH
+        SBC     A,A             ; 0 o FF
+        AND     1
+        LD      HL,OV
+        CP      (HL)
+        JR      Z,NOVA
+        LD      HL,CNT
+        CALL    INC32
+        LD      A,(OL)
+        OR      A
+        JR      NZ,CIERRA
+        LD      A,(OC)
+        OR      A
+        JR      NZ,NOVA
+        CALL    QUIEN
+        LD      A,(ON)
+        OR      A
+        JR      Z,MUESTRA
+        LD      HL,(LN)
+        CALL    PDEC
+        LD      A,':'
+        CALL    PUTC
+MUESTRA:LD      HL,LIN
+        CALL    PSTR
+        CALL    PRI
+        DB      13,13,10,0
+NOVA:   CALL    BRK
+        JP      C,EXIT
+        LD      A,(FIN)
+        OR      A
+        JP      Z,LEE
+CIERRA: XOR     A
+        LD      (FIN),A
+        LD      DE,RFCB
+        CALL    FCLOSE
+        LD      A,(OL)
+        OR      A
+        JR      Z,CUENTA
+        LD      HL,(CNT)
+        LD      A,H
+        OR      L
+        LD      HL,(CNT+2)
+        OR      H
+        OR      L
+        JR      Z,CUENTA
+        LD      HL,SNAME
+        CALL    PSTR
+        CALL    CRLF
+CUENTA: LD      A,(OC)
+        OR      A
+        JR      Z,SIGUE
+        CALL    QUIEN
+        LD      HL,CNT
+        XOR     A
+        CALL    P32W
+        CALL    CRLF
+SIGUE:  LD      HL,NN
+        DEC     (HL)
+        JP      NZ,UNO
+        JP      EXIT
+
+; QUIEN: "ARCHIVO:" si hay mas de uno
+QUIEN:  LD      A,(NN0)
+        CP      2
+        RET     C
+        LD      HL,SNAME
+        CALL    PSTR
+        LD      A,':'
+        JP      PUTC
+
+USO:    CALL    PRI
+        DB      'Usage: GREP [-N] [-V] [-C] [-L] pattern|? file...',13,10
+        DB      '  -N line numbers, -V lines that do not match, -C count, -L file names',13,10
+        DB      '  pattern: . any char, x* x+ x? repeat, ^ start, $ end, [a-z] [^...] classes,',13,10
+        DB      '  \c literal c. No spaces and no case on the command line (use .);',13,10
+        DB      '  ? asks for the pattern: spaces allowed and case matters.',13,10,0
+        JP      EXIT
+
+; ---------------------------------------------------------------- el patron
+; MATCH: acarreo si LIN casa con PAT
+MATCH:  LD      HL,(PAT)
+        LD      DE,LIN
+        LD      A,(HL)
+        CP      '^'
+        JR      NZ,MT1
+        INC     HL
+        JP      MH
+MT1:    PUSH    DE
+        LD      HL,(PAT)
+        CALL    MH
+        POP     DE
+        RET     C
+        LD      A,(DE)
+        INC     DE
+        OR      A
+        JR      NZ,MT1
+        RET
+
+; MH: matchhere(HL patron, DE texto); acarreo si casa
+MH:     LD      A,(HL)
+        OR      A
+        SCF
+        RET     Z
+        CP      '$'
+        JR      NZ,MH1
+        INC     HL
+        LD      A,(HL)
+        DEC     HL
+        OR      A
+        JR      NZ,MH1
+        LD      A,(DE)
+        OR      A
+        SCF
+        RET     Z
+        CCF
+        RET
+MH1:    CALL    ATOMLEN
+        LD      C,A
+        PUSH    HL
+        LD      B,0
+        ADD     HL,BC
+        LD      A,(HL)
+        POP     HL
+        LD      B,0
+        CP      '*'
+        JR      Z,MREP
+        INC     B
+        CP      '+'
+        JR      Z,MREP
+        CP      '?'
+        JR      NZ,MH4
+        LD      A,(DE)          ; x?: con x y el resto, o sin x
+        OR      A
+        JR      Z,MH3B
+        CALL    MATOMO
+        JR      NC,MH3B
+        PUSH    HL
+        PUSH    DE
+        PUSH    BC
+        LD      B,0
+        ADD     HL,BC
+        INC     HL
+        INC     DE
+        CALL    MH
+        POP     BC
+        POP     DE
+        POP     HL
+        RET     C
+MH3B:   LD      B,0
+        ADD     HL,BC
+        INC     HL
+        JP      MH
+MH4:    LD      A,(DE)
+        CALL    MATOMO
+        RET     NC
+        LD      B,0
+        ADD     HL,BC
+        INC     DE
+        JP      MH
+
+; MREP: el atomo (HL, largo C) repetido B o mas veces, y luego el resto
+MREP:   PUSH    HL              ; [re]
+        LD      A,B
+        PUSH    AF              ; [min]
+        PUSH    HL
+        LD      B,0
+        ADD     HL,BC
+        INC     HL
+        EX      (SP),HL         ; [resto]
+        PUSH    DE              ; [texto]
+MR1:    LD      A,(DE)          ; lo mas posible
+        CALL    MATOMO
+        JR      NC,MR2
+        INC     DE
+        JR      MR1
+MR2:    POP     HL
+        PUSH    HL
+        EX      DE,HL
+        OR      A
+        SBC     HL,DE
+        LD      B,L             ; n
+MR3:    POP     DE              ; texto
+        POP     HL              ; resto
+        POP     AF              ; min
+        PUSH    AF
+        PUSH    HL
+        PUSH    DE
+        LD      C,A
+        LD      A,B
+        CP      C
+        JR      C,MRNO          ; n < min
+        LD      A,E
+        ADD     A,B
+        LD      E,A
+        JR      NC,MR4
+        INC     D
+MR4:    PUSH    BC
+        CALL    MH
+        POP     BC
+        JR      C,MRSI
+        LD      A,B
+        OR      A
+        JR      Z,MRNO
+        DEC     B
+        JR      MR3
+MRSI:   POP     DE
+        POP     HL
+        POP     AF
+        POP     HL
+        SCF
+        RET
+MRNO:   POP     DE
+        POP     HL
+        POP     AF
+        POP     HL
+        OR      A
+        RET
+
+; ATOMLEN: A = largo del atomo en HL (2 si \c, el corchete entero si [..], si no 1)
+ATOMLEN:LD      A,(HL)
+        CP      '\'
+        JR      NZ,AL1
+        INC     HL
+        LD      A,(HL)
+        DEC     HL
+        OR      A
+        LD      A,2
+        RET     NZ
+        DEC     A
+        RET
+AL1:    CP      '['
+        LD      A,1
+        RET     NZ
+        PUSH    HL
+        LD      B,1
+        INC     HL
+        LD      A,(HL)
+        CP      '^'
+        JR      NZ,AL2
+        INC     B
+        INC     HL
+AL2:    LD      A,(HL)          ; un ] al principio es literal
+        CP      ']'
+        JR      NZ,AL3
+        INC     B
+        INC     HL
+AL3:    LD      A,(HL)
+        OR      A
+        JR      Z,AL4
+        CP      ']'
+        JR      Z,AL5
+        INC     B
+        INC     HL
+        JR      AL3
+AL5:    INC     B
+AL4:    LD      A,B
+        POP     HL
+        RET
+
+; MATOMO: el caracter A contra el atomo (HL, largo C); acarreo si casa.
+; Guarda HL, C y DE. Sin distinguir mayusculas si ICASE.
+MATOMO: OR      A
+        RET     Z
+        PUSH    DE
+        LD      E,A
+        CALL    ATOM1
+        JR      C,MA9
+        LD      A,(ICASE)
+        OR      A
+        JR      Z,MA9
+        LD      A,E
+        CP      'a'
+        JR      C,MA1
+        CP      'z'+1
+        JR      NC,MA8
+        SUB     32
+        JR      MA3
+MA1:    CP      'A'
+        JR      C,MA8
+        CP      'Z'+1
+        JR      NC,MA8
+        ADD     A,32
+MA3:    LD      E,A
+        CALL    ATOM1
+        JR      MA9
+MA8:    OR      A
+MA9:    POP     DE
+        RET
+
+; ATOM1: el caracter E contra el atomo (HL, largo C); acarreo si casa.
+; Guarda HL, C y E.
+ATOM1:  LD      A,(HL)
+        CP      '\'
+        JR      NZ,AT1
+        INC     HL
+        LD      A,(HL)
+        DEC     HL
+        JR      AT9
+AT1:    CP      '.'
+        SCF
+        RET     Z
+        CP      '['
+        JR      Z,CLASE
+AT9:    CP      E
+        SCF
+        RET     Z
+        OR      A
+        RET
+CLASE:  PUSH    HL
+        POP     IX
+        XOR     A
+        LD      (NEG),A
+        LD      (OK),A
+        LD      B,1
+        INC     IX
+        LD      A,(IX+0)
+        CP      '^'
+        JR      NZ,CL1
+        LD      A,1
+        LD      (NEG),A
+        INC     B
+        INC     IX
+CL1:    LD      A,C
+        DEC     A
+        LD      D,A             ; L-1 es el ] final
+CL2:    LD      A,B
+        CP      D
+        JR      NC,CLFIN
+        LD      A,(IX+1)
+        CP      '-'
+        JR      NZ,CL4
+        LD      A,B
+        ADD     A,2
+        CP      D
+        JR      NC,CL4
+        LD      A,E             ; rango
+        CP      (IX+0)
+        JR      C,CL3
+        LD      A,(IX+2)
+        CP      E
+        JR      C,CL3
+        LD      A,1
+        LD      (OK),A
+CL3:    INC     IX
+        INC     IX
+        INC     IX
+        INC     B
+        INC     B
+        INC     B
+        JR      CL2
+CL4:    LD      A,(IX+0)
+        CP      E
+        JR      NZ,CL5
+        LD      A,1
+        LD      (OK),A
+CL5:    INC     IX
+        INC     B
+        JR      CL2
+CLFIN:  LD      A,(NEG)
+        LD      B,A
+        LD      A,(OK)
+        XOR     B
+        RRA
+        RET
+
+ON:     DB      0               ; -N  (los cuatro seguidos)
+OV:     DB      0               ; -V
+OC:     DB      0               ; -C
+OL:     DB      0               ; -L
+ICASE:  DB      1
+NN:     DB      0
+NN0:    DB      0
+K:      DB      0
+FIN:    DB      0
+NEG:    DB      0
+OK:     DB      0
+PAT:    DW      0
+Q:      DW      0
+LN:     DW      0
+CNT:    DW      0,0
+
+        INCLUDE zcon.inc
+        INCLUDE zfile.inc
+BSS0    EQU     $
+LIN     EQU     ZFFIN
+PBUF    EQU     LIN+256
+PILA    EQU     PBUF+130+1024
+        END

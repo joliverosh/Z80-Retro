@@ -1,0 +1,160 @@
+; HEXDUMP.Z80 - el contenido de un archivo en hexadecimal y ASCII
+;   HEXDUMP archivo [desde]   (desde en hexadecimal; ESPACIO sigue, Q sale)
+; La version en ensamblador del hexdump.c. Corre en CP/M 2.2, CP/M 3 y MP/M II.
+
+        ORG     100h
+        LD      SP,PILA
+        CALL    INIT
+        CALL    ARGS
+        CALL    NEXTARG
+        JR      NC,HD1
+        CALL    PRI
+        DB      'Usage: HEXDUMP file [hex-offset]',13,10,0
+        JP      EXIT
+HD1:    PUSH    HL
+        LD      DE,FCB1
+        CALL    MKFCB
+        JR      C,NOHAY
+        LD      DE,FCB1
+        CALL    FOPEN
+        JR      NC,HD2
+NOHAY:  POP     HL
+        CALL    NOTFND
+        JP      EXIT
+HD2:    POP     HL
+        CALL    NEXTARG         ; el desplazamiento
+        CALL    NC,HEX
+        LD      A,(OFF)
+        AND     0F0h
+        LD      (OFF),A
+        LD      HL,(OFF)        ; registro = off >> 7
+        LD      A,(OFF+2)
+        ADD     HL,HL
+        RLA
+        LD      L,H
+        LD      H,A
+        LD      (REC),HL
+        LD      A,(OFF)
+        AND     7Fh
+        LD      (IDX),A
+
+LAZO:   LD      DE,FCB1
+        LD      HL,(REC)
+        LD      BC,BUF
+        CALL    RREAD
+        OR      A
+        JP      NZ,EXIT
+        LD      HL,(REC)
+        INC     HL
+        LD      (REC),HL
+FILA:   LD      A,(IDX)
+        CP      128
+        JP      NC,OTRO
+        LD      A,(OFF+2)
+        CALL    PHEX2
+        LD      A,(OFF+1)
+        CALL    PHEX2
+        LD      A,(OFF)
+        CALL    PHEX2
+        CALL    PRI
+        DB      '  ',0
+        LD      A,(IDX)           ; HL = BUF + i
+        LD      E,A
+        LD      D,0
+        LD      HL,BUF
+        ADD     HL,DE
+        PUSH    HL
+        LD      B,0
+HX1:    LD      A,B
+        CP      8
+        CALL    Z,SPACE
+        LD      A,(HL)
+        CALL    PHEX2
+        CALL    SPACE
+        INC     HL
+        INC     B
+        LD      A,B
+        CP      16
+        JR      C,HX1
+        CALL    SPACE
+        POP     HL
+        LD      B,16
+AS1:    LD      A,(HL)
+        CP      32
+        JR      C,AS2
+        CP      127
+        JR      C,AS3
+AS2:    LD      A,'.'
+AS3:    CALL    PUTC
+        INC     HL
+        DJNZ    AS1
+        CALL    PRI
+        DB      13,13,10,0
+        LD      A,(IDX)
+        ADD     A,16
+        LD      (IDX),A
+        LD      HL,OFF
+        LD      DE,DIECIS
+        CALL    ADD32
+        LD      HL,ROW
+        INC     (HL)
+        LD      A,(HL)
+        CP      23
+        JR      C,HXBRK
+        CALL    MORE
+        JP      C,EXIT
+        CP      13
+        LD      A,22
+        JR      Z,HX2
+        XOR     A
+HX2:    LD      (ROW),A
+        JP      FILA
+HXBRK:  CALL    BRK
+        JP      C,EXIT
+        JP      FILA
+OTRO:   XOR     A
+        LD      (IDX),A
+        JP      LAZO
+
+; HEX: la palabra en HL, en hexadecimal, a OFF (32 bits)
+HEX:    LD      A,(HL)
+        INC     HL
+        SUB     '0'
+        RET     C
+        CP      10
+        JR      C,HEX1
+        SUB     'A'-'0'-10
+        CP      10
+        RET     C
+        CP      16
+        RET     NC
+HEX1:   PUSH    HL
+        LD      B,4
+HEX2:   LD      HL,OFF
+        SLA     (HL)
+        INC     HL
+        RL      (HL)
+        INC     HL
+        RL      (HL)
+        INC     HL
+        RL      (HL)
+        DJNZ    HEX2
+        LD      HL,OFF
+        OR      (HL)
+        LD      (HL),A
+        POP     HL
+        JR      HEX
+
+OFF:    DW      0,0
+DIECIS: DW      16,0
+REC:    DW      0
+IDX:    DB      0
+ROW:    DB      0
+
+        INCLUDE zcon.inc
+        INCLUDE zfile.inc
+BSS0    EQU     $
+FCB1    EQU     ZFFIN
+BUF     EQU     FCB1+36
+PILA    EQU     BUF+128+256
+        END
