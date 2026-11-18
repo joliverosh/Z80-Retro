@@ -10,7 +10,7 @@ Programas escritos en C con SDCC 4.2 y una biblioteca chica propia (`cpm.c`). Ca
 | `MD` | Editor y visor de Markdown, con las teclas de hoy (ver abajo) | `MD LEEME.MD`, `MD -V LEEME.MD` |
 | `TOP` | Los procesos de MP/M (consola, segmento, prioridad, estado), el uso de la CPU, la fecha y la hora; se actualiza cada segundo | `TOP` (una tecla sale) |
 | `TALK` | Manda un mensaje a otra consola | `TALK 2 hola, ya termine` |
-| `CLOCK` | Un reloj grande en la pantalla | `CLOCK` |
+| `CLOCK` | Un reloj grande en la pantalla; en ensamblador (`clock.z80`, 968 bytes), corre en MP/M II, CP/M 3 y CP/M 2.2 | `CLOCK` |
 | `BENCH` | Mide la CPU (MHz), la criba de Eratóstenes, cuentas de 16 y 32 bits, la consola y el disco (escribe y lee 64 KB) | `BENCH` o `BENCH B:` |
 | `MANDEL` | El conjunto de Mandelbrot en colores, con aritmética de punto fijo | `MANDEL` |
 | `LIFE` | El juego de la vida de Conway, 78 × 22 | `LIFE` |
@@ -37,7 +37,7 @@ Programas escritos en C con SDCC 4.2 y una biblioteca chica propia (`cpm.c`). Ca
 | `ZIP` | Hace un `.ZIP` con deflate | `ZIP COPIA *.ASM *.COM`, `ZIP -T TEXTOS *.TXT` |
 | `UNZIP` | Saca los archivos de un `.ZIP` (guardados o con deflate, también los hechos en la Mac) y comprueba el CRC | `UNZIP COPIA`, `UNZIP -L COPIA`, `UNZIP COPIA B:` |
 
-`TOP` (el uso de la CPU) y `TALK` usan los servicios 44 y 45 del XIOS: necesitan el `MPM.SYS` de noviembre de 2026 o posterior. `TOP`, `TALK` y `CLOCK` solo andan en MP/M, igual que los duelos de `CHESS` y `NAVAL` y el lanzar programas de `ZFM`; los demás también en CP/M 2.2.
+`TOP` (el uso de la CPU) y `TALK` usan los servicios 44 y 45 del XIOS: necesitan el `MPM.SYS` de noviembre de 2026 o posterior. `TOP` y `TALK` solo andan en MP/M, igual que los duelos de `CHESS` y `NAVAL` y el lanzar programas de `ZFM`; los demás también en CP/M 2.2.
 
 ## Los filtros de Semilla
 

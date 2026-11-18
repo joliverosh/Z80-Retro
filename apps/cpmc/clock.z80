@@ -1,0 +1,444 @@
+; CLOCK.Z80 - la hora en digitos grandes; cualquier tecla sale
+;
+; La version en ensamblador del CLOCK.C. Corre en los tres sistemas:
+;   MP/M II   la hora de XDOS (BDOS 155) y espera con BDOS 141
+;   CP/M 3    la hora del BDOS (funcion 105)
+;   CP/M 2.2  lee el DS1307 directamente, por I2C (ZIOS 34, RST 30h)
+;
+; Armar: zmac -z --od obj --oo cim clock.z80 && cp obj/clock.cim CLOCK.COM
+; (clock.c es la version anterior en C, solo para MP/M)
+
+BDOS    EQU     5
+ESC     EQU     27
+RTC     EQU     0D0h            ; DS1307 en el bus I2C
+X0      EQU     9               ; columna de los digitos
+Y0      EQU     6               ; fila de los digitos
+
+        ORG     100h
+
+        LD      SP,PILA
+        LD      C,12            ; version del sistema
+        CALL    BDOS
+        LD      A,H
+        DEC     A
+        LD      A,0             ; 0 = CP/M 2.2
+        JR      NZ,NOMPM
+        LD      A,2             ; 2 = MP/M
+        JR      SISTEM
+NOMPM:  LD      A,L
+        CP      30h
+        LD      A,0
+        JR      C,SISTEM
+        INC     A               ; 1 = CP/M 3
+SISTEM: LD      (SIS),A
+
+        CALL    HORA            ; antes de borrar la pantalla: hay reloj?
+        JR      NC,EMPIEZA
+        LD      HL,NORTC
+        CALL    PSTR
+        RST     0
+
+EMPIEZA:LD      HL,INICIO       ; esconde el cursor y borra
+        CALL    PSTR
+
+LAZO:   CALL    HORA
+        JR      C,SALE
+        LD      A,(SEG)
+        LD      HL,ULTIMO
+        CP      (HL)
+        JR      Z,TECLA
+        LD      (HL),A
+        CALL    DIBUJA
+TECLA:  LD      C,6             ; alguna tecla?
+        LD      E,0FFh
+        CALL    BDOS
+        OR      A
+        JR      NZ,SALE
+        LD      A,(SIS)
+        CP      2
+        JR      NZ,LAZO
+        LD      C,141           ; MP/M: espera 6 tics y deja la CPU a los demas
+        LD      DE,6
+        CALL    BDOS
+        JR      LAZO
+
+SALE:   LD      HL,FINAL        ; colores normales, borra y muestra el cursor
+        CALL    PSTR
+        RST     0
+
+; ---------------------------------------------------------------------
+; HORA: deja HH MM SS (BCD) y el dia, el mes (1-12) y el anio.
+; Acarreo si no hay reloj.
+
+HORA:   LD      A,(SIS)
+        OR      A
+        JR      Z,DS1307
+        CP      2
+        JR      Z,HMPM
+        LD      C,105           ; CP/M 3: dia, hora y minutos en TOD;
+        LD      DE,TOD          ; los segundos vuelven en A
+        CALL    BDOS
+        LD      (TOD+4),A
+        JR      DETOD
+HMPM:   LD      C,155           ; MP/M: dia, hora, minutos, segundos
+        LD      DE,TOD
+        CALL    BDOS
+DETOD:  LD      HL,TOD+2
+        LD      DE,HH
+        LDI                     ; HH MM SS
+        LDI
+        LDI
+        LD      HL,(TOD)        ; dias desde el 31-dic-1977
+        JP      YMD
+
+DS1307: LD      A,0             ; puntero de registro en 0
+        LD      (RTCBUF),A
+        LD      B,0             ; escribir
+        LD      DE,RTC*256+1
+        CALL    I2C
+        RET     C
+        LD      B,1             ; leer 7 registros
+        LD      DE,RTC*256+7
+        CALL    I2C
+        RET     C
+        LD      HL,RTCBUF
+        LD      A,(HL)          ; segundos (el bit 7 es el de parado)
+        AND     7Fh
+        LD      (SEG),A
+        INC     HL
+        LD      A,(HL)
+        LD      (MIN),A
+        INC     HL
+        LD      A,(HL)          ; hora en 24 h
+        AND     3Fh
+        LD      (HH),A
+        INC     HL
+        INC     HL              ; salta el dia de la semana
+        LD      A,(HL)
+        AND     3Fh
+        CALL    DEBCD
+        LD      (DIA),A
+        INC     HL
+        LD      A,(HL)
+        AND     1Fh
+        CALL    DEBCD
+        LD      (MES),A
+        INC     HL
+        LD      A,(HL)
+        CALL    DEBCD
+        LD      L,A
+        LD      H,0
+        LD      DE,2000
+        ADD     HL,DE
+        LD      (ANIO),HL
+        OR      A
+        RET
+
+I2C:    LD      HL,RTCBUF       ; ZIOS 34: B op, D direccion, E bytes, HL buffer
+        LD      C,34
+        PUSH    IX
+        PUSH    IY
+        RST     30h
+        POP     IY
+        POP     IX
+        OR      A
+        RET     Z
+        SCF
+        RET
+
+DEBCD:  PUSH    BC              ; A en BCD -> binario
+        LD      B,A
+        AND     0F0h
+        RRCA
+        LD      C,A             ; decenas * 8
+        RRCA
+        RRCA                    ; decenas * 2
+        ADD     A,C
+        LD      C,A
+        LD      A,B
+        AND     0Fh
+        ADD     A,C
+        POP     BC
+        RET
+
+; YMD: HL dias (1 = 1-ene-1978) -> DIA, MES, ANIO
+YMD:    LD      DE,1978
+ANIOS:  LD      BC,365
+        LD      A,E
+        AND     3
+        JR      NZ,NOBIS
+        INC     BC
+NOBIS:  OR      A
+        SBC     HL,BC
+        JR      C,MESES0
+        JR      Z,MESES0
+        INC     DE
+        JR      ANIOS
+MESES0: ADD     HL,BC           ; HL = dia del anio, 1..366
+        LD      (ANIO),DE
+        LD      A,E             ; bisiesto: 29 en febrero
+        AND     3
+        LD      A,28
+        JR      NZ,FEB
+        INC     A
+FEB:    LD      (LMES+1),A
+        LD      IX,LMES
+        LD      B,1
+MESES:  LD      E,(IX+0)
+        LD      D,0
+        OR      A
+        SBC     HL,DE
+        JR      C,ESTE
+        JR      Z,ESTE
+        INC     IX
+        INC     B
+        JR      MESES
+ESTE:   ADD     HL,DE
+        LD      A,L
+        LD      (DIA),A
+        LD      A,B
+        LD      (MES),A
+        OR      A
+        RET
+
+; ---------------------------------------------------------------------
+; DIBUJA: los digitos grandes, la fecha y el pie
+
+DIBUJA: LD      HL,HH           ; arma "HH:MM:SS" en TXT
+        LD      DE,TXT
+        LD      B,3
+ARMA:   LD      A,(HL)
+        RRCA
+        RRCA
+        RRCA
+        RRCA
+        AND     0Fh
+        LD      (DE),A
+        INC     DE
+        LD      A,(HL)
+        AND     0Fh
+        LD      (DE),A
+        INC     DE
+        LD      A,10            ; los dos puntos
+        LD      (DE),A
+        INC     DE
+        INC     HL
+        DJNZ    ARMA
+
+        LD      HL,CIAN
+        CALL    PSTR
+        LD      C,0             ; fila del dibujo, 0..4
+FILA:   LD      A,Y0
+        ADD     A,C
+        LD      D,A
+        LD      E,X0
+        CALL    GOTOXY
+        XOR     A
+        LD      (INV),A
+        LD      HL,TXT
+        LD      B,8
+CAR:    PUSH    BC
+        PUSH    HL
+        LD      A,(HL)          ; la fila C del glifo
+        LD      L,A
+        ADD     A,A
+        ADD     A,A
+        ADD     A,L             ; * 5
+        ADD     A,C
+        LD      E,A
+        LD      D,0
+        LD      HL,FUENTE
+        ADD     HL,DE
+        LD      D,(HL)          ; los 3 bits de la fila
+        LD      E,4             ; de izquierda a derecha: 4, 2, 1
+PIXEL:  LD      A,D
+        AND     E
+        JR      Z,APAGA
+        LD      A,1
+APAGA:  CALL    MODO
+        CALL    DOS
+        SRL     E
+        JR      NZ,PIXEL
+        XOR     A               ; el espacio entre caracteres
+        CALL    MODO
+        CALL    DOS
+        POP     HL
+        POP     BC
+        INC     HL
+        DJNZ    CAR
+        INC     C
+        LD      A,C
+        CP      5
+        JR      C,FILA
+        LD      HL,NORMAL
+        CALL    PSTR
+
+        LD      DE,14*256+30    ; la fecha: "November 17, 2026"
+        CALL    GOTOXY
+        LD      A,(MES)
+        LD      HL,MESES_
+BUSCA:  DEC     A
+        JR      Z,NOMBRE
+        PUSH    AF
+SALTA:  LD      A,(HL)
+        INC     HL
+        OR      A
+        JR      NZ,SALTA
+        POP     AF
+        JR      BUSCA
+NOMBRE: CALL    PSTR
+        LD      A,' '
+        CALL    PUTC
+        LD      A,(DIA)
+        LD      L,A
+        LD      H,0
+        CALL    PDEC
+        LD      A,','
+        CALL    PUTC
+        LD      A,' '
+        CALL    PUTC
+        LD      HL,(ANIO)
+        CALL    PDEC
+        LD      HL,BLANCO
+        CALL    PSTR
+
+        LD      DE,20*256+26    ; el pie
+        CALL    GOTOXY
+        LD      A,(SIS)
+        LD      HL,NCPM2
+        OR      A
+        JR      Z,PIE
+        LD      HL,NCPM3
+        DEC     A
+        JR      Z,PIE
+        LD      HL,NMPM
+PIE:    CALL    PSTR
+        LD      HL,TECLAS
+        JP      PSTR
+
+; MODO: A = 1 video inverso, 0 normal; manda el ESC solo si cambia
+MODO:   LD      HL,INV
+        CP      (HL)
+        RET     Z
+        LD      (HL),A
+        LD      HL,REV
+        OR      A
+        JP      NZ,PSTR
+        LD      HL,NOREV
+        JP      PSTR
+
+DOS:    LD      A,' '
+        CALL    PUTC
+        LD      A,' '
+        JP      PUTC
+
+; GOTOXY: D fila, E columna
+GOTOXY: PUSH    BC
+        PUSH    DE
+        LD      A,ESC
+        CALL    PUTC
+        LD      A,'['
+        CALL    PUTC
+        POP     DE
+        PUSH    DE
+        LD      L,D
+        LD      H,0
+        CALL    PDEC
+        LD      A,';'
+        CALL    PUTC
+        POP     DE
+        LD      L,E
+        LD      H,0
+        CALL    PDEC
+        LD      A,'H'
+        POP     BC
+        JP      PUTC
+
+; PDEC: HL en decimal, sin ceros a la izquierda
+PDEC:   LD      B,0             ; cifras en la pila
+PD1:    PUSH    BC
+        LD      C,10
+        CALL    DIV10
+        POP     BC
+        PUSH    AF
+        INC     B
+        LD      A,H
+        OR      L
+        JR      NZ,PD1
+PD2:    POP     AF
+        ADD     A,'0'
+        PUSH    BC
+        CALL    PUTC
+        POP     BC
+        DJNZ    PD2
+        RET
+
+DIV10:  XOR     A               ; HL = HL / C, A = resto
+        LD      B,16
+DV1:    ADD     HL,HL
+        RLA
+        CP      C
+        JR      C,DV2
+        SUB     C
+        INC     L
+DV2:    DJNZ    DV1
+        RET
+
+PSTR:   LD      A,(HL)          ; texto terminado en 0
+        OR      A
+        RET     Z
+        PUSH    HL
+        CALL    PUTC
+        POP     HL
+        INC     HL
+        JR      PSTR
+
+PUTC:   PUSH    BC              ; un caracter por el BDOS 6
+        PUSH    DE
+        LD      E,A
+        LD      C,6
+        CALL    BDOS
+        POP     DE
+        POP     BC
+        RET
+
+; ---------------------------------------------------------------------
+
+FUENTE: DB      7,5,5,5,7, 2,6,2,2,7, 7,1,7,4,7, 7,1,7,1,7, 5,5,7,1,1
+        DB      7,4,7,1,7, 7,4,7,5,7, 7,1,1,1,1, 7,5,7,5,7, 7,5,7,1,7
+        DB      0,2,0,2,0       ; los dos puntos
+
+LMES:   DB      31,28,31,30,31,30,31,31,30,31,30,31
+
+MESES_: DB      'January',0,'February',0,'March',0,'April',0,'May',0,'June',0
+        DB      'July',0,'August',0,'September',0,'October',0,'November',0,'December',0
+
+INICIO: DB      ESC,'[?25l',ESC,'[H',ESC,'[J',0
+FINAL:  DB      ESC,'[0m',ESC,'[H',ESC,'[J',ESC,'[?25h',0
+CIAN:   DB      ESC,'[36m',0
+NORMAL: DB      ESC,'[0m',0
+REV:    DB      ESC,'[7m',0
+NOREV:  DB      ESC,'[27m',0
+BLANCO: DB      '   ',0
+NCPM2:  DB      'CP/M 2.2',0
+NCPM3:  DB      'CP/M 3',0
+NMPM:   DB      'MP/M II',0
+TECLAS: DB      ' ZEPHYRUS - any key to exit',0
+NORTC:  DB      'CLOCK: no clock found (DS1307)',13,10,0
+
+ULTIMO: DB      0FFh
+
+SIS     EQU     $               ; 0 CP/M 2.2, 1 CP/M 3, 2 MP/M
+INV     EQU     SIS+1
+HH      EQU     INV+1           ; HH MM SS seguidos, en BCD
+MIN     EQU     HH+1
+SEG     EQU     HH+2
+DIA     EQU     SEG+1
+MES     EQU     DIA+1
+ANIO    EQU     MES+1           ; 2 bytes
+TOD     EQU     ANIO+2          ; 5 bytes: dia, hora, min, seg
+TXT     EQU     TOD+5           ; 9 bytes
+RTCBUF  EQU     TXT+9           ; 8 bytes
+PILA    EQU     RTCBUF+8+64
+
+        END
