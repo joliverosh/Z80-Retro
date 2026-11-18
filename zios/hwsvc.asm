@@ -22,7 +22,7 @@ import pcb_def.asm
           extrn  NVRAM,ADD8T16
           extrn  SIO_CFG,SW_CFG
           extrn  SPI_SEL,SPI_STRT,SPI_END,SPI_FIN,SPI_XCH,DEVSEL
-          extrn  I2C_STRT,I2C_STOP,I2C_WBY,I2C_RBY
+          extrn  I2C_STRT,I2C_STOP,I2C_WBY,I2C_RBY,I2C_REC
           extrn  CACHE,TICKS
 
           CSEG
@@ -238,6 +238,7 @@ LD_I2C:   LD     A,B
           CALL   NZ,P_MAPX
           POP    AF
           LD     C,A               ; C = funcion
+          CALL   I2C_REC           ; el bus libre antes de empezar (ver libi2c)
           CALL   I2C_STRT
           LD     A,D
           AND    0FEh

@@ -3,12 +3,13 @@ import ../zlib/defs.asm
 ; i2c driver code.
 ;
 ; I2C_INIT:  Initialise the I2C hardware
+; I2C_REC:   Free the bus (9 clocks + STOP) before an operation
 ; I2C_STRT:  Send an I2C START condition
 ; I2C_STOP:  Send an I2C STOP condition
 ; I2C_WBY:   Write a byte to the I2C interface
 ; I2C_RBY:   Read a byte from the I2C interface
 
-          public I2C_INIT, I2C_STRT, I2C_STOP
+          public I2C_INIT, I2C_STRT, I2C_STOP, I2C_REC
           public I2C_WBY, I2C_RBY
 
           extrn  PAUSE
@@ -46,9 +47,36 @@ I2C_INIT:   PUSH  AF
             RET
 
 
+; I2C_REC
+; Libera el bus antes de empezar una operacion: con el dato en alto, 9 pulsos
+; de reloj y un STOP. Solo al principio de una operacion, nunca entre un
+; START y su STOP (con un START repetido los 9 pulsos serian un byte FFh).
+; El puerto 64h es tambien el de los CS del SPI: cada acceso a la SD escribe
+; ahi y deja el dato del I2C en bajo, y en la placa el DS1307 a veces no
+; contestaba la primera operacion despues (CLOCK en CP/M 2.2 decia "no clock
+; found"; I2CSCAN si lo veia porque antes prueba todo el bus). Si el DS1307
+; quedo a mitad de un byte, con los 9 pulsos lo termina y suelta el dato; el
+; STOP lo deja esperando un START. Cuesta unos 0,4 ms.
+; Registers changed: A
+I2C_REC:    PUSH  BC
+            LD    A,1
+            CALL  I2C_CHDATA    ; Data HIGH (con el reloj como este)
+            CALL  I2C_DLY
+            LD    B,9
+_i2rec:     LD    A,1
+            CALL  I2C_CHCLK     ; Clock HIGH
+            CALL  I2C_DLY
+            XOR   A
+            CALL  I2C_CHCLK     ; Clock LOW
+            CALL  I2C_DLY
+            DJNZ  _i2rec
+            POP   BC
+            JR    I2C_STOP      ; data LOW, clock HIGH, data HIGH
+
 ; I2C_STRT
 ; Send an I2C start condition. Wait for both lines to go high
 ; Registers changed: A,
+;
 I2C_STRT:   ; Bus is IDLE. Send the start condition
             LD    A,1
             CALL  I2C_CHCLK     ; Clock HIGH

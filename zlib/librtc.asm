@@ -16,7 +16,7 @@ import ../zlib/defs.asm
 ; RTC_MWR:  Write to the NVRAM with protection from accidentally overwritting clock control byte
 ; RTC_CL:   Clear all 56 NVRAM bytes
 
-          extrn  I2C_INIT, I2C_STRT, I2C_STOP
+          extrn  I2C_INIT, I2C_STRT, I2C_STOP, I2C_REC
           extrn  I2C_WBY, I2C_RBY
 
           public RTC_INI, RTC_SOS, RTC_GET, RTC_SET, RTC_MWR, RTC_MRD, RTC_CL
@@ -161,7 +161,8 @@ _clrnxt:  XOR      A
 
 ; RTC_SOS
 ; Start oscillator - at 1Hz
-RTC_SOS:  CALL     I2C_STRT
+RTC_SOS:  CALL     I2C_REC
+          CALL     I2C_STRT
           LD       A,RTC_ID | I2C_WR
           CALL     I2C_WBY
 
@@ -178,6 +179,7 @@ RTC_SOS:  CALL     I2C_STRT
 ; setrdpt
 ; Set the register address to the value in A
 setrdpt:  PUSH     AF
+          CALL     I2C_REC           ; el bus libre antes de empezar
           CALL     I2C_STRT
           LD       A,RTC_ID | I2C_WR
           CALL     I2C_WBY
