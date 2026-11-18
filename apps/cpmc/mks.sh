@@ -8,14 +8,21 @@ CF="-mz80 --std-sdcc11 ${XCF:---opt-code-size}"
 # los que no leen una linea de opciones
 SINOPC=" od nl rev tac cksum factor calc vida primos hanoi "
 sdasz80 -g -o obj/crt0.rel crt0.s
-sdcc $CF -c cpm.c -o obj/cpm.rel
+# cpm.c en partes (-DPARTE=n), en una biblioteca: el enlazador toma solo las
+# que el programa usa (antes iba entero, unos 3,9 KB, en cada filtro)
+rm -f obj/cpmp.lib
+for n in 1 2 3 4 5 6 7 8 9 10; do sdcc $CF -DPARTE=$n -c cpm.c -o obj/cpmp$n.rel; sdar rcs obj/cpmp.lib obj/cpmp$n.rel; done
 progs="$@"; [ -z "$progs" ] && progs=$(cd semilla && ls *.c | sed 's/\.c$//')
 for p in $progs; do
   o=1; case "$SINOPC" in *" $p "*) o=0;; esac
   fl=""; grep -q "double\|float" semilla/$p.c && fl="-DFLOATS"
-  sdcc $CF -DOPC=$o $fl -c filtro.c -o obj/filtro_$p.rel
+  # filtro.c: la parte 1 (entrada, salida, arranque) siempre; printf, malloc
+  # y qsort en una biblioteca, solo si el programa los usa
+  sdcc $CF -DOPC=$o $fl -DPARTE=1 -c filtro.c -o obj/filtro_$p.rel
+  rm -f obj/filtro_$p.lib
+  for n in 2 3 4; do sdcc $CF -DOPC=$o $fl -DPARTE=$n -c filtro.c -o obj/filtro${n}_$p.rel; sdar rcs obj/filtro_$p.lib obj/filtro${n}_$p.rel; done
   sdcc $CF -I. -Dmain=prog_main -Dexit=fexit -Wp-include,filtro.h -c semilla/$p.c -o obj/s_$p.rel
-  sdcc $CF --no-std-crt0 --code-loc 0x0110 --data-loc 0 -o obj/s_$p.ihx obj/crt0.rel obj/s_$p.rel obj/filtro_$p.rel obj/cpm.rel
+  sdcc $CF --no-std-crt0 --code-loc 0x0110 --data-loc 0 -o obj/s_$p.ihx obj/crt0.rel obj/s_$p.rel obj/filtro_$p.rel obj/filtro_$p.lib obj/cpmp.lib
   python3 - obj/s_$p.ihx ${p^^}.COM <<'Y'
 import sys
 mem={}

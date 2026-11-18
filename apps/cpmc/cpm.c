@@ -3,6 +3,15 @@
 #include <string.h>
 #include "cpm.h"
 
+/* Con -DPARTE=n solo se compila la parte n (mks.sh arma asi una biblioteca,
+   y el enlazador toma solo las partes que el programa usa). Sin PARTE, todo. */
+#ifndef PARTE
+#define P(n) 1
+#else
+#define P(n) (PARTE == (n))
+#endif
+
+#if P(1)
 uint16_t zde, zhl;
 
 /* La salida a la consola se junta en ob[] y sale de una vez con el servicio
@@ -112,7 +121,9 @@ void pstr(const char *s)
         putch(*s++);
     }
 }
+#endif
 
+#if P(2)
 #ifndef CPM_LITE                 /* (CPM_LITE: sin esto, para los programas grandes) */
 static uint8_t hexa;
 static void pnum(uint32_t v, uint8_t base, uint8_t w, char pad, uint8_t neg)
@@ -155,7 +166,9 @@ void pf(const char *fmt, ...)
     va_end(ap);
 }
 #endif
+#endif
 
+#if P(1)
 int getkey(void) { return bdos(6, 0xFF) & 0xFF; }
 
 int waitkey(void)
@@ -173,7 +186,9 @@ uint8_t ismpm(void)
 }
 
 void delay(uint16_t t) { if (ismpm()) bdos(141, t); }
+#endif
 
+#if P(3)
 static char up(char c) { return c >= 'a' && c <= 'z' ? c - 32 : c; }
 
 uint8_t mkfcb(FCB *f, const char *s)
@@ -250,7 +265,9 @@ uint8_t fmake(FCB *f)
     return (bdos(22, (uint16_t)f) & 0xFF) == 0xFF;
 }
 uint16_t fsize(FCB *f) { bdos(35, (uint16_t)f); return f->r0 | (f->r1 << 8); }
+#endif
 
+#if P(4)
 char *args(void)
 {
     static char line[130];
@@ -271,7 +288,9 @@ char *nextarg(char **p)
     *p = s;
     return r;
 }
+#endif
 
+#if P(5)
 #ifndef CPM_LITE                 /* (CPM_LITE: sin esto, para los programas grandes) */
 void fname(FCB *f, char *o)
 {
@@ -285,10 +304,14 @@ void fname(FCB *f, char *o)
     *o = 0;
 }
 #endif
+#endif
 
+#if P(1)
 uint16_t ticks(void) { zios(31, 0, 0, 0); return zhl; }
 uint8_t tps(void) { return zios(31, 0, 0, 0); }
+#endif
 
+#if P(6)
 uint16_t sysdat(void) { return bdos(154, 0); }
 uint16_t datapg(void) { return *(uint16_t *)(sysdat() + 252); }
 uint8_t mycons(void) { return bdos(153, 0) & 0xFF; }
@@ -310,13 +333,21 @@ void ymd(uint16_t day, uint16_t *y, uint8_t *mo, uint8_t *d)
     }
     *y = yr; *mo = m + 1; *d = day;
 }
+#endif
+
+#if P(7)
 static uint16_t rs = 12345;
 uint16_t rnd(void) { rs ^= rs << 7; rs ^= rs >> 9; rs ^= rs << 8; return rs; }
 void srnd(uint16_t s) { rs = s ? s : 1; }
+#endif
+
+#if P(8)
 #ifndef CPM_LITE
 void gotoxy(uint8_t x, uint8_t y) { pf(ESC "[%u;%uH", y, x); }
 #endif
+#endif
 
+#if P(3)
 uint8_t fdelete(FCB *f) { return (bdos(19, (uint16_t)f) & 0xFF) == 0xFF; }
 static uint8_t rio(uint8_t fn, FCB *f, uint16_t rec, uint8_t *buf)
 {
@@ -326,7 +357,9 @@ static uint8_t rio(uint8_t fn, FCB *f, uint16_t rec, uint8_t *buf)
 }
 uint8_t rread(FCB *f, uint16_t rec, uint8_t *buf) { return rio(33, f, rec, buf); }
 uint8_t rwrite(FCB *f, uint16_t rec, uint8_t *buf) { return rio(34, f, rec, buf); }
+#endif
 
+#if P(5)
 uint8_t glob(const char *spec, NAME12 *out, uint8_t max)
 {
     static uint8_t dma[128];
@@ -349,6 +382,9 @@ void nm2fcb(NAME12 n, FCB *f)
     f->dr = n[0];
     memcpy(f->f, n + 1, 11);
 }
+#endif
+
+#if P(9)
 #ifndef CPM_LITE
 uint8_t ropen(RD *r, FCB *f)
 {
@@ -397,6 +433,9 @@ rgetc1: ld      de,#-39
     __endasm;
 }
 #endif
+#endif
+
+#if P(10)
 #ifndef CPM_LITE                 /* (CPM_LITE: sin esto, para los programas grandes) */
 int32_t mul16(int16_t a, int16_t b)
 {
@@ -407,4 +446,8 @@ int32_t mul16(int16_t a, int16_t b)
     return neg ? -(int32_t)r : (int32_t)r;
 }
 #endif
+#endif
+
+#if P(1)
 uint8_t brk(void) { uint8_t k = getkey(); return k == 3 || k == 27 || (k | 32) == 'q'; }
+#endif

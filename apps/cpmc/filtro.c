@@ -19,9 +19,19 @@
 #ifndef OPC
 #define OPC 1
 #endif
+/* Con -DPARTE=n solo la parte n: 1 la entrada, la salida y el arranque;
+   2 printf; 3 malloc y compania; 4 qsort. mks.sh las arma en una biblioteca
+   y el enlazador toma solo las que el programa usa. Sin PARTE, todo. */
+#ifndef PARTE
+#define P(n) 1
+#else
+#define P(n) (PARTE == (n))
+#endif
 int prog_main(void);
 void fexit(int);
+int putchar(int c);
 
+#if P(1)
 /* ------------------------------------------------------------ entrada */
 static char opt[160];
 static uint8_t optn, optp, nopt;     /* nopt: 1 = sin linea de opciones */
@@ -99,7 +109,9 @@ static void finish(void)
     }
 }
 void fexit(int c) { (void)c; finish(); bdos(0, 0); }
+#endif
 
+#if P(2)
 /* ------------------------------------------------------------ printf */
 typedef void (*OUTF)(char);
 static char *sp_;
@@ -273,7 +285,9 @@ int sprintf(char *d, const char *f, ...)
     va_end(ap);
     return sp_ - d;
 }
+#endif
 
+#if P(3)
 /* ------------------------------------------------------------ memoria */
 typedef struct blk { struct blk *nx; uint16_t sz; } BLK;  /* sz en bytes, con la cabecera */
 static BLK *freel;
@@ -297,6 +311,7 @@ void *malloc(size_t n)
     BLK *b, **pp;
     uint16_t need = (n + sizeof(BLK) + 1) & ~1;
     if (n > 0xF000) return 0;
+    if (!brk_) { brk_ = heap; top_ = (char *)(*(uint16_t *)6) - 1536; }   /* el primero */
     for (pp = &freel; (b = *pp); pp = &b->nx)
         if (b->sz >= need) {
             if (b->sz - need >= sizeof(BLK) + 4) {
@@ -322,6 +337,9 @@ void *realloc(void *p, size_t n)
     if (q) { memcpy(q, p, old); free(p); }
     return q;
 }
+#endif
+
+#if P(4)
 static void swapb(char *a, char *b, uint16_t n) { while (n--) { char t = *a; *a++ = *b; *b++ = t; } }
 void qsort(void *base, size_t n, size_t sz, int (*cmp)(const void *, const void *))
 {
@@ -337,7 +355,9 @@ void qsort(void *base, size_t n, size_t sz, int (*cmp)(const void *, const void 
         else { qsort(b + (k + 1) * sz, n - 1 - k, sz, cmp); n = k; }
     }
 }
+#endif
 
+#if P(1)
 /* ------------------------------------------------------------ arranque */
 static uint8_t isfile(const char *a)
 {
@@ -359,8 +379,6 @@ void main(void)
 {
     char *p = args(), *a;
     uint8_t ask = 0;
-    brk_ = heap;
-    top_ = (char *)(*(uint16_t *)6) - 1536;
     optn = optp = 0;
     nopt = !OPC;
     while ((a = nextarg(&p))) {
@@ -401,3 +419,5 @@ char *gets(char *s)              /* una linea, sin el \n; 0 al final */
     *p = 0;
     return c < 0 && p == s ? 0 : s;
 }
+#endif
+

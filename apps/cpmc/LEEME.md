@@ -98,6 +98,8 @@ PROG [opciones] [archivo...] [>salida]
 
 Se probaron en el emulador contra las herramientas de Linux, byte a byte, con un archivo de 43 líneas: `SORT` (y `-r`, `-u`), `UNIQ -C`, `TR -D`, `CUT`, `HEAD`, `TAIL`, `REV`, `NL`, `TAC`, `OD`, `BASE64` (ida y vuelta), `CKSUM`, `FACTOR`, `SEQ` y `SED` dan lo mismo que en Linux, y `AWK` da lo mismo que `awk` en 8 programas de prueba. En `AWK` los números son `float` (en SDCC el `double` es de 32 bits): unos 7 dígitos, y algunos límites más chicos que en Semilla (líneas de 256, cadenas de 40, 200 tokens; ver el principio de `semilla/awk.c`).
 
+**Más chicos (18-nov-2026), sin tocar las fuentes de Semilla.** `cpm.c` y `filtro.c` se compilan en partes (`-DPARTE=n`) y van en bibliotecas (`sdar`): el enlazador toma solo las que cada filtro usa. Antes cada filtro llevaba `cpm.c` entero, `printf`, `malloc` y `qsort` aunque no los usara. Los que no imprimen con `printf` bajaron a 4,2–5,1 KB (`OD`, `PRIMOS`, `HANOI`, `VIDA`, `TR`, `BASE64`, `SED`), los demás a 6,5–8,3 KB, y `AWK` de 32,9 a 29,8 KB. Comparados en el emulador con los de antes, 23 casos: la misma salida. `mk.sh` sigue enlazando `cpm.c` entero para los demás programas.
+
 Cambios a las fuentes de Semilla, todos para SDCC: prototipos al principio de `awk.c` y `calc.c` (SDCC no acepta llamar sin declarar), un cast en el `qsort` de `sort.c`, `%lu` en `cksum.c` y `factor.c` (allá el `int` era de 32 bits), `S` y `G` en mayúscula en `sed.c`, los límites de `awk.c` bajo `#ifdef __SDCC`, y `hanoi.c` y `primos.c` pasados del C de 1980 a funciones con prototipo. Se compilan con `mks.sh`.
 
 ## Más de Semilla
