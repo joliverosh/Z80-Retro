@@ -564,8 +564,9 @@ doload:   LD   HL,JMPTAB
           LD   BC,CCP
           OR   A            ; Clear carry
           SBC  HL,BC        ; Numer of bytes
-          ADD  HL,HL        ; x2
-          INC  H
+          LD   BC,127       ; Redondear hacia arriba a sectores de 128: antes
+          ADD  HL,BC        ; leia siempre uno de mas, que pisaba la tabla de
+          ADD  HL,HL        ; saltos del BIOS y borraba a los residentes (SmartKey)
           LD   A,H          ; A is going to be the block counter. B is already in use
           LD   BC, 0        ; BC has the next sector to read, starting from zero
           LD   HL, CCP      ; base of cp/m (initial load point)

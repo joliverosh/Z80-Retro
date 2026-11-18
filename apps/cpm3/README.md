@@ -66,7 +66,7 @@ zona de sistema.
 Requisitos: CP/M 2.2 instalado en A: con su entrada de arranque (ID 1) y
 `DOWNLOAD.COM` en A:, tal como explica
 [Installing-CPM](https://github.com/peterw8102/Z80-Retro/wiki/Installing-CPM)
-(en v5: `WI 0:A DC00 FDFF` y `WB 1 0:A DC00 2200 F20C 01 CP/M`). Hace falta el
+(en v5: `WI 0:A DC00 FDFF` y `WB 1 0:A DC00 2200 F200 01 CP/M`; antes de la corrección de los residentes la ejecución era F20C). Hace falta el
 **control de flujo por hardware** (RTS/CTS) en el terminal para pegar los
 paquetes.
 
@@ -121,7 +121,7 @@ autoarranque, que buscan la ID 1):
 > WB 1 DELETE
 > WB 1 40:A 0100 1200 0100 01 CPM3
 ```
-(el CP/M 2.2 puede seguir en otra ID, p. ej. `WB 2 0:A DC00 2200 F20C 01 CP/M`).
+(el CP/M 2.2 puede seguir en otra ID, p. ej. `WB 2 0:A DC00 2200 F200 01 CP/M`; antes de la corrección de los residentes la ejecución era F20C).
 
 ## Uso
 

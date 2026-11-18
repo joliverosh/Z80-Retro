@@ -1205,9 +1205,11 @@ CDRIVE: DEFB    0               ;currently active drive.
 CHGDRV: DEFB    0               ;change in drives flag (0=no change).
 NBYTES: DEFW    0               ;byte counter used by TYPE.
         ;
-        ;   Room for expansion?
+        ;   Room for expansion? Quedan 13 - 12 = 1 bytes: los 12 se usan en COMMAND
+        ; (vaciar el buffer y saltar de linea), asi el CCP sigue midiendo 800h y el
+        ; BDOS (E406h) y el BIOS (F200h) quedan donde los esperan los programas.
         ;
-        DEFB    0,0,0,0,0,0,0,0,0,0,0,0,0
+        DEFB    0
         ;
         ;   Note that the following six bytes must match those at
         ; (PATTRN1) or cp/m will HALT. Why?
