@@ -67,5 +67,10 @@ uint8_t ropen(RD *r, FCB *f);    /* 0 bien */
 int rgetc(RD *r);                /* -1 al final (no mira ^Z) */
 /* SDCC 4.2: (int32_t)a * b con a y b de 16 bits sale mal; usar esta */
 int32_t mul16(int16_t a, int16_t b);
-uint8_t brk(void);               /* 1 si se pulso ^C, Q o ESC */
+uint8_t brk(void);
+/* la BIOS directa (para las utilidades de disco): HL de la funcion fn con BC y
+   DE; lo que deja en A queda en biosa. 9 SELDSK, 10 SETTRK, 11 SETSEC,
+   12 SETDMA, 13 READ, 14 WRITE */
+uint16_t biosc(uint8_t fn, uint16_t bc, uint16_t de) __sdcccall(0);
+extern uint8_t biosa;               /* 1 si se pulso ^C, Q o ESC */
 #endif

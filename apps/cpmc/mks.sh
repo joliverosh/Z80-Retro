@@ -11,7 +11,7 @@ sdasz80 -g -o obj/crt0.rel crt0.s
 # cpm.c en partes (-DPARTE=n), en una biblioteca: el enlazador toma solo las
 # que el programa usa (antes iba entero, unos 3,9 KB, en cada filtro)
 rm -f obj/cpmp.lib
-for n in 1 2 3 4 5 6 7 8 9 10; do sdcc $CF -DPARTE=$n -c cpm.c -o obj/cpmp$n.rel; sdar rcs obj/cpmp.lib obj/cpmp$n.rel; done
+for n in 1 2 3 4 5 6 7 8 9 10 12; do sdcc $CF -DPARTE=$n -c cpm.c -o obj/cpmp$n.rel; sdar rcs obj/cpmp.lib obj/cpmp$n.rel; done
 progs="$@"; [ -z "$progs" ] && progs=$(cd semilla && ls *.c | sed 's/\.c$//')
 for p in $progs; do
   o=1; case "$SINOPC" in *" $p "*) o=0;; esac

@@ -97,3 +97,39 @@ jr	nz,lrdif
 sbc	hl,bc
 jr	z,lrfin
 jr	lrdif
+
+; uint16_t biosc(uint8_t fn, uint16_t bc, uint16_t de): la BIOS directa;
+; devuelve HL y deja A en _biosa (la parte 12 de cpm.c)
+global	_biosc, _biosa
+_biosc:
+call	_oflush
+push	ix
+push	iy
+ld	ix,0
+add	ix,sp
+ld	a,(ix+6)	; fn
+ld	c,(ix+8)
+ld	b,(ix+9)
+ld	e,(ix+10)
+ld	d,(ix+11)
+ld	l,a	; HL = (0001) + 3 * (fn - 1)
+add	a,a
+add	a,l
+sub	3
+ld	hl,(1)
+add	a,l
+ld	l,a
+adc	a,h
+sub	l
+ld	h,a
+call	bios1
+ld	(_biosa),a
+pop	iy
+pop	ix
+ret
+bios1:
+jp	(hl)
+psect	bss
+_biosa:
+defs	1
+psect	text

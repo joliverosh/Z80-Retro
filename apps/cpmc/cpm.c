@@ -478,6 +478,48 @@ int32_t mul16(int16_t a, int16_t b)
 uint8_t brk(void) { uint8_t k = getkey(); return k == 3 || k == 27 || (k | 32) == 'q'; }
 #endif
 
+#if PALL || PARTE == 12
+#ifndef HI_TECH_C                /* (HI-TECH C: en htc/cpmz.as) */
+uint8_t biosa;
+uint16_t biosc(uint8_t fn, uint16_t bc, uint16_t de) __sdcccall(0) __naked
+{
+    (void)fn; (void)bc; (void)de;
+    __asm
+        call    _oflush
+        ld      hl,#2
+        add     hl,sp
+        ld      a,(hl)          ; fn
+        inc     hl
+        ld      c,(hl)
+        inc     hl
+        ld      b,(hl)
+        inc     hl
+        ld      e,(hl)
+        inc     hl
+        ld      d,(hl)
+        ld      l,a             ; HL = (0001) + 3 * (fn - 1)
+        add     a,a
+        add     a,l
+        sub     #3
+        ld      hl,(1)
+        add     a,l
+        ld      l,a
+        adc     a,h
+        sub     l
+        ld      h,a
+        push    ix
+        push    iy
+        call    bios1
+        pop     iy
+        pop     ix
+        ld      (_biosa),a
+        ret
+bios1:  jp      (hl)
+    __endasm;
+}
+#endif
+#endif
+
 #ifdef HI_TECH_C
 #if PALL || PARTE == 11
 /* memset: la de la biblioteca de HI-TECH C 3.09 toma la cuenta del 2do
