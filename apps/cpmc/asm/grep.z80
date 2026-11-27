@@ -540,6 +540,8 @@ CNT:    DW      0,0
         INCLUDE zcon.inc
         INCLUDE zfile.inc
 BSS0    EQU     $
+        INCLUDE zcon.bss
+        INCLUDE zfile.bss
 LIN     EQU     ZFFIN
 PBUF    EQU     LIN+256
 PILA    EQU     PBUF+130+1024

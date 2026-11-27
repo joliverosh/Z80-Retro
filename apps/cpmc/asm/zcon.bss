@@ -1,0 +1,7 @@
+; zcon.bss - lo de zcon.inc sin valor inicial. Va despues de BSS0 EQU $ (al
+; final del programa), para que todos los EQU se resuelvan hacia atras (SLR
+; Z80ASM en la placa los necesita asi).
+NUMT    EQU     BSS0
+DBUF    EQU     NUMT+4
+OB      EQU     DBUF+10
+ZCFIN   EQU     OB+OBSZ         ; lo que sigue (zfile.inc o el programa)

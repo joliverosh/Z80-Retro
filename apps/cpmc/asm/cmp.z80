@@ -191,6 +191,8 @@ ND:     DW      0,0
         INCLUDE zcon.inc
         INCLUDE zfile.inc
 BSS0    EQU     $
+        INCLUDE zcon.bss
+        INCLUDE zfile.bss
 F1      EQU     ZFFIN
 F2      EQU     F1+36
 B1      EQU     F2+36

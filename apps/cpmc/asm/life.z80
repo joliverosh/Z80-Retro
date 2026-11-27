@@ -148,6 +148,7 @@ NGEN:   DW      0
         INCLUDE zcon.inc
         INCLUDE zmisc.inc
 BSS0    EQU     $
+        INCLUDE zcon.bss
 GA      EQU     ZCFIN
 GB      EQU     GA+ANCHO*(HH+2)
 PILA    EQU     GB+ANCHO*(HH+2)+256

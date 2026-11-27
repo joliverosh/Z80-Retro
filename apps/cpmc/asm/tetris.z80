@@ -645,6 +645,7 @@ TMP:    DW      0,0
         INCLUDE zcon.inc
         INCLUDE zmisc.inc
 BSS0    EQU     $
+        INCLUDE zcon.bss
 BD      EQU     ZCFIN
 SHOWN   EQU     BD+BW*BH
 PILA    EQU     SHOWN+BW*BH+256

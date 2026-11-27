@@ -321,9 +321,4 @@ OBN:    DB      0
 PADC:   DB      ' '
 PW:     DB      0
 
-; sin valor inicial: despues del programa, desde BSS0 (que pone cada programa
-; con BSS0 EQU $ al final)
-NUMT    EQU     BSS0
-DBUF    EQU     NUMT+4
-OB      EQU     DBUF+10
-ZCFIN   EQU     OB+OBSZ         ; lo que sigue (zfile.inc o el programa)
+; lo que no tiene valor inicial (NUMT, DBUF, OB) esta en zcon.bss

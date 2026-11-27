@@ -474,6 +474,8 @@ INTENT: DB      0
         INCLUDE zcon.inc
         INCLUDE zfile.inc
 BSS0    EQU     $
+        INCLUDE zcon.bss
+        INCLUDE zfile.bss
 RAM     EQU     ZFFIN
 BB      EQU     RAM+128         ; el registro y hasta 64 bytes
 PILA    EQU     BB+66+256

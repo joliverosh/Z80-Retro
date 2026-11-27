@@ -154,6 +154,8 @@ ROW:    DB      0
         INCLUDE zcon.inc
         INCLUDE zfile.inc
 BSS0    EQU     $
+        INCLUDE zcon.bss
+        INCLUDE zfile.bss
 FCB1    EQU     ZFFIN
 BUF     EQU     FCB1+36
 PILA    EQU     BUF+128+256

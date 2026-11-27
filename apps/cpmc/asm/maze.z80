@@ -840,6 +840,8 @@ NB:     DW      0,0,0,0
         INCLUDE zfile.inc
         INCLUDE zmisc.inc
 BSS0    EQU     $
+        INCLUDE zcon.bss
+        INCLUDE zfile.bss
 FO      EQU     ZFFIN
 OBF     EQU     FO+36
 CEL     EQU     OBF+128

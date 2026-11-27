@@ -433,6 +433,7 @@ LAST:   DW      0
         INCLUDE zcon.inc
         INCLUDE zmisc.inc
 BSS0    EQU     $
+        INCLUDE zcon.bss
 SX      EQU     ZCFIN
 SY      EQU     SX+MAXL
 OCC     EQU     SY+MAXL

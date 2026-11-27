@@ -291,5 +291,6 @@ Y2:     DW      0,0
         INCLUDE zcon.inc
         INCLUDE zmisc.inc
 BSS0    EQU     $
+        INCLUDE zcon.bss
 PILA    EQU     ZCFIN+256
         END

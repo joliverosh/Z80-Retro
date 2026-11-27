@@ -515,11 +515,3 @@ GN:     DB      0
 RQ:     DW      0
 RE:     DW      0
 REOF:   DB      0
-LINEA   EQU     ZCFIN           ; sin valor inicial, despues de los de zcon.inc
-GFCB    EQU     LINEA+130
-GDMA    EQU     GFCB+36
-RFCB    EQU     GDMA+128
-RBUF    EQU     RFCB+36
-NMS     EQU     RBUF+1024       ; 64 nombres de GLOB para CADA
-SNAME   EQU     NMS+64*12       ; "A:NOMBRE.EXT"
-ZFFIN   EQU     SNAME+16        ; lo que sigue (el programa)
