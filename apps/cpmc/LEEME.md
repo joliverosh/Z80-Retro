@@ -36,6 +36,12 @@ Programas escritos en C con SDCC 4.2 y una biblioteca chica propia (`cpm.c`). Ca
 | `SHA256` | La suma SHA-256, con el formato de `sha256sum` | `SHA256 *.COM`, `SHA256 -T NOTAS.TXT` |
 | `ZIP` | Hace un `.ZIP` con deflate | `ZIP COPIA *.ASM *.COM`, `ZIP -T TEXTOS *.TXT` |
 | `UNZIP` | Saca los archivos de un `.ZIP` (guardados o con deflate, también los hechos en la Mac) y comprueba el CRC | `UNZIP COPIA`, `UNZIP -L COPIA`, `UNZIP COPIA B:` |
+| `MAKE` | Rehace lo que cambió según `MAKEFILE`: lleva el CRC de las dependencias en `MAKE.DAT` (CP/M no guarda fechas); en ZOS corre cada orden y espera, en CP/M 2.2 escribe `$$$.SUB` | `MAKE`, `MAKE -N`, `MAKE -F OTRO HOLA.COM` |
+| `ZHEX` | Editor hexadecimal de un archivo, o de los registros de un disco por la BIOS | `ZHEX PIP.COM`, `ZHEX -D B: D` |
+| `CHKDIR` | Revisa el directorio de un disco: usuarios y nombres malos, bloques fuera de rango o de dos archivos, extensiones que faltan (no cambia nada) | `CHKDIR B:`, `CHKDIR -V` |
+| `UNERA` | Recupera un archivo borrado si nada pisó sus bloques; `UNERA d:` lista los borrados | `UNERA NOTAS.TXT`, `UNERA B:`, `UNERA *.C 3` |
+| `AT` | (ZOS) Corre una orden a una hora, en segundo plano; la salida a `AT.LOG` | `AT 17:30 ECHO hora`, `AT +10 PRIMOS > P.TXT` |
+| `CRON` | (ZOS) Corre órdenes a sus horas según `CRONTAB` (como el de Unix, y `@reboot`); la salida a `CRON.LOG` | `CRON`, `CRON B:TAREAS -L B:T.LOG` |
 
 `TOP` (el uso de la CPU) y `TALK` usan los servicios 44 y 45 del XIOS: necesitan el `MPM.SYS` de noviembre de 2026 o posterior. `TOP` y `TALK` solo andan en MP/M, igual que los duelos de `CHESS` y `NAVAL` y el lanzar programas de `ZFM`; los demás también en CP/M 2.2.
 
