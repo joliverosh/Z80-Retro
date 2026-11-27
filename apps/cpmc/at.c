@@ -46,8 +46,8 @@ static void runner(char *p)
         if (now >= tg) break;
         zr_nextmin();
     }
-    if (!strncmp(p, "ECHO ", 5) || !strncmp(p, "echo ", 5)) {
-        pf("\r\nAT: %s\r\n", p + 5);
+    if (isecho(p)) {
+        pf("\r\nAT: %s\r\n", p[4] ? p + 5 : "");
         return;
     }
     q = zr_stamp(m);

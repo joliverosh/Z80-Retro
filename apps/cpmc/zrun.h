@@ -129,6 +129,12 @@ static char *zr_err(uint16_t r)
     r &= 0xFF;
     return r == 3 ? "not found" : r == 2 ? "not enough memory" : r == 1 ? "too many processes" : "cannot run it";
 }
+/* la orden es ECHO (sola o con texto)? */
+static uint8_t isecho(char *s)
+{
+    return (s[0] | 32) == 'e' && (s[1] | 32) == 'c' && (s[2] | 32) == 'h' && (s[3] | 32) == 'o'
+        && (s[4] == ' ' || !s[4]);
+}
 /* "D:NOMBRE" con la unidad actual si no la trae */
 static void zr_full(char *o, char *n)
 {

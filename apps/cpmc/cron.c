@@ -95,8 +95,8 @@ static void runit(char *cmd)
     char *q;
     uint16_t r;
     q = zr_stamp(m);
-    if (!strncmp(cmd, "ECHO ", 5) || !strncmp(cmd, "echo ", 5)) {
-        strncat(m, cmd + 5, 150); strcat(m, "\n");
+    if (isecho(cmd)) {
+        strncat(m, cmd[4] ? cmd + 5 : "", 150); strcat(m, "\n");
         zr_append(lname, m);
         return;
     }
