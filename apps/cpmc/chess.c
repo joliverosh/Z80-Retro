@@ -593,17 +593,17 @@ static void help(void)
     pstr(CLS);
     pstr("CHESS\n\n"
          "  Type your move with the squares: e2e4 (or e2-e4, e4xd5). To promote to\n"
-         "  something other than a queen add the piece: e7e8n. Castle with O-O or O-O-O.\n\n"
-         "  new        a new game (you play white)\n"
+         "  something other than a queen add the piece: e7e8n. Castle with O-O or O-O-O.\n\n");
+    pstr("  new        a new game (you play white)\n"
          "  undo       take back your last move (and the computer's)\n"
-         "  go         the computer plays the side to move (you take the other)\n"
-         "  both       you play both sides; go again to let the computer play\n"
+         "  go         the computer plays the side to move (you take the other)\n");
+    pstr("  both       you play both sides; go again to let the computer play\n"
          "  level N    how long the computer thinks: 1 (1 s) to 6 (90 s)\n"
-         "  flip       turn the board around\n"
-         "  duel       play someone running CHESS on another console (MP/M II)\n"
+         "  flip       turn the board around\n");
+    pstr("  duel       play someone running CHESS on another console (MP/M II)\n"
          "             then: say text (talk), draw (offer or accept), resign\n"
-         "  quit       leave\n\n"
-         "  ESC while the computer thinks makes it move with what it has found.\n"
+         "  quit       leave\n\n");
+    pstr("  ESC while the computer thinks makes it move with what it has found.\n"
          "  White pieces are capitals, black pieces small letters.\n\n--press a key--");
     waitkey();
 }

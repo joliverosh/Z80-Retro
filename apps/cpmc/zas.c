@@ -68,7 +68,7 @@ static uint8_t *sfind(const char *s, uint8_t n)
 static uint8_t *sadd(const char *s, uint8_t n)
 {
     uint8_t h = hashf(s, n), *p = hp;
-    if (hp + 6 + n >= htop) { pstr("Symbol table full\n"); exit(); }
+    if (hp + 6 + n >= htop) { pstr("Symbol table full\n"); exit(0); }
     *(uint16_t *)p = hasht[h];
     hasht[h] = (uint16_t)p;
     *(uint16_t *)(p + 2) = 0;
@@ -1072,7 +1072,7 @@ static uint8_t runpass(char *name)
             crd = &rd[depth];
             lineno = 0;
         }
-        if (!(nlines & 15) && brk()) { pstr("Stopped\n"); exit(); }
+        if (!(nlines & 15) && brk()) { pstr("Stopped\n"); exit(0); }
     }
     while (depth) { fclose(&rd[depth].f); depth--; }
     fclose(&rd[0].f);

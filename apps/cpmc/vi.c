@@ -549,9 +549,9 @@ static uint8_t loadat(const char *name, uint16_t at, uint16_t *cnt)  /* 0 bien, 
 {
     static FCB f;
     uint16_t n = 0;
+    uint8_t g;
     if (!mkfcb(&f, name) || fopen(&f)) return 1;
     moveto(at);
-    uint8_t g;
     while ((g = freadn(&f, rb, 8))) {
         uint8_t *s = rb, *e = rb + ((uint16_t)g << 7);
         char *d = buf + gs, *lim = buf + ge;

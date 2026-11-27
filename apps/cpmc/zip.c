@@ -175,7 +175,7 @@ static uint16_t dtime, ddate;
 static uint8_t znlen(ENT *e) { return strlen(e->n); }
 static void lhead(ENT *e)
 {
-    put4(0x04034B50UL); put2(20); put2(0); put2(e->meth); put2(dtime); put2(ddate);
+    put4(((unsigned long)0x04034B50L)); put2(20); put2(0); put2(e->meth); put2(dtime); put2(ddate);
     put4(e->crc); put4(e->csz); put4(e->usz); put2(znlen(e)); put2(0);
     { char *p = e->n; while (*p) putb(*p++); }
 }
@@ -241,7 +241,7 @@ void main(void)
         e->ofs = hdr; e->meth = raw ? 0 : 8; e->crc = e->csz = e->usz = 0;
         lhead(e);
         dat = opos;
-        icrc = 0xFFFFFFFFUL; isize = 0;
+        icrc = ((unsigned long)0xFFFFFFFFL); isize = 0;
         if (raw) {
             lookend = 0; ineof = 0;
             for (;;) {
@@ -279,14 +279,14 @@ void main(void)
     cd = opos; cdsz = 0;
     for (i = 0; i < nf; i++) cdsz += 46 + znlen(ent + i);
     {
-        uint32_t end = cd + cdsz + 4 + 22, tgt = (end + 127) & ~127UL;
+        uint32_t end = cd + cdsz + 4 + 22, tgt = (end + 127) & ~((unsigned long)127L);
         uint16_t pad;
         if ((uint32_t)ohigh << 7 > tgt) tgt = (uint32_t)ohigh << 7;
         pad = tgt - end;
         for (i = 0; i < nf; i++) {
             ENT *e = ent + i;
             uint8_t last = i == nf - 1;
-            put4(0x02014B50UL); put2(20); put2(20); put2(0); put2(e->meth);
+            put4(((unsigned long)0x02014B50L)); put2(20); put2(20); put2(0); put2(e->meth);
             put2(dtime); put2(ddate); put4(e->crc); put4(e->csz); put4(e->usz);
             put2(znlen(e)); put2(last ? 4 + pad : 0); put2(0); put2(0); put2(0);
             put4(0x20); put4(e->ofs);
@@ -295,7 +295,7 @@ void main(void)
         }
         cdsz += 4 + pad;
     }
-    put4(0x06054B50UL); put2(0); put2(0); put2(nf); put2(nf); put4(cdsz); put4(cd); put2(0);
+    put4(((unsigned long)0x06054B50L)); put2(0); put2(0); put2(nf); put2(nf); put4(cdsz); put4(cd); put2(0);
     zflush();
     fclose(&zf);
     if (oerr) { pstr("Write error (disk full?)\n"); return; }

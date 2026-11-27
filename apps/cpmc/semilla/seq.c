@@ -3,7 +3,9 @@
 /* seq-milla: la 1ra linea de la entrada son los argumentos, como en `seq`:
    "ULTIMO", "PRIMERO ULTIMO" o "PRIMERO INCREMENTO ULTIMO".  Imprime un numero
    por linea. */
+#ifndef HI_TECH_C                /* (con HI-TECH C, lo de filtro.h) */
 #include <stdio.h>
+#endif
 #include <string.h>
 
 int palabra(char *s, int *pos, char *dst)

@@ -108,10 +108,10 @@ void main(void)
     pat = a;
     if (!pat || !*p) {
         pstr("Usage: GREP [-N] [-V] [-C] [-L] pattern|? file...\n"
-             "  -N line numbers, -V lines that do not match, -C count, -L file names\n"
-             "  pattern: . any char, x* x+ x? repeat, ^ start, $ end, [a-z] [^...] classes,\n"
-             "  \\c literal c. No spaces and no case on the command line (use .);\n"
-             "  ? asks for the pattern: spaces allowed and case matters.\n");
+             "  -N line numbers, -V lines that do not match, -C count, -L file names\n");
+        pstr("  pattern: . any char, x* x+ x? repeat, ^ start, $ end, [a-z] [^...] classes,\n"
+             "  \\c literal c. No spaces and no case on the command line (use .);\n");
+        pstr("  ? asks for the pattern: spaces allowed and case matters.\n");
         return;
     }
     if (pat[0] == '?' && !pat[1]) {          /* el patron por teclado */

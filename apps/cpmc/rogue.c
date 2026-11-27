@@ -638,14 +638,14 @@ static void help(void)
 {
     pstr(CLS);
     pstr("ROGUE - find the Amulet of Yendor (level 13 or deeper) and bring it back up.\n\n"
-         "  h j k l y u b n  move (or the arrow keys); in capitals: run\n"
-         "  >  go down the stairs        <  go up (only with the Amulet)\n"
+         "  h j k l y u b n  move (or the arrow keys); in capitals: run\n");
+    pstr("  >  go down the stairs        <  go up (only with the Amulet)\n"
          "  i  inventory                 q  quaff a potion\n"
-         "  r  read a scroll             e  eat\n"
-         "  w  wield a weapon            W  wear armor          T  take armor off\n"
+         "  r  read a scroll             e  eat\n");
+    pstr("  w  wield a weapon            W  wear armor          T  take armor off\n"
          "  d  drop                      s or .  rest a turn\n"
-         "  ^R redraw                    Q  quit\n\n"
-         "  @ you   . floor   + door   # passage   > stairs\n"
+         "  ^R redraw                    Q  quit\n\n");
+    pstr("  @ you   . floor   + door   # passage   > stairs\n"
          "  * gold  ! potion  ? scroll  : food  ) weapon  ] armor  , the Amulet\n"
          "  A-Z monsters: walk into them to fight.\n\n--press space--");
     while (waitkey() != ' ') ;

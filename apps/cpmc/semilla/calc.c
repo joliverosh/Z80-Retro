@@ -1,8 +1,10 @@
 /* c/ejemplos/calc.c - Calculadora de expresiones de 16 bits con signo, una por linea.
  * Proyecto Semilla, version 1. */
-// Calculadora: lee expresiones, una por línea, y responde.
-// Enteros de 16 bits con signo, + - * / % y paréntesis.
+/* Calculadora: lee expresiones, una por linea, y responde.
+   Enteros de 16 bits con signo, + - * / % y parentesis. */
+#ifndef HI_TECH_C                /* (con HI-TECH C, lo de filtro.h) */
 #include <stdio.h>
+#endif
 #include <ctype.h>
 /* prototipos (para SDCC, que no acepta llamadas sin declarar) */
 void espacios(void);
@@ -38,14 +40,14 @@ int factor(void)
 
 int termino(void)
 {
-    int v = factor(), w;
+    int v = factor(), w, d;
     for (;;) {
         espacios();
         switch (linea[pos]) {
         case '*': pos++; v *= factor(); break;
         case '/': case '%':
             w = linea[pos++];
-            int d = factor();
+            d = factor();
             if (d == 0) { error = 2; return 0; }
             v = w == '/' ? v / d : v % d;
             break;
@@ -68,10 +70,11 @@ int expresion(void)
 
 int main(void)
 {
+    int v;
     while (gets(linea)) {
         if (linea[0] == 0) continue;
         pos = error = 0;
-        int v = expresion();
+        v = expresion();
         espacios();
         if (linea[pos]) error = 1;
         if (error == 2) printf("%s = division por cero\n", linea);

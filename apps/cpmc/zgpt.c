@@ -64,7 +64,7 @@ static void matvec(const lin *l, const int8_t *x, uint8_t nin, uint8_t nout, int
 }
 static uint16_t isqrt32(uint32_t n)
 {
-    uint32_t res = 0, bit = 1UL << 30;
+    uint32_t res = 0, bit = ((unsigned long)1L) << 30;
     while (bit > n) bit >>= 2;
     while (bit) {
         if (n >= res + bit) { n -= res + bit; res = (res >> 1) + bit; }

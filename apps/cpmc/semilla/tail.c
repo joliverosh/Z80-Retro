@@ -3,7 +3,9 @@
 /* tail-milla: filtro de stdin a stdout.  La 1ra linea de la entrada son las
    opciones: "-n N" (por omision 10).  Imprime las ultimas N lineas.  Guarda
    hasta 2000 lineas de hasta 511 caracteres. */
+#ifndef HI_TECH_C                /* (con HI-TECH C, lo de filtro.h) */
 #include <stdio.h>
+#endif
 #include <string.h>
 #include <stdlib.h>
 

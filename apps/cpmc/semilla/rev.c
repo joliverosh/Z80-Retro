@@ -2,7 +2,9 @@
  * Proyecto Semilla, version 1. */
 /* rev-milla: filtro de stdin a stdout.  Invierte los caracteres de cada linea,
    como `rev`. */
+#ifndef HI_TECH_C                /* (con HI-TECH C, lo de filtro.h) */
 #include <stdio.h>
+#endif
 #include <string.h>
 
 int linea(char *b, int max)

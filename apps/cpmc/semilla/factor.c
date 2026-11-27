@@ -3,8 +3,11 @@
 /* factor-milla: lee numeros de stdin (separados por espacios o saltos de linea)
    y escribe "N: p1 p2 ..." con sus factores primos, como `factor`.  Enteros de
    32 bits sin signo (clase 32). */
-#pragma clase 32
+/* (aqui iba "#pragma clase 32" de Semilla: el cpp de HI-TECH C no acepta
+   #pragma, ni dentro de un #if; SDCC no lo necesita) */
+#ifndef HI_TECH_C                /* (con HI-TECH C, lo de filtro.h) */
 #include <stdio.h>
+#endif
 
 void factoriza(unsigned long n)
 {

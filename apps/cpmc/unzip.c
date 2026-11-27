@@ -226,7 +226,7 @@ void main(void)
         uint16_t flags, meth, tim, dat, nl, xl, cl, k;
         uint32_t crc, csz, usz, lofs;
         seek(cdpos);
-        if (get4() != 0x02014B50UL) { pstr("Bad central directory\n"); return; }
+        if (get4() != ((unsigned long)0x02014B50L)) { pstr("Bad central directory\n"); return; }
         get2(); get2();
         flags = get2(); meth = get2(); tim = get2(); dat = get2();
         crc = get4(); csz = get4(); usz = get4();
@@ -250,7 +250,7 @@ void main(void)
         if (strcmp(zname, nm)) pf(" -> %s", nm);
         if (flags & 1) { pstr(": encrypted, skipped\n"); bad_++; continue; }
         if (meth != 0 && meth != 8) { pf(": method %u not supported, skipped\n", meth); bad_++; continue; }
-        if (usz > 0x7FFFFFUL) { pstr(": too large\n"); bad_++; continue; }
+        if (usz > ((unsigned long)0x7FFFFFL)) { pstr(": too large\n"); bad_++; continue; }
         /* el archivo de salida */
         {
             char full[20];
@@ -273,7 +273,7 @@ void main(void)
         k = get2();
         k += get2();
         seek(lofs + 30 + k);
-        wp = wf = 0; ocrc = 0xFFFFFFFFUL; ocount = 0; oerr = 0; zerr = 0;
+        wp = wf = 0; ocrc = ((unsigned long)0xFFFFFFFFL); ocount = 0; oerr = 0; zerr = 0;
         olimit = usz;
         i = 0;
         if (meth == 0) { uint32_t n = usz; while (n--) out(getb()); }

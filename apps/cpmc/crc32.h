@@ -5,7 +5,7 @@ static void crcinit(void)
     uint16_t i; uint8_t k;
     for (i = 0; i < 256; i++) {
         uint32_t c = i;
-        for (k = 0; k < 8; k++) c = c & 1 ? (c >> 1) ^ 0xEDB88320UL : c >> 1;
+        for (k = 0; k < 8; k++) c = c & 1 ? (c >> 1) ^ ((unsigned long)0xEDB88320L) : c >> 1;
         crctab[i] = c;
     }
 }

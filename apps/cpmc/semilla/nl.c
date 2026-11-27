@@ -2,7 +2,9 @@
  * Proyecto Semilla, version 1. */
 /* nl-milla: filtro de stdin a stdout.  Numera cada linea con 6 digitos a la
    derecha, un tabulador y la linea, igual que `nl -ba`. */
+#ifndef HI_TECH_C                /* (con HI-TECH C, lo de filtro.h) */
 #include <stdio.h>
+#endif
 
 int linea(char *b, int max)
 {

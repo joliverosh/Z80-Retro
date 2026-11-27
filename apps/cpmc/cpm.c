@@ -5,13 +5,14 @@
 
 /* Con -DPARTE=n solo se compila la parte n (mks.sh arma asi una biblioteca,
    y el enlazador toma solo las partes que el programa usa). Sin PARTE, todo. */
-#ifndef PARTE
-#define P(n) 1
+#ifndef PARTE                    /* (sin macros con argumentos en los #if: HI-TECH C) */
+#define PALL 1
+#define PARTE 0
 #else
-#define P(n) (PARTE == (n))
+#define PALL 0
 #endif
 
-#if P(1)
+#if PALL || PARTE == 1
 uint16_t zde, zhl;
 
 /* La salida a la consola se junta en ob[] y sale de una vez con el servicio
@@ -22,6 +23,9 @@ uint16_t zde, zhl;
 uint8_t obn;
 static uint8_t ob[OBSZ], omode;     /* 0 sin decidir, 1 servicio 46, 2 BDOS */
 
+#ifdef HI_TECH_C
+/* HI-TECH C: bdos() y zios() estan en htc/cpmz.as */
+#else
 uint16_t bdos(uint8_t c, uint16_t de) __sdcccall(0) __naked
 {
     (void)c; (void)de;
@@ -45,7 +49,6 @@ uint16_t bdos(uint8_t c, uint16_t de) __sdcccall(0) __naked
         ret
     __endasm;
 }
-
 /* zios: RST 30h con C, B, DE, HL. Devuelve A; DE y HL en zde, zhl */
 uint8_t zios(uint8_t c, uint8_t b, uint16_t de, uint16_t hl) __sdcccall(0) __naked
 {
@@ -71,6 +74,7 @@ uint8_t zios(uint8_t c, uint8_t b, uint16_t de, uint16_t hl) __sdcccall(0) __nak
     __endasm;
 }
 
+#endif
 void oflush(void)
 {
     uint8_t n = obn;
@@ -88,6 +92,14 @@ static void putchs(char c)          /* sin decidir, o por el BDOS */
     else bdos(6, (uint8_t)c);
 }
 
+#ifdef HI_TECH_C
+void putch(char c)
+{
+    if (omode != 1) { putchs(c); return; }
+    ob[obn++] = c;
+    if (obn == OBSZ) oflush();
+}
+#else
 /* putch: lo de cada caracter, en asm (unos 90 ciclos en vez de 300) */
 void putch(char c) __naked
 {
@@ -114,6 +126,11 @@ putch1:
     __endasm;
 }
 
+#endif
+#ifdef HI_TECH_C
+/* el exit() de HI-TECH llama a _cleanup antes de salir: lo que quedo en ob[] */
+void _cleanup(void) { oflush(); }
+#endif
 void pstr(const char *s)
 {
     while (*s) {
@@ -123,7 +140,7 @@ void pstr(const char *s)
 }
 #endif
 
-#if P(2)
+#if PALL || PARTE == 2
 #ifndef CPM_LITE                 /* (CPM_LITE: sin esto, para los programas grandes) */
 static uint8_t hexa;
 static void pnum(uint32_t v, uint8_t base, uint8_t w, char pad, uint8_t neg)
@@ -142,8 +159,8 @@ void pf(const char *fmt, ...)
     va_list ap; va_start(ap, fmt);
     while (*fmt) {
         char c = *fmt++;
-        if (c != '%') { if (c == '\n') putch('\r'); putch(c); continue; }
         char pad = ' '; uint8_t w = 0, lng = 0;
+        if (c != '%') { if (c == '\n') putch('\r'); putch(c); continue; }
         if (*fmt == '0') { pad = '0'; fmt++; }
         while (*fmt >= '0' && *fmt <= '9') w = w * 10 + (*fmt++ - '0');
         if (*fmt == 'l') { lng = 1; fmt++; }
@@ -168,7 +185,7 @@ void pf(const char *fmt, ...)
 #endif
 #endif
 
-#if P(1)
+#if PALL || PARTE == 1
 int getkey(void) { return bdos(6, 0xFF) & 0xFF; }
 
 int waitkey(void)
@@ -188,7 +205,7 @@ uint8_t ismpm(void)
 void delay(uint16_t t) { if (ismpm()) bdos(141, t); }
 #endif
 
-#if P(3)
+#if PALL || PARTE == 3
 static char up(char c) { return c >= 'a' && c <= 'z' ? c - 32 : c; }
 
 uint8_t mkfcb(FCB *f, const char *s)
@@ -267,7 +284,7 @@ uint8_t fmake(FCB *f)
 uint16_t fsize(FCB *f) { bdos(35, (uint16_t)f); return f->r0 | (f->r1 << 8); }
 #endif
 
-#if P(4)
+#if PALL || PARTE == 4
 char *args(void)
 {
     static char line[130];
@@ -290,7 +307,7 @@ char *nextarg(char **p)
 }
 #endif
 
-#if P(5)
+#if PALL || PARTE == 5
 #ifndef CPM_LITE                 /* (CPM_LITE: sin esto, para los programas grandes) */
 void fname(FCB *f, char *o)
 {
@@ -306,12 +323,12 @@ void fname(FCB *f, char *o)
 #endif
 #endif
 
-#if P(1)
+#if PALL || PARTE == 1
 uint16_t ticks(void) { zios(31, 0, 0, 0); return zhl; }
 uint8_t tps(void) { return zios(31, 0, 0, 0); }
 #endif
 
-#if P(6)
+#if PALL || PARTE == 6
 uint16_t sysdat(void) { return bdos(154, 0); }
 uint16_t datapg(void) { return *(uint16_t *)(sysdat() + 252); }
 uint8_t mycons(void) { return bdos(153, 0) & 0xFF; }
@@ -335,19 +352,19 @@ void ymd(uint16_t day, uint16_t *y, uint8_t *mo, uint8_t *d)
 }
 #endif
 
-#if P(7)
+#if PALL || PARTE == 7
 static uint16_t rs = 12345;
 uint16_t rnd(void) { rs ^= rs << 7; rs ^= rs >> 9; rs ^= rs << 8; return rs; }
 void srnd(uint16_t s) { rs = s ? s : 1; }
 #endif
 
-#if P(8)
+#if PALL || PARTE == 8
 #ifndef CPM_LITE
 void gotoxy(uint8_t x, uint8_t y) { pf(ESC "[%u;%uH", y, x); }
 #endif
 #endif
 
-#if P(3)
+#if PALL || PARTE == 3
 uint8_t fdelete(FCB *f) { return (bdos(19, (uint16_t)f) & 0xFF) == 0xFF; }
 static uint8_t rio(uint8_t fn, FCB *f, uint16_t rec, uint8_t *buf)
 {
@@ -359,7 +376,7 @@ uint8_t rread(FCB *f, uint16_t rec, uint8_t *buf) { return rio(33, f, rec, buf);
 uint8_t rwrite(FCB *f, uint16_t rec, uint8_t *buf) { return rio(34, f, rec, buf); }
 #endif
 
-#if P(5)
+#if PALL || PARTE == 5
 uint8_t glob(const char *spec, NAME12 *out, uint8_t max)
 {
     static uint8_t dma[128];
@@ -376,7 +393,7 @@ uint8_t glob(const char *spec, NAME12 *out, uint8_t max)
     }
     return n;
 }
-void nm2fcb(NAME12 n, FCB *f)
+void nm2fcb(char *n, FCB *f)
 {
     memset(f, 0, sizeof(FCB));
     f->dr = n[0];
@@ -384,7 +401,7 @@ void nm2fcb(NAME12 n, FCB *f)
 }
 #endif
 
-#if P(9)
+#if PALL || PARTE == 9
 #ifndef CPM_LITE
 uint8_t ropen(RD *r, FCB *f)
 {
@@ -400,6 +417,13 @@ static int rgetcs(RD *r)             /* el bufer se acabo: otro KB */
     r->e = r->b + ((uint16_t)k << 7);
     return r->b[0];
 }
+#ifdef HI_TECH_C
+int rgetc(RD *r)
+{
+    if (r->q < r->e) return *r->q++;
+    return rgetcs(r);
+}
+#else
 /* rgetc: lo de cada byte, en asm (unos 160 ciclos; en C eran unos 400) */
 int rgetc(RD *r) __naked
 {
@@ -434,8 +458,9 @@ rgetc1: ld      de,#-39
 }
 #endif
 #endif
+#endif
 
-#if P(10)
+#if PALL || PARTE == 10
 #ifndef CPM_LITE                 /* (CPM_LITE: sin esto, para los programas grandes) */
 int32_t mul16(int16_t a, int16_t b)
 {
@@ -448,6 +473,27 @@ int32_t mul16(int16_t a, int16_t b)
 #endif
 #endif
 
-#if P(1)
+#if PALL || PARTE == 1
 uint8_t brk(void) { uint8_t k = getkey(); return k == 3 || k == 27 || (k | 32) == 'q'; }
+#endif
+
+#ifdef HI_TECH_C
+#if PALL || PARTE == 11
+/* memset: la de la biblioteca de HI-TECH C 3.09 toma la cuenta del 2do
+   argumento y el valor del 3ro, al reves de su string.h y del estandar */
+void *memset(void *d, int c, uint16_t n)
+{
+    uint8_t *a = d;
+    while (n--) *a++ = c;
+    return d;
+}
+/* memmove: la biblioteca de HI-TECH C 3.09 no la trae */
+void *memmove(void *d, void *s, uint16_t n)
+{
+    uint8_t *a = d, *b = s;
+    if (a < b) while (n--) *a++ = *b++;
+    else { a += n; b += n; while (n--) *--a = *--b; }
+    return d;
+}
+#endif
 #endif

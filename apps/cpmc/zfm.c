@@ -494,21 +494,21 @@ static void help(void)
     pstr("ZFM - file manager\n\n"
          "  Up/Down PgUp/PgDn Home/End  move in the list\n"
          "  Tab (or Left/Right)         the other panel\n"
-         "  Space or Ins                mark or unmark a file;  *  mark all / none\n"
-         "  Enter                       open: .BAS with ZBAS; .ZC .WKS .CSV with ZCALC;\n"
-         "                              .DBF with ZDATA; .MD .TXT with ZWRITE; .SUB with\n"
-         "                              SUBMIT; .COM .PRL run; anything else is shown\n"
+         "  Space or Ins                mark or unmark a file;  *  mark all / none\n");
+    pstr("  Enter                       open: .BAS with ZBAS; .ZC .WKS .CSV with ZCALC;\n"
+         "                              .DBF with ZDATA; .MD .TXT with ZWRITE; .SUB with\n");
+    pstr("                              SUBMIT; .COM .PRL run; anything else is shown\n"
          "  V or F3                     view a text file\n"
-         "  E or F4                     edit it with ZWRITE\n"
-         "  C or F5                     copy the marked files (or this one) across\n"
+         "  E or F4                     edit it with ZWRITE\n");
+    pstr("  C or F5                     copy the marked files (or this one) across\n"
          "  M or F6                     move them across\n"
-         "  R                           rename this file\n"
-         "  D, Del or F8                delete the marked files (or this one)\n"
-         "  L / U                       change the drive (A-P) / user (0-15) of the panel\n"
-         "  S                           read both directories again\n"
+         "  R                           rename this file\n");
+    pstr("  D, Del or F8                delete the marked files (or this one)\n"
+         "  L / U                       change the drive (A-P) / user (0-15) of the panel\n");
+    pstr("  S                           read both directories again\n"
          "  Q, ESC or F10               quit\n\n"
-         "  A program started from ZFM runs in the drive and user of the panel;\n"
-         "  when it ends you are at the prompt (type ZFM to come back).\n\n"
+         "  A program started from ZFM runs in the drive and user of the panel;\n");
+    pstr("  when it ends you are at the prompt (type ZFM to come back).\n\n"
          "--press a key--");
     waitkey();
     drawall();

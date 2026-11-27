@@ -3,7 +3,9 @@
 /* sort-milla: filtro de stdin a stdout.  La 1ra linea de la entrada son las
    opciones: "-r" (inverso), "-u" (sin repetidos) o vacia.  Ordena por bytes,
    como `LC_ALL=C sort`.  Hasta 2000 lineas de hasta 511 caracteres. */
+#ifndef HI_TECH_C                /* (con HI-TECH C, lo de filtro.h) */
 #include <stdio.h>
+#endif
 #include <string.h>
 #include <stdlib.h>
 

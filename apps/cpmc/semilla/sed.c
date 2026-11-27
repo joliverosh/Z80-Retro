@@ -4,7 +4,9 @@
    sustitucion  s/RE/repl/[g]  (cualquier delimitador tras la s); el resto de
    las lineas se transforman.  RE: literales . * + ? ^ $ [..] \c (como grep).
    En repl, & es el texto casado y \& un & literal.  Igual en las 8 maquinas. */
+#ifndef HI_TECH_C                /* (con HI-TECH C, lo de filtro.h) */
 #include <stdio.h>
+#endif
 
 int atomlen(char *re)
 {

@@ -1,13 +1,17 @@
 /* cpm.h - lo minimo para escribir programas de CP/M y MP/M II en C (SDCC) */
 #ifndef CPM_H
 #define CPM_H
+#ifdef HI_TECH_C
+#include "hitc.h"                /* HI-TECH C en la placa (htc/) */
+#else
 #include <stdint.h>
+#endif
 typedef struct { uint8_t dr; char f[11]; uint8_t ex, s1, s2, rc; uint8_t d[16];
                  uint8_t cr, r0, r1, r2; } FCB;
 uint16_t bdos(uint8_t c, uint16_t de) __sdcccall(0);
 uint8_t zios(uint8_t c, uint8_t b, uint16_t de, uint16_t hl) __sdcccall(0);
 extern uint16_t zde, zhl;
-void exit(void);
+void exit(int c);                 /* (el codigo no se usa) */
 void oflush(void);                /* lo que espera en el bufer de salida, a la consola */
 void putch(char c);              /* sin traducir (BDOS 6) */
 void pstr(const char *s);        /* \n -> CR LF */
@@ -53,7 +57,7 @@ uint8_t rread(FCB *f, uint16_t rec, uint8_t *buf);   /* lectura directa (BDOS 33
 uint8_t rwrite(FCB *f, uint16_t rec, uint8_t *buf);  /* escritura directa (BDOS 34) */
 typedef char NAME12[12];         /* unidad (0 = la actual) y los 11 del nombre */
 uint8_t glob(const char *spec, NAME12 *out, uint8_t max);  /* los que casan; cuantos */
-void nm2fcb(NAME12 n, FCB *f);
+void nm2fcb(char *n, FCB *f);
 /* lectura de a un byte */
 #ifndef RDN
 #define RDN 8                     /* registros por lectura de RD (1 KB) */

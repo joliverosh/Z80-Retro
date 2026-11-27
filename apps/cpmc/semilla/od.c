@@ -3,7 +3,9 @@
 /* od-milla: filtro de stdin a stdout.  Imprime el desplazamiento en hexadecimal
    (6 digitos) y los bytes en hexadecimal, 16 por linea, igual que
    `od -A x -t x1 -v`.  Al final imprime el tamano total. */
+#ifndef HI_TECH_C                /* (con HI-TECH C, lo de filtro.h) */
 #include <stdio.h>
+#endif
 
 void hex6(long v)
 {

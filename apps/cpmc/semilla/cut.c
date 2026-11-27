@@ -4,7 +4,9 @@
    opciones: "-dX" (delimitador X, por omision tabulador) y "-fLISTA" (campos
    separados por coma, como 1,3).  Las lineas sin delimitador salen enteras,
    como en `cut`. */
+#ifndef HI_TECH_C                /* (con HI-TECH C, lo de filtro.h) */
 #include <stdio.h>
+#endif
 #include <string.h>
 
 int sel[64];

@@ -2,8 +2,11 @@
  * Proyecto Semilla, version 1. */
 /* cksum-milla: CRC-32 de POSIX sobre stdin.  Imprime "CRC bytes", igual que
    `cksum` sin nombre de archivo.  Usa enteros de 32 bits (clase 32). */
-#pragma clase 32
+/* (aqui iba "#pragma clase 32" de Semilla: el cpp de HI-TECH C no acepta
+   #pragma, ni dentro de un #if; SDCC no lo necesita) */
+#ifndef HI_TECH_C                /* (con HI-TECH C, lo de filtro.h) */
 #include <stdio.h>
+#endif
 
 unsigned long tabla[256];
 

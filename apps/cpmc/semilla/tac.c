@@ -2,7 +2,9 @@
  * Proyecto Semilla, version 1. */
 /* tac-milla: filtro de stdin a stdout.  Imprime las lineas en orden inverso,
    como `tac`.  Guarda hasta 2000 lineas de hasta 511 caracteres. */
+#ifndef HI_TECH_C                /* (con HI-TECH C, lo de filtro.h) */
 #include <stdio.h>
+#endif
 #include <string.h>
 #include <stdlib.h>
 

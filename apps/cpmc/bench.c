@@ -58,7 +58,7 @@ void main(void)
     pstr("  CPU clock (estimate)    ");
     start(); spin(1000); t = stop();
     /* MHz = 3356000 * tk / t / 1e6; en centesimas */
-    { uint32_t c = 3356UL * tk / t / 10; pf("%lu.%02lu MHz\n", c / 100, c % 100); }
+    { uint32_t c = ((unsigned long)3356L) * tk / t / 10; pf("%lu.%02lu MHz\n", c / 100, c % 100); }
 
     pstr("  Sieve 8190 x 10         ");
     start(); for (i = 0; i < 10; i++) n = sieve(); t = stop();

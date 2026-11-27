@@ -3,7 +3,9 @@
 /* tr-milla: filtro de stdin a stdout.  La 1ra linea de la entrada son los
    argumentos, como en `tr`: "SET1 SET2" traduce, "-d SET1" borra.  Los sets
    admiten rangos (a-z).  Si SET2 es mas corto, se repite su ultimo caracter. */
+#ifndef HI_TECH_C                /* (con HI-TECH C, lo de filtro.h) */
 #include <stdio.h>
+#endif
 #include <string.h>
 
 int linea(char *b, int max)

@@ -666,7 +666,7 @@ static void sortf(void)
         getrec(j + 1);
         if (fl[cf].type == 'N') {         /* numero: 4 bytes que se comparan como texto */
             static uint32_t v;
-            v = (uint32_t)fnum(cf) ^ 0x80000000UL;
+            v = (uint32_t)fnum(cf) ^ ((unsigned long)0x80000000L);
             keys[j * kl] = v >> 24; keys[j * kl + 1] = v >> 16; keys[j * kl + 2] = v >> 8; keys[j * kl + 3] = v;
         } else {
             memcpy(keys + j * kl, rec + fl[cf].off, kl);

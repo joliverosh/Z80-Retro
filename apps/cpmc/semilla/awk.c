@@ -7,7 +7,9 @@
    concatenacion, ~ !~, variables, arreglos a[k], if/else, while, for(;;),
    for(k in a), y length/substr/index/int/split.  Mismo resultado en las 8
    maquinas; probado contra el awk real. */
+#ifndef HI_TECH_C                /* (con HI-TECH C, lo de filtro.h) */
 #include <stdio.h>
+#endif
 
 #define MAXS 64            /* largo maximo de una cadena/campo */
 #define MAXF 32            /* campos por linea */
@@ -140,6 +142,15 @@ int alpha(int c){ return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||c=='_'; }
 
 /* ¿puede aparecer un regex aqui? (no justo despues de valor) */
 int prevval;
+/* op2: los operadores de 2 caracteres (en una tabla: la condicion entera
+   no le cabe a HI-TECH C en la placa) */
+int op2(char *b)
+{
+    static char *ops[] = {"==","!=","<=",">=","&&","||","++","--","!~","+=","-=","*=","/=","%=",0};
+    int i;
+    for (i = 0; ops[i]; i++) if (b[0] == ops[i][0] && b[1] == ops[i][1]) return 1;
+    return 0;
+}
 void lexer()
 {
     int c,n; char b[MAXS];
@@ -178,10 +189,7 @@ void lexer()
         }
         /* operador: toma 2 chars si forma uno conocido */
         b[0]=c; b[1]=src[sp+1]; b[2]=0;
-        if((b[0]=='='&&b[1]=='=')||(b[0]=='!'&&b[1]=='=')||(b[0]=='<'&&b[1]=='=')||(b[0]=='>'&&b[1]=='=')||
-           (b[0]=='&'&&b[1]=='&')||(b[0]=='|'&&b[1]=='|')||(b[0]=='+'&&b[1]=='+')||(b[0]=='-'&&b[1]=='-')||
-           (b[0]=='!'&&b[1]=='~')||(b[0]=='+'&&b[1]=='=')||(b[0]=='-'&&b[1]=='=')||(b[0]=='*'&&b[1]=='=')||
-           (b[0]=='/'&&b[1]=='=')||(b[0]=='%'&&b[1]=='=')){ sp+=2; }
+        if(op2(b)){ sp+=2; }
         else { b[1]=0; sp++; }
         tcls[ntok]=5; tstr[ntok]=guarda(b); ntok++;
         prevval = (b[0]==')'||b[0]==']');   /* tras ) ] viene valor */

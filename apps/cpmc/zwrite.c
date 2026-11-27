@@ -523,9 +523,9 @@ static uint8_t loadat(const char *name, uint16_t *cnt)
 {
     static FCB f;
     uint16_t n = 0;
+    uint8_t g;
     if (!mkfcb(&f, name) || fopen(&f)) return 1;
     moveto(0);
-    uint8_t g;
     while ((g = freadn(&f, rb, 8))) {
         uint8_t *s = rb, *e = rb + ((uint16_t)g << 7);
         char *d = buf + gs, *lim = buf + ge;
@@ -1171,20 +1171,20 @@ static void helpscr(void)
 {
     os(CLS);
     os("ZWRITE - writes Markdown with the WordStar keys                     (C) OLIVEROS 2026\r\n\r\n"
-       " Cursor   ^E up  ^X down  ^S left  ^D right  ^A word left  ^F word right\r\n"
-       "          ^R page up  ^C page down  ^W ^Z line up/down   (or the arrows and keys)\r\n"
-       " Delete   ^G char  DEL/BS char left  ^T word  ^Y line  ^QY to end of line\r\n"
-       " Insert   ^V insert/overtype  ^N split the line  Tab  ^U undo\r\n"
-       " ^Q       S D start/end of line  E X top/bottom of screen  R C start/end of file\r\n"
-       "          F find  A find and replace (options: U any case, G whole file, N no\r\n"
-       "          asking)  I go to line   ^L repeats the last find\r\n"
-       " ^K       B K block start/end  H hide  C copy  V move  Y delete  W write  R read\r\n"
+       " Cursor   ^E up  ^X down  ^S left  ^D right  ^A word left  ^F word right\r\n");
+    os("          ^R page up  ^C page down  ^W ^Z line up/down   (or the arrows and keys)\r\n"
+       " Delete   ^G char  DEL/BS char left  ^T word  ^Y line  ^QY to end of line\r\n");
+    os(" Insert   ^V insert/overtype  ^N split the line  Tab  ^U undo\r\n"
+       " ^Q       S D start/end of line  E X top/bottom of screen  R C start/end of file\r\n");
+    os("          F find  A find and replace (options: U any case, G whole file, N no\r\n"
+       "          asking)  I go to line   ^L repeats the last find\r\n");
+    os(" ^K       B K block start/end  H hide  C copy  V move  Y delete  W write  R read\r\n"
        "          S save  D, X save and exit  Q quit  P print\r\n"
-       " ^O       D preview (formatted, without the marks)\r\n"
-       " ^P       B **bold**  Y *italic*\r\n\r\n"
+       " ^O       D preview (formatted, without the marks)\r\n");
+    os(" ^P       B **bold**  Y *italic*\r\n\r\n"
        " Markdown: # titles, - and 1. lists, > quotes, ``` code, | tables |, **bold**,\r\n"
-       " *italic*, `code`. The lines are paragraphs: Enter only ends a paragraph.\r\n"
-       " Print commands: <!-- .page -->  <!-- .header text -->  <!-- .width 65 -->\r\n"
+       " *italic*, `code`. The lines are paragraphs: Enter only ends a paragraph.\r\n");
+    os(" Print commands: <!-- .page -->  <!-- .header text -->  <!-- .width 65 -->\r\n"
        " <!-- .margin 8 -->  <!-- .lines 66 -->  <!-- .nonumber -->\r\n\r\n"
        " Press any key.");
     key();

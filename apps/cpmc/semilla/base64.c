@@ -3,7 +3,9 @@
 /* base64-milla: filtro de stdin a stdout.  La 1ra linea de la entrada son las
    opciones: vacia para codificar, "-d" para decodificar.  Codifica en lineas
    de 76 caracteres, igual que `base64`. */
+#ifndef HI_TECH_C                /* (con HI-TECH C, lo de filtro.h) */
 #include <stdio.h>
+#endif
 
 char *alfabeto(void) { return "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"; }
 

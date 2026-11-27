@@ -7,7 +7,7 @@
    (C) OLIVEROS 2026 */
 #include "cpm.h"
 
-#define MAXN 30000U
+#define MAXN ((unsigned)30000)
 #define LMAX 3200                    /* F(30000) tiene 6270 cifras: 3135 bytes */
 uint8_t addbcd(uint8_t *a, const uint8_t *b, uint16_t n) __sdcccall(0);
 static uint8_t x[LMAX], y[LMAX];

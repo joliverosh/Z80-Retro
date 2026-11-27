@@ -23,7 +23,7 @@ void main(void)
     uint8_t row = 0, i, j;
     if (!a) { pstr("Usage: HEXDUMP file [hex-offset]\n"); return; }
     if (!mkfcb(&f, a) || fopen(&f)) { pf("%s: not found\n", a); return; }
-    if (o) off = hex(o) & ~15UL;
+    if (o) off = hex(o) & ~((unsigned long)15L);
     rec = off >> 7;
     i = off & 127;
     while (!rread(&f, rec++, b)) {

@@ -22,16 +22,17 @@
 /* Con -DPARTE=n solo la parte n: 1 la entrada, la salida y el arranque;
    2 printf; 3 malloc y compania; 4 qsort. mks.sh las arma en una biblioteca
    y el enlazador toma solo las que el programa usa. Sin PARTE, todo. */
-#ifndef PARTE
-#define P(n) 1
+#ifndef PARTE                    /* (sin macros con argumentos en los #if: HI-TECH C) */
+#define PALL 1
+#define PARTE 0
 #else
-#define P(n) (PARTE == (n))
+#define PALL 0
 #endif
 int prog_main(void);
 void fexit(int);
 int putchar(int c);
 
-#if P(1)
+#if PALL || PARTE == 1
 /* ------------------------------------------------------------ entrada */
 static char opt[160];
 static uint8_t optn, optp, nopt;     /* nopt: 1 = sin linea de opciones */
@@ -111,7 +112,7 @@ static void finish(void)
 void fexit(int c) { (void)c; finish(); bdos(0, 0); }
 #endif
 
-#if P(2)
+#if PALL || PARTE == 2
 /* ------------------------------------------------------------ printf */
 typedef void (*OUTF)(char);
 static char *sp_;
@@ -287,7 +288,7 @@ int sprintf(char *d, const char *f, ...)
 }
 #endif
 
-#if P(3)
+#if PALL || PARTE == 3
 /* ------------------------------------------------------------ memoria */
 typedef struct blk { struct blk *nx; uint16_t sz; } BLK;  /* sz en bytes, con la cabecera */
 static BLK *freel;
@@ -339,7 +340,7 @@ void *realloc(void *p, size_t n)
 }
 #endif
 
-#if P(4)
+#if PALL || PARTE == 4
 static void swapb(char *a, char *b, uint16_t n) { while (n--) { char t = *a; *a++ = *b; *b++ = t; } }
 void qsort(void *base, size_t n, size_t sz, int (*cmp)(const void *, const void *))
 {
@@ -357,7 +358,7 @@ void qsort(void *base, size_t n, size_t sz, int (*cmp)(const void *, const void 
 }
 #endif
 
-#if P(1)
+#if PALL || PARTE == 1
 /* ------------------------------------------------------------ arranque */
 static uint8_t isfile(const char *a)
 {

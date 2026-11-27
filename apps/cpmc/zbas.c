@@ -261,7 +261,7 @@ slot *arrsize(uint16_t ix, uint16_t *dims, uint8_t nd, uint8_t isstr)
     n = 1;
     for (i = 0; i < nd; i++) n *= (uint32_t)dims[i] + 1;
     es = isstr ? 4 : 5;
-    if (n * es > 60000UL) error(1);
+    if (n * es > ((unsigned long)60000L)) error(1);
     h = xalloc(sizeof(arrhdr) + n * es);
     memset(h, 0, sizeof(arrhdr) + n * es);
     h->nd = nd;
@@ -504,7 +504,7 @@ void func(uint8_t f, value *v)
     case F_PI: v->n.m = 314159265; v->n.e = -8; return;
     case F_RND: {
         uint32_t r = (uint32_t)rnd() << 16 | rnd();
-        while (r >= 1000000000UL) r -= 1000000000UL;
+        while (r >= ((unsigned long)1000000000L)) r -= ((unsigned long)1000000000L);
         mk32(&v->n, r, 0, -9);
         if (n && t.e >= 0 && t.m > 1) {               /* RND(n): un entero de 1 a n */
             nmul(&t, &v->n, &t); ntrunc(&t, &t); nset(&v->n, 1); nadd(&v->n, &v->n, &t);
@@ -1564,7 +1564,7 @@ void stmt_(void)
         if (*tp == T_NUM) { ovn1 = intexpr(); if (accept(',')) ovn2 = intexpr(); }
         ovl(OV_RENUM);
         break;
-    case K_SYSTEM: cons(SHOW); exit(); break;
+    case K_SYSTEM: cons(SHOW); exit(0); break;
     case K_CONT:
         if (!contline) error(56);
         cl = contline; tp = conttp; running = 1; jumped = 1; contline = 0;
@@ -1668,7 +1668,7 @@ void ovl(uint8_t op)
         r = ovlload(p);
         if (r == 1 && !running) { clearvars(); r = ovlload(p); }   /* sin las variables */
         if (r == 1 && running) error(1);
-        if (r) { cons(r == 1 ? "\nNo room for ZBAS.OVL\n" : "\nCan't read ZBAS.OVL\n"); cons(SHOW); exit(); }
+        if (r) { cons(r == 1 ? "\nNo room for ZBAS.OVL\n" : "\nCan't read ZBAS.OVL\n"); cons(SHOW); exit(0); }
     }
     ovop = op; ovret = 0;
     inovl = 1;
@@ -1687,7 +1687,7 @@ void main(void)
     prog = pend = names = nend = (uint8_t *)heap;
     nsym = 0;
     heapinit();
-    if (ovlfind()) { cons("ZBAS.OVL not found (it goes with ZBAS.COM)\n"); exit(); }
+    if (ovlfind()) { cons("ZBAS.OVL not found (it goes with ZBAS.COM)\n"); exit(0); }
     a = args();
     argf = nextarg(&a);
     first = 1;
@@ -1702,7 +1702,7 @@ void main(void)
         running = 0; csp = 0; svp = 0; fret = 0; jumped = 0;
         autoon = 0;
         ovl(OV_ERR);
-        if (first && argf && *argf) { cons(SHOW); exit(); }
+        if (first && argf && *argf) { cons(SHOW); exit(0); }
         first = 0;
         prompt_ok();
     }
@@ -1716,7 +1716,7 @@ void main(void)
             runloop(0);
             for (k = 0; k < 4; k++) closef(k);
             oflush();
-            exit();
+            exit(0);
         }
         first = 0;
         cons("ZBAS " VERSION " - structured BASIC   (C) OLIVEROS 2026\n");

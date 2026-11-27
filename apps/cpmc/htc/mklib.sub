@@ -1,0 +1,19 @@
+; MKLIB.SUB - arma CPM.LIB con HI-TECH C (las partes de cpm.c y cpmz.as)
+C -O -C CPM1.C
+C -O -C CPM2.C
+C -O -C CPM3.C
+C -O -C CPM4.C
+C -O -C CPM5.C
+C -O -C CPM6.C
+C -O -C CPM7.C
+C -O -C CPM8.C
+C -O -C CPM9.C
+C -O -C CPM10.C
+C -O -C CPM11.C
+C -C CPMZ.AS
+ERA CPM.LIB
+; (en ese orden: cada parte antes de las que usa, LINK pasa una vez; la 11
+; (memset, memmove) al final; la linea no pasa de 127)
+LIBR R CPM.LIB CPM10.OBJ CPM9.OBJ CPM8.OBJ CPM7.OBJ CPM6.OBJ CPM5.OBJ
+LIBR R CPM.LIB CPM4.OBJ CPM3.OBJ CPM2.OBJ CPM1.OBJ CPMZ.OBJ CPM11.OBJ
+LIBR M CPM.LIB
