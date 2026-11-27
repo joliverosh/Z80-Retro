@@ -62,7 +62,7 @@ static uint8_t dlobby(void)
 {
     uint32_t now = dnow(), t;
     if (drd(0)) return DL_ERR;
-    t = drb[4] | (uint32_t)drb[5] << 8 | (uint32_t)drb[6] << 16;
+    t = (uint16_t)drb[4] | (uint32_t)(uint16_t)drb[5] << 8 | (uint32_t)(uint16_t)drb[6] << 16;   /* (uint16_t: HI-TECH C pierde un char que pasa a long) */
     if (dstate == 0) {                    /* recien llegado: unirse o esperar */
         if (drb[0] == 'D' && drb[1] == 1 && drb[3] != mycons() && (now + 86400 - t) % 86400 < 10) {
             dme = 1; dslot = drb[2];

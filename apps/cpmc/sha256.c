@@ -26,7 +26,7 @@ static void compress(uint8_t *p)
 {
     uint8_t i;
     for (i = 0; i < 16; i++, p += 4)
-        W[i] = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint16_t)p[2] << 8) | p[3];
+        W[i] = ((uint32_t)(uint16_t)p[0] << 24) | ((uint32_t)(uint16_t)p[1] << 16) | ((uint16_t)p[2] << 8) | (uint16_t)p[3];   /* (uint16_t: por HI-TECH C) */
     shacomp();                   /* sha256_a.s */
 }
 static void init(void)

@@ -4,7 +4,7 @@
 #include "cpm.h"
 static uint8_t flags[8191];
 static uint8_t buf[1024];
-static FCB f;
+static FCB fb;                  /* (HI-TECH C: "f" ya es un campo de FCB y RD) */
 static uint16_t t0;
 static uint8_t tk;
 
@@ -91,36 +91,36 @@ void main(void)
         nm[0] = a[0]; nm[1] = ':'; strcpy(nm + 2, "BENCH.$$$");
         a = nm;
     }
-    mkfcb(&f, a);
-    pf("  Disk write 64 KB (%c:)   ", f.dr ? '@' + f.dr : '@' + (bdos(25, 0) & 15) + 1);
-    if (fmake(&f)) { pstr("cannot create the file\n"); return; }
+    mkfcb(&fb, a);
+    pf("  Disk write 64 KB (%c:)   ", fb.dr ? '@' + fb.dr : '@' + (bdos(25, 0) & 15) + 1);
+    if (fmake(&fb)) { pstr("cannot create the file\n"); return; }
     for (i = 0; i < 128; i++) buf[i] = i;
     start();
-    for (i = 0; i < 512; i++) if (fwrite(&f, buf)) { pstr("disk full\n"); fclose(&f); fdelete(&f); return; }
-    fclose(&f);
+    for (i = 0; i < 512; i++) if (fwrite(&fb, buf)) { pstr("disk full\n"); fclose(&fb); fdelete(&fb); return; }
+    fclose(&fb);
     t = stop();
     dec1(rate(64, t)); pstr(" KB/s\n");
     pstr("  Disk read 64 KB         ");
-    fopen(&f);
+    fopen(&fb);
     start();
-    for (i = 0; i < 512; i++) if (fread(&f, buf)) break;
+    for (i = 0; i < 512; i++) if (fread(&fb, buf)) break;
     t = stop();
-    fclose(&f);
+    fclose(&fb);
     dec1(rate(64, t)); pstr(" KB/s\n");
     pstr("  Disk read, 1 KB per call ");
-    fopen(&f);
+    fopen(&fb);
     start();
-    for (i = 0; i < 64; i++) if (freadn(&f, buf, 8) < 8) break;
+    for (i = 0; i < 64; i++) if (freadn(&fb, buf, 8) < 8) break;
     t = stop();
-    fclose(&f);
-    fdelete(&f);
+    fclose(&fb);
+    fdelete(&fb);
     dec1(rate(64, t)); pstr(" KB/s\n");
     pstr("  Disk write, 1 KB per call ");
-    if (fmake(&f)) { pstr("cannot create the file\n"); return; }
+    if (fmake(&fb)) { pstr("cannot create the file\n"); return; }
     start();
-    for (i = 0; i < 64; i++) if (fwriten(&f, buf, 8)) { pstr("disk full\n"); fclose(&f); fdelete(&f); return; }
-    fclose(&f);
+    for (i = 0; i < 64; i++) if (fwriten(&fb, buf, 8)) { pstr("disk full\n"); fclose(&fb); fdelete(&fb); return; }
+    fclose(&fb);
     t = stop();
-    fdelete(&f);
+    fdelete(&fb);
     dec1(rate(64, t)); pstr(" KB/s\n");
 }

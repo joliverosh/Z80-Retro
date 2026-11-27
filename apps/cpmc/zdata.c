@@ -113,7 +113,7 @@ static uint8_t openf(const char *name)
     isopen = 1; secn = 0xFFFF; secdirty = 0; recn = 0; ioerr = 0;
     fio(0, h, 32, 0);
     if (h[0] != 3 && h[0] != 0x83 && h[0] != 0x30) { closef(); return 2; }
-    nrec = h[4] | (uint16_t)h[5] << 8 | (uint32_t)h[6] << 16 | (uint32_t)h[7] << 24;
+    nrec = (uint16_t)h[4] | (uint16_t)h[5] << 8 | (uint32_t)(uint16_t)h[6] << 16 | (uint32_t)(uint16_t)h[7] << 24;   /* (uint16_t: por HI-TECH C) */
     hlen = h[8] | h[9] << 8;
     rlen = h[10] | h[11] << 8;
     if (rlen > MAXR || rlen < 2) { closef(); return 3; }
@@ -373,7 +373,7 @@ static int32_t fnum(uint8_t i)
     v = 0; neg = 0;
     for (k = 0; k < n; k++) {
         if (s[k] == '-') neg = 1;
-        else if (isdig(s[k])) v = v * 10 + s[k] - '0';
+        else if (isdig(s[k])) v = v * 10 + (int)(s[k] - '0');
     }
     return neg ? -v : v;
 }
