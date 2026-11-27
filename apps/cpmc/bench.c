@@ -9,6 +9,9 @@ static uint16_t t0;
 static uint8_t tk;
 
 /* n vueltas de 3356 ciclos (B=0: DJNZ 256 veces = 3323, mas 33 de la vuelta) */
+#ifdef HI_TECH_C
+void spin(uint16_t n);            /* en htc/benchz.as */
+#else
 static void spin(uint16_t n) __sdcccall(0) __naked
 {
     (void)n;
@@ -28,6 +31,7 @@ static void spin(uint16_t n) __sdcccall(0) __naked
         ret
     __endasm;
 }
+#endif
 static void start(void) { uint16_t t = ticks(); while ((t0 = ticks()) == t) ; }
 static uint16_t stop(void) { return ticks() - t0; }        /* tics */
 /* x / tics * tps con un decimal; v en decimas */

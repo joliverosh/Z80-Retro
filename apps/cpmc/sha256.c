@@ -19,7 +19,7 @@ void shacomp(void);
 static uint8_t blk[64];
 static uint32_t total;
 static NAME12 nm[64];
-static FCB f;
+static FCB fc;              /* (HI-TECH C: "f" ya es un campo de RD en cpm.h) */
 static uint8_t rec[128], rb[1024];     /* rb: 8 registros por llamada al BDOS */
 
 static void compress(uint8_t *p)
@@ -63,13 +63,13 @@ void main(void)
         if (!n) { pf("%s: not found\n", a); continue; }
         for (i = 0; i < n; i++) {
             uint8_t k = 0;
-            nm2fcb(nm[i], &f);
-            fname(&f, s);
-            if (fopen(&f)) continue;
+            nm2fcb(nm[i], &fc);
+            fname(&fc, s);
+            if (fopen(&fc)) continue;
             init();
             {
                 uint8_t g, r;
-                while ((g = freadn(&f, rb, 8))) {
+                while ((g = freadn(&fc, rb, 8))) {
                     for (r = 0; r < g; r++) {
                         memcpy(rec, rb + ((uint16_t)r << 7), 128);
                         k = 128;
@@ -84,7 +84,7 @@ void main(void)
                 }
             }
 leido:
-            fclose(&f);
+            fclose(&fc);
             fin(rec, k);
             for (j = 0; j < 8; j++) pf("%08lx", H[j]);
             pf("  %s\n", s + (s[1] == ':' ? 2 : 0));

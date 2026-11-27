@@ -111,6 +111,35 @@ static RD *crd;                         /* el que se lee ahora */
    linea; 1: se acabo el bufer; 2: ^Z. En asm: en C eran 785 ciclos por byte. */
 static uint8_t *g_q, *g_e;
 static char *g_d, *g_u, *g_lim, g_qt, g_p1, g_p2;
+#ifdef HI_TECH_C
+/* la misma, en C, para HI-TECH C en la placa */
+static uint8_t scanl(void)
+{
+    uint8_t *q = g_q, c; char *d = g_d, *u = g_u;
+    uint8_t r;
+    for (;;) {
+        if (q == g_e) { r = 1; break; }
+        c = *q++;
+        if (c == 0x1A) { r = 2; break; }
+        if (c == 0x0A) { r = 0; break; }
+        if (c == 0x0D) continue;
+        if (c == 0x09) c = 0x20;
+        if (d == g_lim) continue;
+        *d++ = c;
+        if (g_qt) { if (c == g_qt) g_qt = 0; *u = c; }
+        else if (c == 0x27) {
+            if ((g_p1 | 0x20) != 'f' || (g_p2 | 0x20) != 'a') g_qt = c;
+            *u = c;
+        } else if (c == 0x22) { g_qt = c; *u = c; }
+        else if (c >= 'a' && c <= 'z') *u = c - 0x20;
+        else *u = c;
+        u++;
+        g_p2 = g_p1; g_p1 = c;
+    }
+    g_q = q; g_d = d; g_u = u;
+    return r;
+}
+#else
 static uint8_t scanl(void) __naked
 {
     __asm
@@ -200,6 +229,7 @@ sl_out: ld      (_g_q),hl
         ret
     __endasm;
 }
+#endif
 /* una linea a src (sin CR/LF, TAB = espacio) y a up_; 0 al final del archivo */
 static uint8_t getline_(void)
 {

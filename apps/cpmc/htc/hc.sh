@@ -4,7 +4,7 @@
 # La salida del compilador en out/log.txt. HTC=carpeta de HI-TECH C, ZOS=zos.bin
 set -e
 cd "$(dirname "$0")"
-HTC=${HTC:-/tmp/pr/z80/por_probar/utilidades/maslin_cpmprog/hitec-c1.lbr_contenido}
+HTC=${HTC:-/tmp/claude-0/htc321}
 ZOS=${ZOS:-/tmp/claude-0/zb/zos/build/zos.bin}
 ZEMU=${ZEMU:-/tmp/claude-0/zemu}
 MKSD=${MKSD:-/tmp/claude-0/zb/zos/tools/mksd.py}
@@ -22,12 +22,14 @@ for p in "$@"; do
     s_*) n=${p#s_}; lib="FILTRO1.OBJ CPM.LIB"
          case "$SINOPC" in *" $n "*) lib="FILTRO0.OBJ CPM.LIB";; esac
          [ $n = awk ] && lib="FILTROF.OBJ CPM.LIB -LF" ;;
-    *) [ -f ../$p.c ] && crlf ../$p.c || { crlf $p; p=$(basename $p .c); }
-       lib=${LIBS:-CPM.LIB} ;;
+    *) if [ -f ../$p.c ]; then crlf ../$p.c; elif [ -f $p.c ]; then crlf $p.c; else crlf $p; p=$(basename $p .c); fi
+       lib=${LIBS:-CPM.LIB}
+       [ -f ${p}z.as ] && { crlf ${p}z.as; lib="${p^^}Z.AS $lib"; } ;;   # lo suyo en ensamblador
   esac
   o=-O; case " $NOOPT " in *" $p "*) o="";; esac   # sin el optimizador (OPTIM se queda sin memoria)
-  printf 'C %s %s %s.C %s\n~A>\n' "$XO" "$o" ${p^^} "$lib" >> $T/g.txt
+  printf 'C -N %s %s %s.C %s\n~A>\n' "$XO" "$o" ${p^^} "$lib" >> $T/g.txt
   [ -n "$UPT" ] && printf 'UPTIME\n~A>\n' >> $T/g.txt
+  [ -n "$SCAN" ] && printf 'C -S %s.C\n~A>\n' ${p^^} >> $T/g.txt   # el .AS, para revisa.py
 done
 python3 $MKSD $T/t.img 24 $T/d/* >/dev/null
 timeout ${TMO:-3600} $ZEMU $ZOS -s $T/t.img -i $T/g.txt -E 5 -c ${C:-9000000000000} 2>&1 | tr -d '\r' > out/log.txt || true
@@ -39,7 +41,10 @@ for p in sys.argv[2:]:
     P=os.path.basename(p).replace('.c','').upper()
     try: d=fs.read(P+'.COM'); open('out/'+P+'.COM','wb').write(d); print(P+'.COM', len(d))
     except Exception: print(P+'.COM: no salio'); continue
-    try: open('out/'+P+'.MAP','wb').write(fs.read(P+'.MAP'))
-    except Exception: pass
+    for x in ('MAP', 'AS'):
+        try:
+            d = fs.read(P+'.'+x)
+            if d: open('out/'+P+'.'+x,'wb').write(d)
+        except Exception: pass
 Y
-rm -rf $T
+[ -n "$KEEP" ] && cp $T/t.img out/t.img; rm -rf $T

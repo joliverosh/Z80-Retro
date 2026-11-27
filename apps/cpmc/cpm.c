@@ -128,8 +128,9 @@ putch1:
 
 #endif
 #ifdef HI_TECH_C
-/* el exit() de HI-TECH llama a _cleanup antes de salir: lo que quedo en ob[] */
-void _cleanup(void) { oflush(); }
+/* exit() propio: el de HI-TECH no sabe de ob[] (lo que espera para la consola).
+   Lo llama tambien el arranque (CRTCPM) cuando main() vuelve. */
+void exit(int c) { (void)c; oflush(); bdos(0, 0); }
 #endif
 void pstr(const char *s)
 {
@@ -486,6 +487,13 @@ void *memset(void *d, int c, uint16_t n)
     uint8_t *a = d;
     while (n--) *a++ = c;
     return d;
+}
+/* memchr: tampoco */
+void *memchr(void *p, int c, uint16_t n)
+{
+    uint8_t *a = p;
+    for (; n; n--, a++) if (*a == (uint8_t)c) return a;
+    return 0;
 }
 /* memmove: la biblioteca de HI-TECH C 3.09 no la trae */
 void *memmove(void *d, void *s, uint16_t n)
